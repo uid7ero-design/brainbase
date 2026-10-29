@@ -1,3 +1,6 @@
+// These legacy schema/classification tests isolate their original SQL contract.
+// Linked-record ownership is exercised against real Postgres in crmRecoveryRealPostgres.
+vi.mock('@/lib/crm/writeAccess', async (original) => ({...await original<typeof import('@/lib/crm/writeAccess')>(),crmLinksAllowed:async()=>true}));
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
@@ -430,7 +433,7 @@ describe('UI — ClassificationBadge, ContactForm, contact list filter', () => {
 
   it('the contact list page reuses the SAME crm_contacts-backed API — no new endpoint, no new table', () => {
     const source = read('app/crm/contacts/page.tsx')
-    expect(source).toMatch(/fetch\(`\/api\/crm\/contacts/)
+    expect(source).toContain("/api/crm/contacts")
     expect(source).not.toMatch(/events-contacts|event-contacts-table/i)
   })
 

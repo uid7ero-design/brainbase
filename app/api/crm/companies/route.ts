@@ -1,3 +1,4 @@
+import { canWriteCrm } from '@/lib/crm/writeAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
@@ -33,6 +34,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {
@@ -41,6 +43,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request.'},{status:400});
   const { name, website, industry, company_size, phone, address, notes } = body;
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
 

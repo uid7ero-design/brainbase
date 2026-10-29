@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList } from '../_components/useCrmRecovery';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import SlidePanel from '../_components/SlidePanel';
@@ -37,8 +38,6 @@ export default function ContactsPage() {
   // to exactly this URL, reusing the SAME crm_contacts rows and the SAME
   // list page, never a separate view/table.
   const initialClassification = searchParams.get('classification');
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
   const [classificationFilter, setClassificationFilter] = useState<FilterValue>(
@@ -47,14 +46,8 @@ export default function ContactsPage() {
       : 'ALL',
   );
 
-  async function load(filter: FilterValue) {
-    setLoading(true);
-    const qs = filter === 'ALL' ? '' : `?classification=${encodeURIComponent(filter)}`;
-    const res = await fetch(`/api/crm/contacts${qs}`);
-    if (res.ok) setContacts((await res.json()).contacts);
-    setLoading(false);
-  }
-  useEffect(() => { load(classificationFilter); }, [classificationFilter]);
+  const url = '/api/crm/contacts' + (classificationFilter === 'ALL' ? '' : `?classification=${encodeURIComponent(classificationFilter)}`);
+  const {rows:contacts,loading,error,reload:load} = useCrmList<Contact>(url,'contacts');
 
   const filtered = contacts.filter(c => {
     const q = search.toLowerCase();
@@ -65,6 +58,8 @@ export default function ContactsPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
+      {error && <p role="alert">{error}</p>}
+      <button type="button" onClick={load} disabled={loading}>Refresh saved records</button>
       <PageHeader
         title="Contacts"
         description={`${contacts.length} total`}
@@ -106,7 +101,7 @@ export default function ContactsPage() {
           </thead>
           <tbody>
             {loading && <TableStateRow colSpan={7} kind="loading">Loading…</TableStateRow>}
-            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No contacts yet.</TableStateRow>}
+            {!loading && !error && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No contacts yet.</TableStateRow>}
             {filtered.map(c => (
               <tr key={c.id}>
                 <td className={tableStyles.primary}>
@@ -129,7 +124,7 @@ export default function ContactsPage() {
       </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Contact">
-        <ContactForm onSaved={() => { setShowAdd(false); load(classificationFilter); }} />
+        <ContactForm onReview={() => { setShowAdd(false); load(); }} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
     </div>
   );

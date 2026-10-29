@@ -1,3 +1,4 @@
+import { canWriteCrm } from '@/lib/crm/writeAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
@@ -8,6 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {

@@ -221,24 +221,19 @@ describe('CRM capability enforcement is enforced at the page/layout level, not o
 
 describe('Restored list pages call the current, unchanged /api/crm/** contract', () => {
   it('Companies list fetches /api/crm/companies', () => {
-    expect(CRM_COMPANIES_SOURCE).toContain("fetch('/api/crm/companies')")
+    expect(CRM_COMPANIES_SOURCE).toContain("useCrmList<Company>('/api/crm/companies','companies')")
   })
   it('Contacts list fetches /api/crm/contacts', () => {
-    // Contact classification phase added an optional ?classification=
-    // query param (lib/crm/classification.ts's own filter), so the fetch
-    // call became a template literal rather than the earlier plain
-    // string literal — the base endpoint contract this test guards is
-    // unchanged, matching the same template-literal style already used
-    // below for the Deals/Activities detail-route fetches.
-    expect(CRM_CONTACTS_SOURCE).toContain('fetch(`/api/crm/contacts')
+    expect(CRM_CONTACTS_SOURCE).toContain("const url = '/api/crm/contacts' +")
+    expect(CRM_CONTACTS_SOURCE).toContain("useCrmList<Contact>(url,'contacts')")
   })
-  it('Deals list fetches /api/crm/deals and PUTs stage changes to /api/crm/deals/${id}', () => {
-    expect(CRM_DEALS_SOURCE).toContain("fetch('/api/crm/deals')")
-    expect(CRM_DEALS_SOURCE).toContain('fetch(`/api/crm/deals/${dealId}`')
+  it('Deals list fetches /api/crm/deals and PATCHes only stage changes', () => {
+    expect(CRM_DEALS_SOURCE).toContain("useCrmList<Deal>('/api/crm/deals','deals')")
+    expect(CRM_DEALS_SOURCE).toContain("mutation.run<Deal>(`/api/crm/deals/${dealId}`,'PATCH',{stage:newStage},'deal')")
   })
   it('Activities list fetches /api/crm/activities and deletes via /api/crm/activities/${id}', () => {
-    expect(CRM_ACTIVITIES_SOURCE).toContain("fetch('/api/crm/activities")
-    expect(CRM_ACTIVITIES_SOURCE).toContain('fetch(`/api/crm/activities/${id}`')
+    expect(CRM_ACTIVITIES_SOURCE).toContain("useCrmList<Activity>('/api/crm/activities")
+    expect(CRM_ACTIVITIES_SOURCE).toContain("mutation.run(`/api/crm/activities/${id}`,'DELETE')")
   })
   it('none of the restored pages call any /api/admin/founder-* endpoint', () => {
     for (const src of CRM_PAGE_SOURCES) {

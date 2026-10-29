@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useCrmDetail, useCrmMutation } from '../../_components/useCrmRecovery';
 import SlidePanel from '../../_components/SlidePanel';
 import ContactForm from '../../_components/ContactForm';
 import ActivityForm from '../../_components/ActivityForm';
@@ -24,12 +25,7 @@ type GmailMsg = { id: string; subject: string; from: string; time: string; snipp
 export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router  = useRouter();
-  const [contact, setContact]     = useState<Contact | null>(null);
-  const [deals, setDeals]         = useState<Deal[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading]     = useState(true);
   const [showEdit, setShowEdit]   = useState(false);
-  const [deleting, setDeleting]   = useState(false);
 
   // Gmail
   const [gmailConnected, setGmailConnected] = useState(false);
@@ -37,17 +33,12 @@ export default function ContactDetailPage() {
   const [loadingGmail, setLoadingGmail]     = useState(false);
   const [importingId, setImportingId]       = useState<string | null>(null);
 
-  async function load() {
-    const res = await fetch(`/api/crm/contacts/${id}`);
-    if (!res.ok) { router.push('/crm/contacts'); return; }
-    const data = await res.json();
-    setContact(data.contact);
-    setDeals(data.deals);
-    setActivities(data.activities);
-    setLoading(false);
-  }
+  const {record:contact,data,loading,error,reload:load}=useCrmDetail<Contact>(`/api/crm/contacts/${id}`,'contact');
+  const deals=(data?.deals??[]) as Deal[];
+  const activities=(data?.activities??[]) as Activity[];
+  const mutation=useCrmMutation('/api/crm/contacts');
+  const deleting=mutation.pending;
 
-  useEffect(() => { load(); }, [id]);
 
   useEffect(() => {
     fetch('/api/integrations/gmail/status').then(r => r.json()).then(d => setGmailConnected(d.connected));
@@ -60,30 +51,34 @@ export default function ContactDetailPage() {
     setLoadingGmail(false);
   }
 
+  const importMutation=useCrmMutation('/api/crm/activities');
   async function importEmail(msg: GmailMsg) {
+    if(importMutation.locked)return;
     setImportingId(msg.id);
-    await fetch('/api/crm/activities', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'email', subject: msg.subject, body: msg.snippet, contact_id: id }),
-    });
+    const saved=await importMutation.run('/api/crm/activities','POST',{type:'email',subject:msg.subject,body:msg.snippet,contact_id:id},'activity');
+    if(!saved){setImportingId(null);return;}
     setGmailMsgs(m => m.map(x => x.id === msg.id ? { ...x, imported: true } : x));
     setImportingId(null);
     load();
   }
 
   async function handleDelete() {
-    if (!confirm(`Delete "${contact?.first_name} ${contact?.last_name}"?`)) return;
-    setDeleting(true);
-    await fetch(`/api/crm/contacts/${id}`, { method: 'DELETE' });
-    router.push('/crm/contacts');
+    if(mutation.locked||!confirm('Delete this contact?'))return;
+    const result=await mutation.run(`/api/crm/contacts/${id}`,'DELETE');
+    if(result)router.push('/crm/contacts');
   }
 
+  if(error)return <div><p role="alert">{error}</p><button type="button" onClick={load}>Refresh saved record</button><Link href="/crm/contacts">Back to contacts</Link></div>;
   if (loading) return <StateMessage kind="loading" size="page" title="Loading…" />;
   if (!contact) return null;
 
   return (
     <div style={{ maxWidth: 900 }}>
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      <button type="button" onClick={load}>Refresh saved record</button>
+      {mutation.uncertain && <button type="button" disabled={mutation.pending} onClick={()=>mutation.review('/api/crm/contacts','contacts',()=>router.push('/crm/contacts'))}>Review saved records</button>}
+      {importMutation.error && <p role="alert">{importMutation.error}</p>}
+      {importMutation.uncertain && <button type="button" disabled={importMutation.pending} onClick={()=>importMutation.review('/api/crm/activities','activities',load)}>Review saved records</button>}
       <PageHeader
         eyebrow={<Link href="/crm/contacts" className={tableStyles.link}>← Contacts</Link>}
         title={`${contact.first_name} ${contact.last_name}`}
@@ -124,7 +119,7 @@ export default function ContactDetailPage() {
 
           {/* Log activity */}
           <Section title="Log Activity">
-            <ActivityForm contactId={id} onSaved={load} />
+            <ActivityForm onReview={load} contactId={id} onSaved={load} />
           </Section>
 
           {/* Gmail threads */}
@@ -215,7 +210,7 @@ export default function ContactDetailPage() {
       </div>
 
       <SlidePanel open={showEdit} onClose={() => setShowEdit(false)} title="Edit Contact">
-        <ContactForm initial={contact} onSaved={(updated) => { setContact(updated as Contact); setShowEdit(false); }} />
+        <ContactForm key={id} onReview={() => {setShowEdit(false);load();}} initial={contact} onSaved={() => { setShowEdit(false); load(); }} />
       </SlidePanel>
     </div>
   );

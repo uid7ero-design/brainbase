@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useCrmDetail, useCrmMutation } from '../../_components/useCrmRecovery';
 import SlidePanel from '../../_components/SlidePanel';
 import CompanyForm from '../../_components/CompanyForm';
 import ActivityForm from '../../_components/ActivityForm';
@@ -22,38 +23,31 @@ type Activity = { id: string; type: string; subject: string; body: string|null; 
 export default function CompanyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router  = useRouter();
-  const [company, setCompany]     = useState<Company | null>(null);
-  const [contacts, setContacts]   = useState<Contact[]>([]);
-  const [deals, setDeals]         = useState<Deal[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading]     = useState(true);
   const [showEdit, setShowEdit]   = useState(false);
-  const [deleting, setDeleting]   = useState(false);
 
-  async function load() {
-    const res = await fetch(`/api/crm/companies/${id}`);
-    if (!res.ok) { router.push('/crm/companies'); return; }
-    const data = await res.json();
-    setCompany(data.company);
-    setContacts(data.contacts);
-    setDeals(data.deals);
-    setActivities(data.activities);
-    setLoading(false);
-  }
-  useEffect(() => { load(); }, [id]);
+  const {record:company,data,loading,error,reload:load}=useCrmDetail<Company>(`/api/crm/companies/${id}`,'company');
+  const deals=(data?.deals??[]) as Deal[];
+  const activities=(data?.activities??[]) as Activity[];
+  const contacts=(data?.contacts??[]) as Contact[];
+  const mutation=useCrmMutation('/api/crm/companies');
+  const deleting=mutation.pending;
+
 
   async function handleDelete() {
-    if (!confirm(`Delete "${company?.name}"? This cannot be undone.`)) return;
-    setDeleting(true);
-    await fetch(`/api/crm/companies/${id}`, { method: 'DELETE' });
-    router.push('/crm/companies');
+    if(mutation.locked||!confirm('Delete this company?'))return;
+    const result=await mutation.run(`/api/crm/companies/${id}`,'DELETE');
+    if(result)router.push('/crm/companies');
   }
 
+  if(error)return <div><p role="alert">{error}</p><button type="button" onClick={load}>Refresh saved record</button><Link href="/crm/companies">Back to companies</Link></div>;
   if (loading) return <StateMessage kind="loading" size="page" title="Loading…" />;
   if (!company) return null;
 
   return (
     <div style={{ maxWidth: 900 }}>
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      <button type="button" onClick={load}>Refresh saved record</button>
+      {mutation.uncertain && <button type="button" disabled={mutation.pending} onClick={()=>mutation.review('/api/crm/companies','companies',()=>router.push('/crm/companies'))}>Review saved records</button>}
       <PageHeader
         eyebrow={<Link href="/crm/companies" className={tableStyles.link}>← Companies</Link>}
         title={company.name}
@@ -108,7 +102,7 @@ export default function CompanyDetailPage() {
 
           {/* Log activity */}
           <Section title="Log Activity">
-            <ActivityForm companyId={id} onSaved={load} />
+            <ActivityForm onReview={load} companyId={id} onSaved={load} />
           </Section>
         </div>
 
@@ -158,7 +152,7 @@ export default function CompanyDetailPage() {
       </div>
 
       <SlidePanel open={showEdit} onClose={() => setShowEdit(false)} title="Edit Company">
-        <CompanyForm initial={company} onSaved={(updated) => { setCompany(updated as Company); setShowEdit(false); }} />
+        <CompanyForm key={id} onReview={() => {setShowEdit(false);load();}} initial={company} onSaved={() => { setShowEdit(false); load(); }} />
       </SlidePanel>
     </div>
   );

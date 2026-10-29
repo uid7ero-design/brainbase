@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList, useCrmMutation } from './useCrmRecovery';
 import { Button, Field, FormActions, FormError, fieldControlClassName } from '@/components/ui/app';
 
 const STAGES = [
@@ -14,48 +15,32 @@ const STAGES = [
 type Deal = { id?: string; title?: string; value?: number | null; stage?: string; probability?: number; expected_close?: string | null; company_id?: string | null; contact_id?: string | null; assigned_to?: string | null; notes?: string | null };
 type Opt = { id: string; name: string };
 
-export default function DealForm({ initial, onSaved, onDelete }: { initial?: Deal; onSaved: (d: Deal) => void; onDelete?: () => void }) {
+export default function DealForm({ initial, onSaved, onDelete, onReview }: { initial?: Deal; onReview?: () => void; onSaved: (d: Deal) => void; onDelete?: () => void }) {
+  const mutation=useCrmMutation('/api/crm/deals');
+  const {pending:saving,error}=mutation;
   const [form, setForm]       = useState<Deal>({ stage: 'lead', probability: 0, ...initial });
-  const [companies, setCompanies] = useState<Opt[]>([]);
-  const [contacts, setContacts]   = useState<Opt[]>([]);
-  const [users, setUsers]         = useState<Opt[]>([]);
-  const [saving, setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError]     = useState('');
-
-  useEffect(() => {
-    fetch('/api/crm/companies').then(r => r.json()).then(d => setCompanies(d.companies ?? []));
-    fetch('/api/crm/contacts').then(r => r.json()).then(d =>
-      setContacts((d.contacts ?? []).map((c: { id: string; first_name: string; last_name: string }) => ({ id: c.id, name: `${c.first_name} ${c.last_name}` }))));
-    fetch('/api/me').then(r => r.json()).then(me => {
-      // Just show current user for now — could expand to all users
-      if (me?.userId) setUsers([{ id: me.userId, name: me.name }]);
-    });
-  }, []);
+  const {rows:companies}=useCrmList<Opt>('/api/crm/companies','companies');
+  const {rows:contactRows}=useCrmList<{id:string;first_name:string;last_name:string}>('/api/crm/contacts','contacts');
+  const contacts=contactRows.map(c=>({id:c.id,name:c.first_name+' '+c.last_name}));
 
   const set = (k: keyof Deal) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true); setError('');
-    const payload = { ...form, value: form.value ? Number(form.value) : null, probability: Number(form.probability ?? 0) };
-    const method = initial?.id ? 'PUT' : 'POST';
-    const url    = initial?.id ? `/api/crm/deals/${initial.id}` : '/api/crm/deals';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
-    onSaved(data.deal);
+    e.preventDefault();
+    const payload={...form,value:form.value==null||String(form.value)==='' ?null:Number(form.value),probability:Number(form.probability??0)};
+    const saved=await mutation.run<Deal>(initial?.id?`/api/crm/deals/${initial.id}`:'/api/crm/deals',initial?.id?'PUT':'POST',payload,'deal');
+    if(saved)onSaved(saved);
   }
-
-  async function handleDelete() {
-    if (!initial?.id || !confirm('Delete this deal?')) return;
-    setDeleting(true);
-    await fetch(`/api/crm/deals/${initial.id}`, { method: 'DELETE' });
-    onDelete?.();
+  async function handleDelete(){
+    if(mutation.locked||!initial?.id||!confirm('Delete this deal?'))return;
+    const deleted=await mutation.run(`/api/crm/deals/${initial.id}`,'DELETE');
+    if(deleted)onDelete?.();
   }
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <fieldset disabled={mutation.locked} style={{border:0,padding:0,margin:0,display:'contents'}}>
       <Field label="Deal Title" required>
         {control => (
           <input {...control} value={form.title ?? ''} onChange={set('title')} required className={fieldControlClassName} />
@@ -116,11 +101,13 @@ export default function DealForm({ initial, onSaved, onDelete }: { initial?: Dea
       </FormActions>
       {initial?.id && onDelete && (
         <FormActions align="stretch">
-          <Button type="button" variant="danger" onClick={handleDelete} disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete deal'}
+          <Button type="button" variant="danger" onClick={handleDelete} disabled={mutation.locked}>
+            {saving ? 'Working…' : 'Delete deal'}
           </Button>
         </FormActions>
       )}
+      </fieldset>
+      {mutation.uncertain && <Button type="button" disabled={saving} onClick={()=>mutation.review('/api/crm/deals','deals',()=>onReview?.())}>Review saved records</Button>}
     </form>
   );
 }

@@ -1,3 +1,4 @@
+import { canWriteCrm, crmLinksAllowed } from '@/lib/crm/writeAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
@@ -24,9 +25,9 @@ export async function GET(req: NextRequest) {
       ct.first_name || ' ' || ct.last_name AS contact_name,
       u.name  AS assigned_to_name
     FROM crm_deals d
-    LEFT JOIN crm_companies c  ON c.id  = d.company_id
-    LEFT JOIN crm_contacts  ct ON ct.id = d.contact_id
-    LEFT JOIN users         u  ON u.id  = d.assigned_to
+    LEFT JOIN crm_companies c  ON c.id  = d.company_id AND c.organisation_id = ${session.organisationId}
+    LEFT JOIN crm_contacts  ct ON ct.id = d.contact_id AND ct.organisation_id = ${session.organisationId}
+    LEFT JOIN users         u  ON u.id  = d.assigned_to AND u.organisation_id = ${session.organisationId}
     WHERE d.organisation_id = ${session.organisationId}
       ${stage ? sql`AND d.stage = ${stage}` : sql``}
     ORDER BY d.created_at DESC
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  if (!canWriteCrm(session)) return forbidden();
   try {
     await requireCapability(session.organisationId, 'crm');
   } catch (err) {
@@ -46,6 +48,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({error:'Invalid request.'},{status:400});
+  if (!await crmLinksAllowed(session.organisationId, body)) return NextResponse.json({error:'Linked record unavailable.'},{status:400});
   const { title, value, stage = 'lead', probability, expected_close, company_id, contact_id, assigned_to, notes } = body;
   if (!title?.trim()) return NextResponse.json({ error: 'Title is required.' }, { status: 400 });
   if (!STAGES.includes(stage)) return NextResponse.json({ error: 'Invalid stage.' }, { status: 400 });
@@ -53,8 +57,8 @@ export async function POST(req: NextRequest) {
   const rows = await sql`
     INSERT INTO crm_deals (organisation_id, created_by, title, value, stage, probability, expected_close, company_id, contact_id, assigned_to, notes)
     VALUES (${session.organisationId}, ${session.userId}, ${title.trim()}, ${value ?? null}, ${stage},
-            ${probability ?? 0}, ${expected_close ?? null}, ${company_id ?? null}, ${contact_id ?? null},
-            ${assigned_to ?? null}, ${notes ?? null})
+            ${probability ?? 0}, ${expected_close ?? null}, ${company_id || null}, ${contact_id || null},
+            ${assigned_to || null}, ${notes ?? null})
     RETURNING *
   `;
   return NextResponse.json({ deal: rows[0] }, { status: 201 });

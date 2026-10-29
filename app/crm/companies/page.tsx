@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCrmList } from '../_components/useCrmRecovery';
 import Link from 'next/link';
 import SlidePanel from '../_components/SlidePanel';
 import CompanyForm from '../_components/CompanyForm';
@@ -20,18 +21,10 @@ type Company = {
 };
 
 export default function CompaniesPage() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
 
-  async function load() {
-    const res = await fetch('/api/crm/companies');
-    if (res.ok) setCompanies((await res.json()).companies);
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
+  const {rows:companies,loading,error,reload:load} = useCrmList<Company>('/api/crm/companies','companies');
 
   const filtered = companies.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -40,6 +33,8 @@ export default function CompaniesPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
+      {error && <p role="alert">{error}</p>}
+      <button type="button" onClick={load} disabled={loading}>Refresh saved records</button>
       <PageHeader
         title="Companies"
         description={`${companies.length} total`}
@@ -68,7 +63,7 @@ export default function CompaniesPage() {
           </thead>
           <tbody>
             {loading && <TableStateRow colSpan={6} kind="loading">Loading companies…</TableStateRow>}
-            {!loading && filtered.length === 0 && (
+            {!loading && !error && filtered.length === 0 && (
               <TableStateRow colSpan={6} kind="empty">
                 {search ? 'No companies match your search.' : 'No companies yet.'}
               </TableStateRow>
@@ -95,7 +90,7 @@ export default function CompaniesPage() {
       </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Company">
-        <CompanyForm onSaved={() => { setShowAdd(false); load(); }} />
+        <CompanyForm onReview={() => { setShowAdd(false); load(); }} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
     </div>
   );

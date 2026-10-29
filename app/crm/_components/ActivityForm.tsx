@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useCrmMutation } from './useCrmRecovery';
 import { Button, Field, FormActions, FormError, buttonProps, fieldControlClassName } from '@/components/ui/app';
 
 const TYPES = [
@@ -17,31 +18,25 @@ const PRESSED: React.CSSProperties = {
   color: 'var(--brand-brainbase-accent)',
 };
 
-type Props = { contactId?: string; companyId?: string; dealId?: string; onSaved: () => void };
+type Props = { contactId?: string; companyId?: string; dealId?: string; onReview?: () => void; onSaved: () => void };
 
-export default function ActivityForm({ contactId, companyId, dealId, onSaved }: Props) {
+export default function ActivityForm({ contactId, companyId, dealId, onSaved, onReview }: Props) {
+  const mutation=useCrmMutation('/api/crm/activities');
+  const {pending:saving,error}=mutation;
   const [type, setType]       = useState('note');
   const [subject, setSubject] = useState('');
   const [body, setBody]       = useState('');
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState('');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true); setError('');
-    const res = await fetch('/api/crm/activities', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, subject, body: body || null, contact_id: contactId, company_id: companyId, deal_id: dealId }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
-    setSubject(''); setBody('');
-    onSaved();
+    const payload={type,subject,body:body||null,contact_id:contactId,company_id:companyId,deal_id:dealId};
+    const saved=await mutation.run('/api/crm/activities','POST',payload,'activity');
+    if(saved){setSubject('');setBody('');onSaved();}
   }
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <fieldset disabled={mutation.locked} style={{border:0,padding:0,margin:0,display:'contents'}}>
       {/* Type picker */}
       <div role="group" aria-label="Activity type" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {TYPES.map(t => (
@@ -68,6 +63,8 @@ export default function ActivityForm({ contactId, companyId, dealId, onSaved }: 
           {saving ? 'Saving…' : 'Log Activity'}
         </Button>
       </FormActions>
+      </fieldset>
+      {mutation.uncertain && <Button type="button" disabled={saving} onClick={()=>mutation.review('/api/crm/activities','activities',()=>onReview?.())}>Review saved records</Button>}
     </form>
   );
 }
