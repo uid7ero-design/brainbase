@@ -228,7 +228,7 @@ describe('organisation and branding presentation', () => {
       expect(body.organisation).toEqual({ name: 'Acme Events', slug: 'acme' })
       expect(body.branding).toEqual({
         configured: false, display_name: 'Acme Events', display_name_is_custom: false, logo_configured: false, accent_color: null,
-        website: null, support_email: null, support_phone: null, email_footer: null,
+        website: null, support_email: null, support_phone: null, email_footer: null, public_email: null,
       })
     }
   })

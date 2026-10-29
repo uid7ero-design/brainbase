@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Container, Unavailable } from '@/components/ui/primitives';
 import { BuyerBooking } from '@/components/buyer/BuyerBooking';
+import { OrganiserContact } from '@/components/buyer/OrganiserContact';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
 import { formatDateTime, formatDateTimeRange } from '@/lib/format';
 import { publicOrganiserName } from '@ticketing/core/publicOrganiser';
@@ -57,6 +58,7 @@ export default async function PublicEventPage({ params, searchParams }: Props) {
           <h1 className={`eve-display ${organiserName ? 'mt-2 ' : ''}text-4xl sm:text-5xl`}>{event.name}</h1>
           <p className="mt-3 text-eve-muted">{formatDateTimeRange(event.starts_at, event.ends_at, event.timezone)}{event.venue ? ` · ${event.venue}` : ''}</p>
           {event.description ? <p className="mt-6 max-w-prose whitespace-pre-line">{event.description}</p> : null}
+          <OrganiserContact organiserName={organiserName} contact={detail.organiser_contact} className="mt-8 max-w-prose" />
           {detail.sessions.length > 0 ? (
             <section className="mt-8" aria-labelledby="sessions-h">
               <h2 id="sessions-h" className="text-lg font-semibold">Sessions</h2>

@@ -3,7 +3,7 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { isOrderEligibleForTicketEmail, sendTicketEmail, maskEmailForAudit } from '@/lib/events/ticketEmail';
 import { logTicketEmailResent } from '@/lib/events/auditLog';
-import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { normaliseEveOrganiserContact, normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 import { receiptFromOrderRow, type ReceiptOrderRow } from '@/lib/events/receipt';
 import { resolveBuyerProduct } from '@/lib/events/buyerProduct';
 import { recordTicketEmailDeliveryAccepted } from '@/lib/events/ticketEmailDeliveryTracking';
@@ -145,6 +145,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     attendees: eligibleAttendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     bookingToken: order.booking_token,
     branding: normaliseTicketEmailBranding(order.organisation_settings, order.organisation_name),
+    organiserContact: normaliseEveOrganiserContact(order.organisation_settings),
     receipt: receiptFromOrderRow(order),
     product: buyer.context,
   });

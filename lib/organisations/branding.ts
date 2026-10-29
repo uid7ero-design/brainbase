@@ -1,4 +1,5 @@
 import sql from '@/lib/db';
+import { publicOrganiserContact, type PublicOrganiserContact } from '@ticketing/core/publicOrganiser';
 
 // Organisation Branding — Phase 1 (shared server model only, no UI, no
 // Events/Commercial integration yet — see the architecture audit this
@@ -32,6 +33,10 @@ export interface OrganisationBranding {
   abn: string | null;
   emailFooter: string | null;
   emailSenderName: string | null;
+  // Eve organiser contact v1 — the ONLY organiser email Eve shows buyers.
+  // Opt-in and separate from `email` above, which stays private: an unset
+  // publicEmail means no organiser email is shown, never a fallback to email.
+  publicEmail: string | null;
 }
 
 // The public-safe subset only — see getPublicOrganisationBranding's
@@ -55,6 +60,7 @@ const EMPTY_BRANDING: OrganisationBranding = {
   abn: null,
   emailFooter: null,
   emailSenderName: null,
+  publicEmail: null,
 };
 
 // ── Length caps ──────────────────────────────────────────────────────
@@ -178,6 +184,7 @@ function coerceBranding(raw: unknown): OrganisationBranding {
     abn: normalizeText(r.abn, MAX_SHORT_TEXT_LENGTH),
     emailFooter: normalizeText(r.emailFooter, MAX_EMAIL_FOOTER_LENGTH),
     emailSenderName: normalizeText(r.emailSenderName, MAX_NAME_LENGTH),
+    publicEmail: normalizeEmail(r.publicEmail),
   };
 }
 
@@ -403,4 +410,19 @@ export interface LifecycleEmailBranding extends TicketEmailBranding {
 export function normaliseLifecycleEmailBranding(rawSettings: unknown, organisationName: string): LifecycleEmailBranding {
   const { branding } = normaliseOrganisationBranding(rawSettings, organisationName);
   return { ...toTicketEmailBranding(branding), supportEmail: branding.email, supportPhone: branding.phone };
+}
+
+// ── Eve organiser contact (v1) ───────────────────────────────────────
+//
+// What an Eve buyer may see as the organiser's contact: the opt-in
+// publicEmail and the (already public) website — passed field by field into
+// the shared two-field allowlist, never the branding object itself. Never
+// email/phone/address/abn/emailFooter/emailSenderName, and never the
+// organisation's internal name. null when neither is set, so the caller
+// renders nothing. Eve-only: BrainBase pages and emails do not use it.
+export type EveOrganiserContact = PublicOrganiserContact;
+
+export function normaliseEveOrganiserContact(rawSettings: unknown): EveOrganiserContact | null {
+  const { branding } = normaliseOrganisationBranding(rawSettings, '');
+  return publicOrganiserContact({ publicEmail: branding.publicEmail, website: branding.website });
 }

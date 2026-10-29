@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { evaluateTicketValidity, toPublicTicketStatus, type PublicTicketStatus } from './ticketValidity';
-import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
+import { normaliseEveOrganiserContact, normalisePublicOrganisationBranding, type EveOrganiserContact, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicBookingTicket = {
   attendee_name: string;
@@ -35,8 +35,10 @@ export type PublicBookingDetail = {
   organisationName: string;
 };
 
+// eveOrganiserContact sits beside `detail`: only the Eve wallet shows it, and
+// it is never part of the BrainBase wallet's data.
 export type PublicBookingResult =
-  | { ok: true; detail: PublicBookingDetail }
+  | { ok: true; detail: PublicBookingDetail; eveOrganiserContact: EveOrganiserContact | null }
   | { ok: false };
 
 // The booking-wallet counterpart to lib/events/publicTicket.ts's
@@ -158,5 +160,6 @@ function buildResult(
       branding: normalisePublicOrganisationBranding(order.organisation_settings, order.organisation_name),
       organisationName: order.organisation_name,
     },
+    eveOrganiserContact: normaliseEveOrganiserContact(order.organisation_settings),
   };
 }

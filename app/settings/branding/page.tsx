@@ -29,7 +29,7 @@ export default async function BrandingSettingsPage() {
       initialOrganisationName={initial?.organisationName ?? ''}
       initialBranding={initial?.branding ?? {
         name: null, logoUrl: null, accentColor: null, email: null, phone: null,
-        website: null, address: null, abn: null, emailFooter: null, emailSenderName: null,
+        website: null, address: null, abn: null, emailFooter: null, emailSenderName: null, publicEmail: null,
       }}
     />
   );

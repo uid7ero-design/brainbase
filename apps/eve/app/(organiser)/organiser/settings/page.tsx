@@ -91,17 +91,30 @@ export default async function OrganiserSettingsPage({ searchParams }: Props) {
         </Section>
 
         <Section id="branding" title="Buyer branding and communications" chip={<Chip tone={b.configured ? 'good' : 'neutral'} testId="branding-chip">{b.configured ? 'Configured' : 'Not configured'}</Chip>}>
+          <h3 className="text-sm font-semibold">Organiser contact shown to buyers on Eve</h3>
           <Rows rows={[
-            ['Display name', b.display_name_is_custom ? b.display_name : <span>{b.display_name} <span className="text-eve-muted">(using your organisation name)</span></span>],
-            ['Logo', b.logo_configured ? 'Set' : 'Not set'],
-            ['Accent colour', b.accent_color ?? <span className="text-eve-muted">Not set</span>],
+            ['Public display name', b.display_name_is_custom ? b.display_name : <span className="text-eve-muted">Not set. Buyers see “the event organiser”.</span>],
+            ['Public contact email', b.public_email ?? <span className="text-eve-muted">Not set</span>],
             ['Website', b.website ?? <span className="text-eve-muted">Not set</span>],
+          ]} />
+          <p className="mt-3 text-eve-muted" data-testid="public-contact-note">
+            {b.public_email || b.website
+              ? 'Buyers see a “Contact the organiser” section with these details on your event pages, booking pages and booking emails.'
+              : 'No public contact is set, so Eve shows buyers no organiser contact details.'}
+          </p>
+          <h3 className="mt-6 text-sm font-semibold">Private: never shown to buyers on Eve</h3>
+          <Rows rows={[
             ['Support email', b.support_email ?? <span className="text-eve-muted">Not set</span>],
             ['Support phone', b.support_phone ?? <span className="text-eve-muted">Not set</span>],
+          ]} />
+          <h3 className="mt-6 text-sm font-semibold">Email appearance</h3>
+          <Rows rows={[
+            ['Logo', b.logo_configured ? 'Set' : 'Not set'],
+            ['Accent colour', b.accent_color ?? <span className="text-eve-muted">Not set</span>],
             ['Email footer', b.email_footer ?? <span className="text-eve-muted">Not set</span>],
           ]} />
           <p className="mt-3 text-eve-muted" data-testid="product-identity-note">
-            Orders placed through Eve are sent to buyers as Eve: Eve branding and Eve ticket links. Your display name and contact details above appear as the organiser.
+            Orders placed through Eve are sent to buyers as Eve: Eve branding and Eve ticket links. Only the details under “Organiser contact shown to buyers on Eve” appear as the organiser’s contact. Eve support handles questions about bookings and tickets separately.
           </p>
         </Section>
 

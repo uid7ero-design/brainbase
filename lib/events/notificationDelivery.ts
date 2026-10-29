@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { sendEmail, EmailSendError } from '@/lib/email';
-import { normaliseLifecycleEmailBranding } from '@/lib/organisations/branding';
+import { normaliseEveOrganiserContact, normaliseLifecycleEmailBranding } from '@/lib/organisations/branding';
 import { maskEmailForAudit } from './ticketEmail';
 import { LEASE_TIMEOUT_MINUTES, MAX_ATTEMPTS, RETRY_BACKOFF_MINUTES, type TicketEmailFailureReason } from './ticketEmailDelivery';
 import { resolveBuyerProduct, type BuyerProductContext } from './buyerProduct';
@@ -190,6 +190,7 @@ export async function readClaimedNotificationForDelivery(notificationId: string,
     attendees: (row.attendees ?? []).map(a => ({ name: a.name, ticketToken: a.ticket_token, sessionName: a.session_name })),
     bookingToken: row.booking_token,
     branding: normaliseLifecycleEmailBranding(row.organisation_settings, row.organisation_name),
+    organiserContact: normaliseEveOrganiserContact(row.organisation_settings),
     organisationName: row.organisation_name,
     eventSlug: row.event_slug,
     organisationSlug: row.organisation_slug,

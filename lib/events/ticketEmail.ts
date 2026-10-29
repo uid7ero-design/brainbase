@@ -1,7 +1,8 @@
 import 'server-only';
 import { sendEmail, EmailSendError, emailLayout, escHtml } from '@/lib/email';
 import { buildTicketUrl } from '@/lib/events/qr';
-import type { TicketEmailBranding } from '@/lib/organisations/branding';
+import type { EveOrganiserContact, TicketEmailBranding } from '@/lib/organisations/branding';
+import { eveOrganiserContactLine } from '@/lib/events/eveOrganiserContactEmail';
 import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/buyerProduct';
 import { renderPaymentReceiptHtml, type PaymentReceipt } from '@/lib/events/receipt';
 import { formatEventSchedule } from '@ticketing/core/eventSchedule';
@@ -67,6 +68,10 @@ export type TicketEmailData = {
   // Eve emails only: BrainBase ticket emails stay exactly as they were.
   // Optional/nullable: absent renders no details section.
   event?: TicketEmailEventDetails | null;
+  // Eve organiser contact v1 (normaliseEveOrganiserContact): the organiser's
+  // public email and website. Rendered on Eve emails only, and only when one
+  // is set; BrainBase ticket emails never show it.
+  organiserContact?: EveOrganiserContact | null;
 };
 
 export type TicketEmailEventDetails = {
@@ -160,6 +165,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
   const accent = branding?.accentColor ?? null;
   const ticketBtn = ticketBtnStyle(accent);
   const dividerColor = accent ?? '#f0f0f0';
+  const organiserContact = product.surface === 'EVE' ? eveOrganiserContactLine(branding?.name, data.organiserContact) : null;
 
   const ticketRows = data.attendees.map(a => {
     // Ticket URL shape /t/<existing-token>, built via the same
@@ -200,6 +206,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
         ${ticketRows}
       </table>
       ${data.receipt ? renderPaymentReceiptHtml(data.receipt, escHtml) : ''}
+      ${organiserContact ? organiserContact.html : ''}
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
         Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>

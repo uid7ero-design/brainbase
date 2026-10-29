@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
-import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
+import { normaliseEveOrganiserContact, normalisePublicOrganisationBranding, type EveOrganiserContact, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicEvent = {
   id: string;
@@ -24,7 +24,12 @@ export type PublicEvent = {
 };
 
 export type PublicResolveResult =
-  | { ok: true; organisationId: string; organisationName: string; event: PublicEvent; branding: PublicOrganisationBranding }
+  | {
+      ok: true; organisationId: string; organisationName: string; event: PublicEvent; branding: PublicOrganisationBranding;
+      // Eve organiser contact v1 (public email + website allowlist, or null).
+      // Read only by the Eve gateway; BrainBase pages and routes ignore it.
+      eveOrganiserContact: EveOrganiserContact | null;
+    }
   | { ok: false };
 
 // The single choke point every public Events route (GET, register, and
@@ -76,5 +81,7 @@ export async function resolvePublicEvent(
 
   const branding = normalisePublicOrganisationBranding(organisationSettings, organisationName);
 
-  return { ok: true, organisationId, organisationName, event, branding };
+  const eveOrganiserContact = normaliseEveOrganiserContact(organisationSettings);
+
+  return { ok: true, organisationId, organisationName, event, branding, eveOrganiserContact };
 }

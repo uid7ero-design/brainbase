@@ -72,6 +72,7 @@ describe('normaliseOrganisationBranding — pure, no DB access', () => {
       name: 'Acme School', logoUrl: 'https://cdn.example.com/logo.png', accentColor: '#8a4dff',
       email: 'hello@acme.test', phone: '0400 000 000', website: 'https://acme.test',
       address: '1 Example St', abn: '12 345 678 901', emailFooter: 'Thanks!', emailSenderName: 'Acme School',
+      publicEmail: null,
     })
   })
 
@@ -88,7 +89,7 @@ describe('normaliseOrganisationBranding — pure, no DB access', () => {
     const result = normaliseOrganisationBranding({}, 'Acme')
     expect(result.branding).toEqual({
       name: null, logoUrl: null, accentColor: null, email: null, phone: null,
-      website: null, address: null, abn: null, emailFooter: null, emailSenderName: null,
+      website: null, address: null, abn: null, emailFooter: null, emailSenderName: null, publicEmail: null,
     })
   })
 

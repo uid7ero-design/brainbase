@@ -102,6 +102,7 @@ function isValidHexInput(value: string): boolean {
 type FormState = {
   name: string; logoUrl: string; accentColor: string; email: string; phone: string;
   website: string; address: string; abn: string; emailFooter: string; emailSenderName: string;
+  publicEmail: string;
 };
 
 function brandingToForm(b: OrganisationBranding): FormState {
@@ -110,6 +111,7 @@ function brandingToForm(b: OrganisationBranding): FormState {
     email: b.email ?? '', phone: b.phone ?? '', website: b.website ?? '',
     address: b.address ?? '', abn: b.abn ?? '', emailFooter: b.emailFooter ?? '',
     emailSenderName: b.emailSenderName ?? '',
+    publicEmail: b.publicEmail ?? '',
   };
 }
 
@@ -148,6 +150,9 @@ export default function BrandingSettingsClient({
     }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       errors.email = 'Enter a valid email address.';
+    }
+    if (form.publicEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.publicEmail.trim())) {
+      errors.publicEmail = 'Enter a valid email address.';
     }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -244,7 +249,7 @@ export default function BrandingSettingsClient({
     <div style={{ maxWidth: 760, padding: '32px 24px' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 6px', color: TEXT_PRIMARY }}>Organisation Branding</h1>
       <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '0 0 24px' }}>
-        These settings are not yet used anywhere on your public event, ticket, or email surfaces — this is a preview of what will control them once that integration ships.
+        These settings control how your organisation appears on public event pages, tickets and buyer emails. Fields marked “Shown to buyers on Eve” are the only organiser details Eve shows its buyers.
       </p>
 
       <form onSubmit={handleSave}>
@@ -256,7 +261,7 @@ export default function BrandingSettingsClient({
             onChange={v => set('name', v)}
             placeholder={orgName}
             maxLength={120}
-            helpText={form.name.trim() ? undefined : `Left blank, "${orgName || 'your organisation name'}" will be used instead.`}
+            helpText={`Shown to buyers on Eve.${form.name.trim() ? '' : ` Left blank, BrainBase pages use "${orgName || 'your organisation name'}" and Eve says “the event organiser”.`}`}
           />
 
           <div>
@@ -346,11 +351,47 @@ export default function BrandingSettingsClient({
         </Section>
 
         <Section title="Customer-facing contact">
-          <Field id="brand-email" label="Support/contact email" value={form.email} onChange={v => set('email', v)} placeholder="hello@example.com" type="email" maxLength={254} />
-          {fieldErrors.email && <div style={{ fontSize: 12, color: RED, marginTop: -8 }} role="alert">{fieldErrors.email}</div>}
-          <Field id="brand-phone" label="Phone" value={form.phone} onChange={v => set('phone', v)} placeholder="0400 000 000" maxLength={200} />
-          <Field id="brand-website" label="Website" value={form.website} onChange={v => set('website', v)} placeholder="https://example.com" maxLength={2048} />
+          <Field
+            id="brand-public-email"
+            label="Public contact email (shown to buyers on Eve)"
+            value={form.publicEmail}
+            onChange={v => set('publicEmail', v)}
+            placeholder="tickets@example.com"
+            type="email"
+            maxLength={254}
+            helpText="Shown to buyers on Eve on your event pages, tickets and booking emails. Leave blank to show no organiser email."
+          />
+          {fieldErrors.publicEmail && <div style={{ fontSize: 12, color: RED, marginTop: -8 }} role="alert">{fieldErrors.publicEmail}</div>}
+          <Field
+            id="brand-website"
+            label="Website"
+            value={form.website}
+            onChange={v => set('website', v)}
+            placeholder="https://example.com"
+            maxLength={2048}
+            helpText="Shown to buyers on Eve, and on BrainBase event pages and tickets."
+          />
           {fieldErrors.website && <div style={{ fontSize: 12, color: RED, marginTop: -8 }} role="alert">{fieldErrors.website}</div>}
+          <Field
+            id="brand-email"
+            label="Support/contact email (private)"
+            value={form.email}
+            onChange={v => set('email', v)}
+            placeholder="hello@example.com"
+            type="email"
+            maxLength={254}
+            helpText="Your internal contact address. Never shown to buyers on Eve; BrainBase booking-update emails may include it."
+          />
+          {fieldErrors.email && <div style={{ fontSize: 12, color: RED, marginTop: -8 }} role="alert">{fieldErrors.email}</div>}
+          <Field
+            id="brand-phone"
+            label="Phone (private)"
+            value={form.phone}
+            onChange={v => set('phone', v)}
+            placeholder="0400 000 000"
+            maxLength={200}
+            helpText="Never shown to buyers on Eve; BrainBase booking-update emails may include it."
+          />
         </Section>
 
         <Section title="Email identity">

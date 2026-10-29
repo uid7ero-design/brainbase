@@ -89,6 +89,9 @@ export type BrandingView = {
   support_email: string | null;
   support_phone: string | null;
   email_footer: string | null;
+  // The public contact email Eve shows buyers (branding.publicEmail). The
+  // support email/phone above are private and never shown to Eve buyers.
+  public_email: string | null;
 };
 
 // The organiser's own saved branding (organisations.settings.branding) through
@@ -107,7 +110,8 @@ export function brandingView(rawSettings: unknown, organisationName: string): Br
     support_email: branding.email,
     support_phone: branding.phone,
     email_footer: branding.emailFooter,
+    public_email: branding.publicEmail,
   };
-  view.configured = custom || view.logo_configured || !!(view.accent_color || view.website || view.support_email || view.support_phone || view.email_footer);
+  view.configured = custom || view.logo_configured || !!(view.accent_color || view.website || view.support_email || view.support_phone || view.email_footer || view.public_email);
   return view;
 }

@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { sendTicketEmail, maskEmailForAudit, type TicketEmailEventDetails } from './ticketEmail';
-import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { normaliseEveOrganiserContact, normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 import { resolveBuyerProduct } from '@/lib/events/buyerProduct';
 import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './auditLog';
 import { recordTicketEmailDeliveryAccepted } from './ticketEmailDeliveryTracking';
@@ -539,6 +539,7 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
         attendees: order.attendees,
         bookingToken: order.bookingToken,
         branding,
+        organiserContact: normaliseEveOrganiserContact(order.organisationSettings),
         receipt: order.receipt,
         product: buyer.context,
       },

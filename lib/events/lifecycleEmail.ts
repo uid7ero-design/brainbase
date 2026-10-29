@@ -3,7 +3,8 @@ import { emailLayout, escHtml } from '@/lib/email';
 import { brainbaseBuyerContext, type BuyerProductContext } from '@/lib/events/buyerProduct';
 import { buildTicketUrl } from '@/lib/events/qr';
 import { formatReceiptMoney } from '@/lib/events/receipt';
-import type { LifecycleEmailBranding } from '@/lib/organisations/branding';
+import type { EveOrganiserContact, LifecycleEmailBranding } from '@/lib/organisations/branding';
+import { eveOrganiserContactLine } from '@/lib/events/eveOrganiserContactEmail';
 import type { NotificationType, EventUpdatedPayload, EventUpdatedSnapshot } from './notifications';
 import { formatEventScheduleLine } from '@ticketing/core/eventSchedule';
 import { organiserReference } from '@ticketing/core/publicOrganiser';
@@ -78,6 +79,9 @@ export type LifecycleEmailData = {
   change?: EventUpdatedPayload | null;
   eventSlug?: string | null;
   organisationSlug?: string | null;
+  // Eve organiser contact v1 (normaliseEveOrganiserContact): the ONLY
+  // organiser contact an Eve email shows. Ignored for BrainBase.
+  organiserContact?: EveOrganiserContact | null;
 };
 
 export type LifecycleEmail = { subject: string; html: string; text: string };
@@ -134,6 +138,8 @@ function organiserName(data: LifecycleEmailData, opts: { sentenceStart?: boolean
   return data.branding.name?.trim() || data.organisationName;
 }
 
+// BrainBase only. Eve emails never use the private support email/phone: they
+// show eveOrganiserContactLine (public email + website), or nothing.
 function contactLines(data: LifecycleEmailData): string[] {
   const b = data.branding;
   const parts: string[] = [];
@@ -159,6 +165,8 @@ function render(data: LifecycleEmailData, opts: {
   const accent = data.branding.accentColor ?? '#7C3AED';
   const organiser = organiserName(data);
   const contact = contactLines(data);
+  const isEve = data.product?.surface === 'EVE';
+  const eveContact = isEve ? eveOrganiserContactLine(data.branding.name, data.organiserContact) : null;
 
   const factRows = opts.facts.map(f => `
         <tr>
@@ -179,7 +187,7 @@ function render(data: LifecycleEmailData, opts: {
         <a href="${escHtml(l.url)}" style="display:inline-block;padding:12px 26px;background:${accent};color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:0.02em">${escHtml(l.label)}</a>
       </p>`).join('');
 
-  const contactHtml = `
+  const contactHtml = isEve ? (eveContact?.html ?? '') : `
       <p style="margin:24px 0 0;font-size:13px;color:#555;line-height:1.6">
         Questions about this order? Contact <strong>${escHtml(organiser)}</strong>${contact.length ? ` — ${contact.map(c => escHtml(c)).join(' · ')}` : ''}.
       </p>`;
@@ -219,7 +227,8 @@ function render(data: LifecycleEmailData, opts: {
     for (const l of opts.links) textLines.push(`${l.label}: ${l.url}`);
   }
   if (opts.closing) textLines.push('', opts.closing);
-  textLines.push('', `Questions about this order? Contact ${organiser}${contact.length ? ` — ${contact.join(' · ')}` : ''}.`);
+  if (!isEve) textLines.push('', `Questions about this order? Contact ${organiser}${contact.length ? ` — ${contact.join(' · ')}` : ''}.`);
+  else if (eveContact) textLines.push('', eveContact.text);
   textLines.push('', `Order reference ${data.orderReference}`);
   if (data.branding.emailFooter) textLines.push('', data.branding.emailFooter);
   const footerLinks = data.product?.presentation?.footerLinks;

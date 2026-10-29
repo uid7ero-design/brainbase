@@ -117,7 +117,9 @@ describe('Eve lifecycle emails', () => {
     for (const type of NOTIFICATION_TYPES) {
       const e = buildLifecycleEmail({ ...LIFE, type, product: ctx })
       expect(e.html + e.text + e.subject, type).not.toContain(INTERNAL)
-      expect(e.text, type).toContain('Questions about this order? Contact the event organiser.')
+      // Organiser contact v1: with no public contact configured there is no
+      // contact line at all (it used to read "Contact the event organiser.").
+      expect(e.text + e.html, type).not.toMatch(/Questions about this (order|event)\?/)
     }
     expect(buildLifecycleEmail({ ...LIFE, type: 'EVENT_CANCELLED', product: ctx }).text).toContain('The event organiser has cancelled Gala.')
     expect(buildLifecycleEmail({ ...LIFE, type: 'EVENT_UPDATED', product: ctx }).text).toContain('The event organiser has changed the date, time or venue of Gala.')
@@ -128,14 +130,19 @@ describe('Eve lifecycle emails', () => {
     const b = { ...LIFE.branding, name: '  Riverlights Collective ' }
     const cancelled = buildLifecycleEmail({ ...LIFE, type: 'EVENT_CANCELLED', branding: b, product: ctx })
     expect(cancelled.text).toContain('Riverlights Collective has cancelled Gala.')
-    expect(cancelled.text).toContain('Contact Riverlights Collective.')
     expect(cancelled.html + cancelled.text).not.toContain(INTERNAL)
+    const withContact = buildLifecycleEmail({ ...LIFE, type: 'EVENT_CANCELLED', branding: b, product: ctx, organiserContact: { email: 'hello@riverlights.test', website: null } })
+    expect(withContact.text).toContain('Questions about this event? Contact Riverlights Collective: hello@riverlights.test')
   })
 
-  it('configured organiser contact details are still shown (unchanged behaviour)', () => {
-    const b = { ...LIFE.branding, supportEmail: 'help@riverlights.test' }
-    expect(buildLifecycleEmail({ ...LIFE, type: 'ORDER_REFUNDED', branding: b, product: eveContext() }).text)
-      .toContain('Contact the event organiser — help@riverlights.test.')
+  it('organiser contact v1: the PRIVATE support email/phone are no longer shown; only the public contact is', () => {
+    const b = { ...LIFE.branding, supportEmail: 'help@riverlights.test', supportPhone: '08 8000 0000' }
+    const e = buildLifecycleEmail({ ...LIFE, type: 'ORDER_REFUNDED', branding: b, product: eveContext() })
+    expect(e.text + e.html).not.toContain('help@riverlights.test')
+    expect(e.text + e.html).not.toContain('08 8000 0000')
+    const pub = buildLifecycleEmail({ ...LIFE, type: 'ORDER_REFUNDED', branding: b, product: eveContext(), organiserContact: { email: 'tickets@riverlights.test', website: null } })
+    expect(pub.text).toContain('Questions about this event? Contact the event organiser: tickets@riverlights.test')
+    expect(pub.text + pub.html).not.toContain('help@riverlights.test')
   })
 
   it('Eve ticket email keeps its no-fallback behaviour: no display name, no internal name', () => {
@@ -161,7 +168,12 @@ describe('BrainBase / LD Tennis unchanged', () => {
   })
 
   it('no payment, Stripe, receipt, invoice or branding-validation code is touched by the helper', () => {
-    for (const f of ['lib/events/stripe.ts', 'lib/events/receipt.ts', 'lib/organisations/branding.ts', 'lib/events/services/paidCheckout.ts']) {
+    // lib/organisations/branding.ts now imports publicOrganiserContact for the
+    // organiser contact v1 allowlist (normaliseEveOrganiserContact) — that is
+    // asserted in eveOrganiserContact.test.ts; the display-name helper is still
+    // not used there.
+    expect(read('lib/organisations/branding.ts')).not.toMatch(/organiserReference|publicOrganiserName/)
+    for (const f of ['lib/events/stripe.ts', 'lib/events/receipt.ts', 'lib/events/services/paidCheckout.ts']) {
       expect(read(f), f).not.toMatch(/publicOrganiser|organiserReference/)
     }
   })
