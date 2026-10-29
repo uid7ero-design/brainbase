@@ -99,6 +99,17 @@ async function readOwners(context: SchedulingRouteContext, kind: AvailabilityOwn
 const offeringFallback = (context: SchedulingRouteContext, scheduleTimezone: string | null | undefined): IanaTimezone =>
   scheduleTimezone && isIanaTimezone(scheduleTimezone) ? scheduleTimezone : context.tenant.timezone;
 
+/**
+ * How long a calendar request may run before it is answered 504 SCHEDULING_TIMEOUT: 8 seconds, tunable with SCHEDULING_CALENDAR_DEADLINE_MS and always kept between
+ * 250 ms and 25 s (a bad value falls back to the default, never to "no limit"). It bounds what the REQUEST waits for (the database statements stop waiting); the Neon
+ * HTTP protocol has no per-session statement_timeout, and the reads are indexed and bounded (14 days, 100 resources) so the server-side statements end on their own.
+ */
+export const CALENDAR_DEADLINE_DEFAULT_MS = 8_000;
+export function calendarDeadlineMs(): number {
+  const raw = Number(process.env.SCHEDULING_CALENDAR_DEADLINE_MS);
+  return Number.isFinite(raw) && raw >= 250 && raw <= 25_000 ? Math.round(raw) : CALENDAR_DEADLINE_DEFAULT_MS;
+}
+
 /** More linked resources than one calendar will draw. The cap keeps a request's cost and the page's size bounded; narrow the offering's resources to see it. */
 export const CALENDAR_MAX_RESOURCES = 100;
 const tooManyResources = (count: number): Response =>

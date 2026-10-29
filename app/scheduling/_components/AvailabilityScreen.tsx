@@ -125,6 +125,11 @@ export default function AvailabilityScreen({ kind, id, canManage }: { kind: 'off
             : `This ${noun} has no weekly hours, so it has no availability.`}
         </p>
       )}
+      {view.rules.some(r => r.kind !== 'hours') && (
+        <p className={styles.notice} role="status" data-testid="unsupported-rules">
+          This {noun} has a “service period” rule. That kind of rule is not supported yet, so the {noun} is unavailable and offers no bookable times until the rule is removed or changed to ordinary hours.
+        </p>
+      )}
       {message && <p className={styles.notice} role="status" data-testid="saved-message">{message}</p>}
 
       <div className={styles.stack}>

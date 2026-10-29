@@ -24,7 +24,8 @@ describe('the two calendar routes are GET only, behind scheduling.view, through 
   it.each(ROUTES)('%s', f => {
     const src = code(f);
     expect([...src.matchAll(/export const (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)].map(m => m[1])).toEqual(['GET']);
-    expect(src).toMatch(/export const GET = schedulingRoute\('scheduling\.view', (offeringCalendar|resourceCalendar)\);/);
+    // 2B.3e adds a bounded execution time (a read, so answering "timed out" is always safe) and nothing else
+    expect(src).toMatch(/export const GET = schedulingRoute\('scheduling\.view', (offeringCalendar|resourceCalendar), \{ deadlineMs: calendarDeadlineMs \}\);/);
     expect(src).not.toMatch(/scheduling\.manage|scheduling\.reserve|scheduling\.attendance/);
     expect(src).not.toMatch(/requireSession|@\/lib\/db|@\/lib\/org|@scheduling\/postgres|NextResponse|cookies\(|headers\(/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);

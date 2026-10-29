@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -17,7 +17,7 @@ const suite = TEST_URL ? describe : describe.skip;
 
 const state = vi.hoisted(() => {
   process.env.SESSION_SECRET = 'test-only-session-secret-for-the-disposable-calendar-matrix-0123456789';
-  return { cookie: null as string | null, failScheduling: false };
+  return { cookie: null as string | null, failScheduling: false, delayScheduling: 0, aborted: 0 };
 });
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -30,12 +30,24 @@ vi.mock('@/lib/db', async () => {
   const { Pool: P } = await import('pg');
   const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 20 });
   // a switch that makes every Scheduling statement fail the way a dead database does (the session and module lookups still work)
-  const run = (text: string, params: unknown[]) => {
+  const run = (text: string, params: unknown[], opts?: { fetchOptions?: { signal?: AbortSignal } }) => {
+    // a slow database: Scheduling statements take delayScheduling ms, and stop waiting (like the Neon HTTP driver does) when the request's signal aborts
+    if (state.delayScheduling > 0 && /scheduling_/.test(text)) {
+      const signal = opts?.fetchOptions?.signal;
+      return new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        const timer = setTimeout(() => p.query(text, params).then(r => resolve(r.rows), reject), state.delayScheduling);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          state.aborted += 1;
+          reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+        });
+      });
+    }
     if (state.failScheduling && /scheduling_/.test(text)) return Promise.reject(Object.assign(new Error('connect ECONNREFUSED 10.1.2.3:5432 password=hunter2 relation scheduling_resources'), { code: 'ECONNREFUSED' }));
     return p.query(text, params).then(r => r.rows);
   };
   const tag = (strings: TemplateStringsArray, ...values: unknown[]) => run(strings.reduce((acc, s, i) => acc + s + (i < values.length ? `$${i + 1}` : ''), ''), values);
-  const query = (text: string, params: unknown[] = []) => run(text, [...params]);
+  const query = (text: string, params: unknown[] = [], opts?: { fetchOptions?: { signal?: AbortSignal } }) => run(text, [...params], opts);
   return { default: Object.assign(tag, { query }) };
 });
 
@@ -44,9 +56,12 @@ const { encrypt } = await import('@/lib/session');
 
 type Handler = (request: Request, context?: { params?: Promise<Record<string, string>> }) => Promise<Response>;
 type Route = Partial<Record<'GET' | 'POST' | 'PATCH' | 'DELETE', Handler>>;
+type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 const offeringCalendar = (await import('@/app/api/scheduling/offerings/[offeringId]/calendar/route')) as Route;
 const resourceCalendar = (await import('@/app/api/scheduling/resources/[resourceId]/calendar/route')) as Route;
 const offeringRules = (await import('@/app/api/scheduling/offerings/[offeringId]/availability-rules/route')) as Route;
+const offeringHours = (await import('@/app/api/scheduling/offerings/[offeringId]/availability/route')) as Route;
+const ruleItem = (await import('@/app/api/scheduling/availability-rules/[ruleId]/route')) as Route;
 
 let pool: Pool;
 const q = async <T = Record<string, unknown>>(text: string, params: unknown[] = []) => (await pool.query(text, params)).rows as T[];
@@ -84,7 +99,7 @@ const signOut = () => { state.cookie = null; };
 type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 interface Outcome { status: number; json: Json; text: string; by: 'middleware' | 'route' }
 /** One request through the whole chain. The middleware runs first, exactly as in the deployment; it either answers or lets the route handle it. */
-async function request(route: Route, method: 'GET' | 'POST', params: Record<string, string>, urlPath: string, opts: { query?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Outcome> {
+async function request(route: Route, method: Method, params: Record<string, string>, urlPath: string, opts: { query?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Outcome> {
   const url = `http://bb.test${urlPath}${opts.query ?? ''}`;
   const headers: Record<string, string> = { 'content-type': 'application/json', ...(opts.headers ?? {}) };
   if (state.cookie) headers.cookie = `session=${state.cookie}`;
@@ -311,6 +326,183 @@ suite('Scheduling 2B.3e calendar: permission and isolation matrix through the re
       }
       for (const h of heads) expect(h === '(none from middleware)' || /no-store|private/.test(h), h).toBe(true);
       expect(heads.filter(h => h === '(none)')).toEqual([]);
+    });
+  });
+
+  describe('service_period fails closed in the API', () => {
+    const rulesRoute = offeringRules;
+    const insertServicePeriod = async (owner: 'offering' | 'resource') => {
+      const column = owner === 'offering' ? 'offering_id' : 'resource_id';
+      const id = owner === 'offering' ? ids.offering : ids.resource;
+      await q(`INSERT INTO scheduling_availability_rules (id, organisation_id, ${column}, kind, label, day_of_week, start_time, end_time) VALUES ($1, 'org-a', $2, 'service_period', 'Dinner', 2, '17:00', '21:00')`, [`sp-${owner}`, id]);
+    };
+
+    it('the hours API refuses to save a service_period rule (400 INVALID_INPUT), says what to do, and writes nothing', async () => {
+      await signIn(PEOPLE.managerUse);
+      const before = await hashAll();
+      const created = await request(rulesRoute, 'POST', { offeringId: ids.offering }, `/api/scheduling/offerings/${ids.offering}/availability-rules`, { body: { dayOfWeek: 3, startTime: '17:00', endTime: '21:00', kind: 'service_period' } });
+      expect(created.status, created.text).toBe(400);
+      expect(created.text).toMatch(/not supported yet/);
+      expect(created.text).not.toMatch(/org-a/);
+      const unknown = await request(rulesRoute, 'POST', { offeringId: ids.offering }, `/api/scheduling/offerings/${ids.offering}/availability-rules`, { body: { dayOfWeek: 3, startTime: '17:00', endTime: '21:00', kind: 'banquet' } });
+      expect(unknown.status).toBe(400);
+      expect(await hashAll()).toEqual(before);
+    });
+
+    it('a stored service_period rule makes the offering calendar unavailable: no slots, a clear reason, the lane marked unsupported, nothing identifying', async () => {
+      await insertServicePeriod('offering');
+      await signIn(PEOPLE.viewerView);
+      const before = await hashAll();
+      const r = await offCal();
+      expect(r.status, r.text).toBe(200);
+      expect(r.json.slots).toEqual([]);
+      expect(r.json.reasons).toContain('unsupported_rule_kind');
+      expect(r.json.lanes.find((l: { kind: string }) => l.kind === 'offering')).toMatchObject({ state: 'unsupported', hours: [], free: [] });
+      expect(r.text).not.toMatch(/Dinner|sp-offering|org-a|organisation/i);
+      expect(await hashAll()).toEqual(before);
+    });
+
+    it('a stored service_period rule on a resource makes that resource unavailable (and the offering draws no slot through it); the resource calendar says so too', async () => {
+      await insertServicePeriod('resource');
+      await signIn(PEOPLE.viewerView);
+      const o = await offCal();
+      expect(o.status, o.text).toBe(200);
+      expect(o.json.slots).toEqual([]);
+      expect(o.json.reasons).toContain(`resource_unsupported_rule_kind:${ids.resource}`);
+      expect(o.json.lanes.find((l: { id: string }) => l.id === ids.resource)).toMatchObject({ state: 'unsupported', hours: [] });
+      const r = await resCal();
+      expect(r.status, r.text).toBe(200);
+      expect(r.json.reasons).toEqual([`resource_unsupported_rule_kind:${ids.resource}`]);
+      expect(r.json.lanes[0].state).toBe('unsupported');
+    });
+
+    it('the way out works: the rule can be changed to hours (not to service_period) or removed, and the calendar opens again', async () => {
+      await insertServicePeriod('offering');
+      await signIn(PEOPLE.managerUse);
+      const hours = await request(offeringHours, 'GET', { offeringId: ids.offering }, `/api/scheduling/offerings/${ids.offering}/availability`);
+      expect(hours.status, hours.text).toBe(200);
+      const stored = (hours.json.rules as Array<{ id: string; kind: string; updatedAt: string }>).find(x => x.kind === 'service_period')!;
+      expect(stored).toBeTruthy();
+      const path = `/api/scheduling/availability-rules/${stored.id}`;
+      const toServicePeriod = await request(ruleItem, 'PATCH', { ruleId: stored.id }, path, { body: { kind: 'service_period', expectedUpdatedAt: stored.updatedAt } });
+      expect(toServicePeriod.status, toServicePeriod.text).toBe(400);
+      const stillClosed = await offCal('?from=2027-01-12&to=2027-01-12');
+      expect(stillClosed.json.reasons).toContain('unsupported_rule_kind');
+      const toHours = await request(ruleItem, 'PATCH', { ruleId: stored.id }, path, { body: { kind: 'hours', expectedUpdatedAt: stored.updatedAt } });
+      expect(toHours.status, toHours.text).toBe(200);
+      const open = await offCal('?from=2027-01-11&to=2027-01-17');
+      expect(open.json.reasons).not.toContain('unsupported_rule_kind');
+      expect(open.json.slots.length).toBeGreaterThan(0);
+      // and removal: put one back, delete it with its version token
+      await q("UPDATE scheduling_availability_rules SET kind = 'service_period' WHERE id = $1", [stored.id]);
+      const again = await request(offeringHours, 'GET', { offeringId: ids.offering }, `/api/scheduling/offerings/${ids.offering}/availability`);
+      const fresh = (again.json.rules as Array<{ id: string; kind: string; updatedAt: string }>).find(x => x.id === stored.id)!;
+      const removed = await request(ruleItem, 'DELETE', { ruleId: stored.id }, path, { body: { expectedUpdatedAt: fresh.updatedAt } });
+      expect(removed.status, removed.text).toBeLessThan(300);
+      expect((await offCal('?from=2027-01-11&to=2027-01-17')).json.reasons).not.toContain('unsupported_rule_kind');
+    });
+  });
+
+  describe('a bounded execution time and a safe log line', () => {
+    const logLines = () => logged.map(l => JSON.parse(l.replace(/^\[scheduling\] request /, '')) as { route: string; method: string; status: number; ms: number; outcome: string; error?: string });
+    let logged: string[] = [];
+    let infoSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      logged = [];
+      infoSpy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => { if (String(args[0]).startsWith('[scheduling] request')) logged.push(args.map(String).join(' ')); });
+    });
+    afterEach(() => {
+      infoSpy.mockRestore();
+      delete process.env.SCHEDULING_CALENDAR_DEADLINE_MS;
+      state.delayScheduling = 0;
+    });
+
+    it('the deadline is 8 seconds by default, tunable between 250 ms and 25 s, and a bad value never means "no limit"', async () => {
+      const { calendarDeadlineMs, CALENDAR_DEADLINE_DEFAULT_MS } = await import('@/lib/scheduling/config/calendar');
+      expect(CALENDAR_DEADLINE_DEFAULT_MS).toBe(8000);
+      const at = (v: string | undefined) => {
+        if (v === undefined) delete process.env.SCHEDULING_CALENDAR_DEADLINE_MS;
+        else process.env.SCHEDULING_CALENDAR_DEADLINE_MS = v;
+        return calendarDeadlineMs();
+      };
+      expect([at(undefined), at(''), at('abc'), at('10'), at('249'), at('25001'), at('99999999'), at('-5'), at('NaN'), at('Infinity')]).toEqual(Array(10).fill(8000));
+      expect([at('250'), at('500'), at('1234.4'), at('25000')]).toEqual([250, 500, 1234, 25000]);
+    });
+
+    it('a slow database ends in 504 SCHEDULING_TIMEOUT at the deadline: the statements stop waiting, nothing is returned or written, and the next request works', async () => {
+      process.env.SCHEDULING_CALENDAR_DEADLINE_MS = '300';
+      const errors: string[] = [];
+      const errSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => { errors.push(args.map(String).join(' ')); });
+      await signIn(PEOPLE.viewerView);
+      const before = await hashAll();
+      state.delayScheduling = 2000;
+      state.aborted = 0;
+      const t0 = Date.now();
+      const o = await offCal();
+      const took = Date.now() - t0;
+      expect(o.status, o.text).toBe(504);
+      expect(o.json).toEqual({ error: expect.stringMatching(/took too long.*Nothing was changed/), code: 'SCHEDULING_TIMEOUT' });
+      expect(took, 'answered at the deadline, not when the database finally answered').toBeLessThan(1500);
+      expect(o.text).not.toMatch(/org-a|scheduling_[a-z]|SELECT|AbortError/); // (its own code, SCHEDULING_TIMEOUT, is upper case)
+      expect(state.aborted, 'the in-flight statements were told to stop').toBeGreaterThan(0);
+      const r = await resCal();
+      expect(r.status).toBe(504);
+      state.delayScheduling = 0;
+      await new Promise(resolve => setTimeout(resolve, 100)); // the discarded work settles quietly
+      expect(await hashAll()).toEqual(before);
+      const ok = await offCal();
+      expect(ok.status, ok.text).toBe(200);
+      const lines = logLines();
+      expect(lines.filter(l => l.outcome === 'timeout')).toHaveLength(2); // exactly one line per timed-out request: the late result is not logged again
+      expect(lines.filter(l => l.outcome === 'error')).toEqual([]);
+      expect(errors.filter(e => /AbortError/.test(e)), 'the abort that ended the wait is not reported as a fault').toEqual([]);
+      errSpy.mockRestore();
+    });
+
+    it('a request inside its deadline is not cut off, even when the database is a little slow', async () => {
+      process.env.SCHEDULING_CALENDAR_DEADLINE_MS = '5000';
+      await signIn(PEOPLE.viewerView);
+      state.delayScheduling = 20;
+      const o = await offCal();
+      expect(o.status, o.text).toBe(200);
+    });
+
+    it('every Scheduling request logs ONE line with the route template, method, status, duration and outcome, and nothing that identifies anyone or anything', async () => {
+      await signIn(PEOPLE.managerUse);
+      const ok = await offCal('?from=2027-01-11&to=2027-01-17&step=30');
+      const missing = await request(offeringCalendar, 'GET', { offeringId: 'nope' }, '/api/scheduling/offerings/nope/calendar', { query: '?from=2027-01-11' });
+      await signIn(PEOPLE.analyst);
+      const denied = await offCal();
+      signOut();
+      const anonymous = await offCal();
+      expect([ok.status, missing.status, denied.status, anonymous.status]).toEqual([200, 404, 403, 401]);
+
+      expect(logged).toHaveLength(4);
+      const [a, b, c, d] = logLines();
+      expect(a).toEqual({ route: '/api/scheduling/offerings/:id/calendar', method: 'GET', status: 200, ms: expect.any(Number), outcome: 'ok' });
+      expect(b).toMatchObject({ route: '/api/scheduling/offerings/:id/calendar', status: 404, outcome: 'ok' }); // a handled 404 is the handler's normal answer
+      expect(c).toEqual({ route: '/api/scheduling/(not resolved)', method: 'GET', status: 403, ms: expect.any(Number), outcome: 'denied' });
+      expect(d).toMatchObject({ status: 401, outcome: 'denied', route: '/api/scheduling/(not resolved)' });
+      for (const line of logged) {
+        expect(line).not.toMatch(new RegExp(`${ids.offering}|${ids.resource}|org-|u-manager|u-analyst|nope|eyJ|session|cookie|from=|step=|SELECT|INSERT|scheduling_|password|@`, 'i'));
+      }
+      expect(logLines().every(l => Number.isInteger(l.ms) && l.ms >= 0 && l.ms < 10_000)).toBe(true);
+    });
+
+    it('a failing database is logged as an error with its code or name only', async () => {
+      await signIn(PEOPLE.managerUse);
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      state.failScheduling = true;
+      try {
+        expect((await offCal()).status).toBeGreaterThanOrEqual(500);
+      } finally {
+        state.failScheduling = false;
+        errSpy.mockRestore();
+      }
+      const [line] = logLines();
+      expect(line.outcome === 'unavailable' || line.outcome === 'error').toBe(true);
+      expect(line.error).toBe('ECONNREFUSED');
+      expect(logged.join('\n')).not.toMatch(/hunter2|10\.1\.2\.3|password|relation|scheduling_/i);
     });
   });
 

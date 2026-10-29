@@ -177,6 +177,17 @@ export interface OwnerAvailabilityInput {
   exceptions: readonly AvailabilityExceptionInput[];
 }
 
+/**
+ * True when any rule is of a kind the engine does not support (anything but plain hours; today a 'service_period'). Such a rule has no defined meaning yet, so
+ * it must never open bookable time: an owner that has one is UNAVAILABLE as a whole (fail closed), with the reason UNSUPPORTED_RULE_KIND_REASON, until the rule is
+ * removed or converted to hours. A missing `kind` is plain hours.
+ */
+export function hasUnsupportedRuleKind(rules: readonly Pick<AvailabilityRule, 'kind'>[]): boolean {
+  return rules.some(r => r.kind !== undefined && r.kind !== 'hours');
+}
+/** The reason code for an offering that has an unsupported rule kind; a resource's is `resource_unsupported_rule_kind:<id>`. */
+export const UNSUPPORTED_RULE_KIND_REASON = 'unsupported_rule_kind';
+
 function windowsForDate(owner: OwnerAvailabilityInput, date: LocalDate): LocalWindow[] {
   const covering = owner.exceptions.filter(e => e.fromDate <= date && date <= e.toDate);
   const closures = covering.filter(e => e.kind !== 'override');
@@ -202,6 +213,7 @@ function windowsForDate(owner: OwnerAvailabilityInput, date: LocalDate): LocalWi
 export function expandOwnerAvailability(owner: OwnerAvailabilityInput, fromDate: LocalDate, toDate: LocalDate, timezone: IanaTimezone): { intervals: InstantWindow[]; adjustments: AvailabilityAdjustment[] } {
   if (!isLocalDate(fromDate) || !isLocalDate(toDate) || toDate < fromDate) throw new RangeError('fromDate and toDate must be valid dates, fromDate first');
   if (!isIanaTimezone(timezone)) throw new RangeError(`Invalid timezone: ${timezone}`);
+  if (hasUnsupportedRuleKind(owner.rules)) return { intervals: [], adjustments: [] }; // fail closed: an unsupported rule opens nothing, whoever asks
   const collected: Ms[] = [];
   const adjustments: AvailabilityAdjustment[] = [];
   let days = 0;
@@ -243,7 +255,17 @@ function containedIn(within: readonly Ms[], s: number, e: number): boolean {
   return false;
 }
 
-/** Slot starts on the grid of each anchor interval, kept where the whole slot lies inside `within`. Sorted, unique, always positive length. */
+/**
+ * Slot starts on the grid of each anchor interval, kept where the whole slot lies inside `within`. Sorted, unique, always positive length.
+ *
+ * THE GRID IS ANCHORED AT THE START OF EACH CONTINUOUS *EFFECTIVE* OFFERING WINDOW (documented behaviour, pinned by tests; do not change it casually):
+ *   - the anchors are the offering's hours AFTER its closures, so a closure that removes the start of a window (or splits it) starts a NEW anchor where the remaining
+ *     window begins. A 09:00 grid with 45-minute steps (09:00, 09:45, 10:30, ...) becomes 10:00, 10:45, ... once 09:00 to 10:00 is closed.
+ *   - a closure that only cuts the END of a window, or a hold, a resource's own hours or another resource's closure, REMOVE slots but never move the others.
+ *   - the step is measured in elapsed time from the anchor, so across a daylight-saving change the grid keeps its elapsed spacing, not its wall-clock times.
+ * A step that divides the distance from the old anchor to the new one keeps the same start times; otherwise they shift. The calendar and any booking built on it
+ * must show the start times this function returns, never recompute them.
+ */
 export function generateSlots(anchors: readonly InstantWindow[], within: readonly InstantWindow[], slot: SlotRequest, resourceId: string | null): FreeSlot[] {
   const inside = normaliseMs(within.map(fromWindow));
   const out: FreeSlot[] = [];
@@ -316,7 +338,7 @@ export type AvailabilityComputation =
       free: ResourceFreeIntervals[];
       slots: FreeSlot[];
       adjustments: OwnedAdjustment[];
-      /** Why availability is empty, where it is: 'offering_archived', 'no_offering_availability', 'resource_inactive:<id>', 'resource_no_availability:<id>'. */
+      /** Why availability is empty, where it is: 'offering_archived', 'unsupported_rule_kind', 'no_offering_availability', 'resource_inactive:<id>', 'resource_unsupported_rule_kind:<id>', 'resource_no_availability:<id>'. */
       reasons: string[];
     }
   | { ok: false; reason: 'invalid_input' | 'timezone_changed'; problems: string[] };
@@ -392,6 +414,7 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
   }
   const { timezone, fromDate, toDate } = input;
   if (input.offering.archivedAt !== null) return emptyOk(timezone, ['offering_archived']);
+  if (hasUnsupportedRuleKind(input.offeringRules)) return emptyOk(timezone, [UNSUPPORTED_RULE_KIND_REASON]);
 
   const offering = expandOwnerAvailability({ rules: input.offeringRules, exceptions: input.offeringExceptions }, fromDate, toDate, timezone);
   const ownedBy = (kind: 'offering' | 'resource', id: string) => (a: AvailabilityAdjustment): OwnedAdjustment => ({ ...a, owner: { kind, id } });
@@ -410,6 +433,11 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
     for (const r of [...input.resources].sort((a, b) => (a.resource.id < b.resource.id ? -1 : a.resource.id > b.resource.id ? 1 : 0))) {
       if (!r.resource.active) {
         reasons.push(`resource_inactive:${r.resource.id}`);
+        free.push({ resourceId: r.resource.id, timezone: r.timezone ?? timezone, intervals: [] });
+        continue;
+      }
+      if (hasUnsupportedRuleKind(r.rules)) {
+        reasons.push(`resource_${UNSUPPORTED_RULE_KIND_REASON}:${r.resource.id}`);
         free.push({ resourceId: r.resource.id, timezone: r.timezone ?? timezone, intervals: [] });
         continue;
       }

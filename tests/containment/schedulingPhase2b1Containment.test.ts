@@ -122,7 +122,7 @@ describe('the guard itself', () => {
   });
 
   it('returns the denial before reaching the runtime, and never calls the handler on a denial', () => {
-    expect(guard).toMatch(/if \(!auth\.ok\) return withNoStore\(auth\.response\);/);
+    expect(guard).toMatch(/if \(!auth\.ok\) return finish\(withNoStore\(auth\.response\), 'denied'\);/); // 2B.3e: the same early return, now also logged (route family only, no path, no identity)
     expect(guard).toMatch(/Cache-Control['"], ['"]no-store/);
   });
 

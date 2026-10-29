@@ -77,6 +77,6 @@ The browser harness found and this branch fixes three defects in the new screen:
 1. **Production is unverified.** The authenticated Production availability test (first rule and zone pin) is still to be done separately; the calendar has only been exercised on disposable data.
 2. **Read cost grows with resources.** An offering with N linked resources makes about 3N+4 reads (rules, closures and zone per owner, plus holds in one query). Fine for the pilot; batch the owner reads before an offering with dozens of resources.
 3. **Occupied time is resource holds only.** An occurrence that holds no resource is not drawn; reservations without a resource are invisible to the calendar. Both belong with the reservations phase.
-4. **Rule `kind`.** `service_period` rules are drawn like `hours`, as the engine reads them today; the calendar does not distinguish them.
+4. **Rule `kind`.** (Superseded in 2B.3e.) `service_period` rules are no longer drawn or bookable as hours: an owner that has one is unavailable, with the reason in words. See `scheduling-availability-hardening-2b3e.md`.
 5. **Client media query.** The grid/agenda switch uses `matchMedia`, so the first paint on a phone can briefly render the wide layout.
 6. **The calendar is read-only by construction, not by permission alone.** A containment test pins that it has no write route, no write call, no audit call and no form; relaxing that is a deliberate change.

@@ -364,8 +364,12 @@ test.describe('weekly hours', () => {
 
   test('a service-period rule is shown but cannot be edited here (only removed); weekly "hours" are the only kind offered', async ({ browser }) => {
     const context = await contextFor(browser, 'manager');
-    const res = await context.request.post(api(`/resources/${court.id}/availability-rules`), { data: { dayOfWeek: 4, startTime: '10:00', endTime: '12:00', kind: 'service_period', label: 'Clinic' }, headers: json });
-    expect(res.status()).toBe(201);
+    // The API no longer saves one (a service_period rule has no defined meaning, so the engine treats its owner as unavailable); a row that predates that is written
+    // directly into the DISPOSABLE database, the way the backfill of older data would have left it.
+    const refused = await context.request.post(api(`/resources/${court.id}/availability-rules`), { data: { dayOfWeek: 4, startTime: '10:00', endTime: '12:00', kind: 'service_period', label: 'Clinic' }, headers: json });
+    expect(refused.status()).toBe(400);
+    await query("INSERT INTO scheduling_availability_zones (organisation_id, resource_id, timezone, source) VALUES ($1, $2, 'Australia/Adelaide', 'backfill') ON CONFLICT DO NOTHING", [ORG_A, court.id]);
+    await query("INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, kind, label, day_of_week, start_time, end_time) VALUES ('zz-service-period', $1, $2, 'service_period', 'Clinic', 4, '10:00', '12:00')", [ORG_A, court.id]);
     const page = await context.newPage();
     await openHours(page, court);
     const thursday = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Thursday', exact: true }) });
@@ -374,6 +378,9 @@ test.describe('weekly hours', () => {
     await expect(thursday.getByRole('button', { name: 'Remove Thursday 10:00 am to 12:00 pm', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Add hours', exact: true }).click();
     await expect(page.getByRole('dialog').getByText(/service period/i)).toHaveCount(0); // no way to create one
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('unsupported-rules')).toContainText('not supported yet'); // and the reason this resource is unavailable is stated
+    await query("DELETE FROM scheduling_availability_rules WHERE id = 'zz-service-period'");
     await context.close();
   });
 });

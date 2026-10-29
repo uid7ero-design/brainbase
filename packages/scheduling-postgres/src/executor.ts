@@ -29,12 +29,22 @@ export function fromPgLike(client: {
  * Adapts a Neon HTTP driver function (`neon(url)`): `sql.query(text, params)` returns rows.
  * Takes the function structurally so this package never imports @neondatabase/serverless.
  */
-export function fromNeonHttpLike(sql: {
-  query(text: string, params?: unknown[]): Promise<unknown>;
-}): SqlExecutor {
+export function fromNeonHttpLike(
+  sql: {
+    query(text: string, params?: unknown[], queryOptions?: Record<string, unknown>): Promise<unknown>;
+  },
+  options: {
+    /**
+     * Passed to the driver as the third argument of every query (the Neon HTTP driver merges its `fetchOptions` into the request it makes), so a caller can
+     * bound a request: `{ fetchOptions: { signal } }` makes every statement stop waiting when the signal aborts. Absent: the call is exactly as before.
+     */
+    queryOptions?: Record<string, unknown>;
+  } = {},
+): SqlExecutor {
+  const { queryOptions } = options;
   return {
     async query<Row>(text: string, params: readonly unknown[] = []) {
-      const rows = await sql.query(text, [...params]);
+      const rows = queryOptions ? await sql.query(text, [...params], queryOptions) : await sql.query(text, [...params]);
       return rows as Row[];
     },
   };

@@ -5,6 +5,7 @@ import type { AvailabilityRule, IanaTimezone, InstantWindow, LocalDate, Offering
 import {
   computeAvailability,
   expandOwnerAvailability,
+  hasUnsupportedRuleKind,
   intersectIntervals,
   localWindowOnDate,
   normaliseIntervals,
@@ -57,6 +58,7 @@ export interface CalendarDay {
 export type CalendarLaneState =
   | 'open' // it has hours in the range
   | 'no_hours' // it has no hours in the range (never saved, or all closed): unavailable
+  | 'unsupported' // it has a rule of a kind that is not supported yet: unavailable until that rule is removed
   | 'inactive' // a resource that is switched off: it takes no availability
   | 'archived'; // an archived offering: it takes no availability
 
@@ -141,6 +143,7 @@ export interface ResourceCalendarInput {
 export function calendarRules(tenant: Pick<TenantContext, 'organisationId'>, rules: readonly StoredAvailabilityRule[]): AvailabilityRule[] {
   return rules.map(r => ({
     id: r.id, organisationId: tenant.organisationId, resourceId: r.resourceId, offeringId: r.offeringId, dayOfWeek: r.dayOfWeek, startTime: r.startTime, endTime: r.endTime, validFrom: r.validFrom, validTo: r.validTo,
+    kind: r.kind, // carried so the engine can refuse a kind it does not support (fail closed); it is never read as hours
   }));
 }
 
@@ -265,7 +268,7 @@ export function buildOfferingCalendar(input: OfferingCalendarInput): CalendarVie
       name: input.offering.name,
       timezone: input.timezone,
       pinned: input.pinned,
-      state: archived ? 'archived' : own.hours.length > 0 ? 'open' : 'no_hours',
+      state: archived ? 'archived' : hasUnsupportedRuleKind(input.offeringRules) ? 'unsupported' : own.hours.length > 0 ? 'open' : 'no_hours',
       hours: own.hours,
       closed: own.closed,
       free: offeringFree,
@@ -281,7 +284,7 @@ export function buildOfferingCalendar(input: OfferingCalendarInput): CalendarVie
       name: r.name,
       timezone: r.timezone,
       pinned: r.pinned,
-      state: !r.resource.active ? 'inactive' : mine.hours.length > 0 ? 'open' : 'no_hours',
+      state: !r.resource.active ? 'inactive' : hasUnsupportedRuleKind(r.rules) ? 'unsupported' : mine.hours.length > 0 ? 'open' : 'no_hours',
       hours: mine.hours,
       closed: mine.closed,
       free,
@@ -342,7 +345,7 @@ export function buildResourceCalendar(input: ResourceCalendarInput): CalendarVie
         name: input.resource.name,
         timezone: input.timezone,
         pinned: input.pinned,
-        state: !input.resource.active ? 'inactive' : mine.hours.length > 0 ? 'open' : 'no_hours',
+        state: !input.resource.active ? 'inactive' : hasUnsupportedRuleKind(input.rules) ? 'unsupported' : mine.hours.length > 0 ? 'open' : 'no_hours',
         hours: mine.hours,
         closed: mine.closed,
         free: subtractIntervals(mine.hours, clip(input.holds.filter(h => h.resourceId === input.resource.id && h.releasedAt === null).map(h => ({ startsAt: h.startsAt, endsAt: h.endsAt })), range)),
@@ -352,6 +355,6 @@ export function buildResourceCalendar(input: ResourceCalendarInput): CalendarVie
     slots: [],
     slot: null,
     adjustments,
-    reasons: input.resource.active ? (mine.hours.length === 0 ? ['no_resource_availability'] : []) : [`resource_inactive:${input.resource.id}`],
+    reasons: !input.resource.active ? [`resource_inactive:${input.resource.id}`] : hasUnsupportedRuleKind(input.rules) ? [`resource_unsupported_rule_kind:${input.resource.id}`] : mine.hours.length === 0 ? ['no_resource_availability'] : [],
   };
 }

@@ -52,8 +52,13 @@ export const systemClock: Clock = {
 };
 
 /** The shared repositories run over the app's Neon HTTP driver, exactly as the 2A driver matrix proved. */
-export function createSchedulingExecutor(): SqlExecutor {
-  return fromNeonHttpLike(sql as unknown as { query(text: string, params?: unknown[]): Promise<unknown> });
+export function createSchedulingExecutor(signal?: AbortSignal): SqlExecutor {
+  // With a signal (a route that has a deadline), every repository statement of the request stops waiting when it aborts. The Neon HTTP protocol has no
+  // per-session statement_timeout, so this bounds what the REQUEST waits for; the server-side statement ends on its own (reads here are indexed and bounded).
+  return fromNeonHttpLike(
+    sql as unknown as { query(text: string, params?: unknown[], queryOptions?: Record<string, unknown>): Promise<unknown> },
+    signal ? { queryOptions: { fetchOptions: { signal } } } : {},
+  );
 }
 
 /**
@@ -70,7 +75,7 @@ export async function resolveOrganisationTimezone(organisationId: string): Promi
 }
 
 /** Builds the runtime for an authorised staff session. Read-only: it never writes to the database. */
-export async function loadSchedulingRuntime(session: { organisationId: string; userId: string; role: string }): Promise<SchedulingRuntime> {
+export async function loadSchedulingRuntime(session: { organisationId: string; userId: string; role: string }, options: { signal?: AbortSignal } = {}): Promise<SchedulingRuntime> {
   const timezone = await resolveOrganisationTimezone(session.organisationId);
   const tenant = staffTenantContext({
     organisationId: session.organisationId,
@@ -78,7 +83,7 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
     role: session.role,
     timezone: timezone.value,
   });
-  const executor = createSchedulingExecutor();
+  const executor = createSchedulingExecutor(options.signal);
   const persistence = createPostgresScheduling({ sql: executor, clock: systemClock });
   const availability = new PostgresAvailabilityRepository({ sql: executor });
   const settings = await persistence.config.getSettings(tenant);

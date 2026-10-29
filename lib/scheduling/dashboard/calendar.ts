@@ -137,17 +137,19 @@ const REASONS: Record<string, string> = {
   no_offering_availability: 'No hours are saved for this offering in this period, so nothing is available.',
   no_duration: 'This offering has no duration, so bookable times cannot be worked out.',
   no_resource_availability: 'This resource has no hours in this period, so it is unavailable.',
+  unsupported_rule_kind: 'This offering has an hours rule of a kind that is not supported yet (a “service period”), so it is unavailable until that rule is removed or changed to ordinary hours.',
 };
 
 export function reasonText(reason: string, names: Record<string, string>): string {
   const [code, id] = reason.split(':');
   if (code === 'resource_inactive') return `${names[id] ?? 'A resource'} is inactive, so it takes no availability.`;
+  if (code === 'resource_unsupported_rule_kind') return `${names[id] ?? 'A resource'} has an hours rule of a kind that is not supported yet (a “service period”), so it is unavailable until that rule is removed or changed to ordinary hours.`;
   if (code === 'resource_no_availability') return `${names[id] ?? 'A resource'} has no hours in this period, so it is unavailable.`;
   return REASONS[reason] ?? '';
 }
 
 export const laneStateText = (lane: Pick<CalendarLane, 'state' | 'kind'>): string =>
-  lane.state === 'open' ? 'Open' : lane.state === 'inactive' ? 'Inactive' : lane.state === 'archived' ? 'Archived' : 'No hours';
+  lane.state === 'open' ? 'Open' : lane.state === 'inactive' ? 'Inactive' : lane.state === 'archived' ? 'Archived' : lane.state === 'unsupported' ? 'Unavailable' : 'No hours';
 
 export const KIND_TEXT = { hours: 'Open', closed: 'Closed', free: 'Free', occupied: 'Held', slot: 'Bookable' } as const;
 export type BlockKind = keyof typeof KIND_TEXT;

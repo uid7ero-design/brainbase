@@ -253,6 +253,39 @@ test.describe('keyboard, focus and names', () => {
   });
 });
 
+test.describe('service_period fails closed on screen', () => {
+  test('an offering and a court with a service_period rule are drawn as unavailable with the reason in words, offer no bookable start, and the hours screen says why', async ({ browser }) => {
+    const owner = await ensureOffering(browser, 'ZZ Hardening service period');
+    const sp = await ensureResource(browser, 'ZZ Hardening service court');
+    await clearHours(owner);
+    await clearHours(sp);
+    const manager = await contextFor(browser, 'manager');
+    const link = await manager.request.post(api(`/offerings/${owner.id}/resources`), { data: { resourceId: sp.id }, headers: json });
+    expect([200, 201], await link.text()).toContain(link.status());
+    await seedRules(manager.request, owner, { dayOfWeek: 1, startTime: '09:00', endTime: '17:00' }); // ordinary hours, pins the offering
+    await seedRules(manager.request, sp, { dayOfWeek: 1, startTime: '09:00', endTime: '17:00' }); // ordinary hours, pins the court
+    // a rule of an unsupported kind that predates the refusal (the API no longer saves one): written directly into the DISPOSABLE database
+    await query("INSERT INTO scheduling_availability_rules (id, organisation_id, resource_id, kind, label, day_of_week, start_time, end_time) VALUES ('zz-hard-sp', $1, $2, 'service_period', 'Dinner', 2, '17:00', '21:00')", [ORG_A, sp.id]);
+    await manager.close();
+    const context = await contextFor(browser, 'viewer');
+    const page = await context.newPage();
+    await open(page, owner, 'day', MONDAY);
+    await expect(page.getByTestId('calendar-reasons')).toContainText('not supported yet');
+    await expect(page.locator('[data-kind=slot][data-start]')).toHaveCount(0); // drawn blocks carry data-start; the legend swatch does not
+    await expect(page.locator(`[data-lane="${sp.id}"][data-state="unsupported"]`).first().or(page.getByTestId('calendar-agenda').getByText(/not supported yet/)).first()).toBeAttached();
+    expect(await violations(page)).toEqual([]);
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await page.goto(`${origin}/scheduling/resources/${sp.id}/availability`);
+    await expect(page.getByTestId('unsupported-rules')).toContainText('not supported yet');
+    await page.goto(url(sp, 'week', MONDAY));
+    await expect(page.getByTestId('calendar-screen')).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByTestId('calendar-reasons')).toContainText('not supported yet');
+    expect(await violations(page)).toEqual([]);
+    await query("DELETE FROM scheduling_availability_rules WHERE id = 'zz-hard-sp'");
+    await context.close();
+  });
+});
+
 test.describe('themes and sizes', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`${theme}: the week with the 23-hour day and the day with the 25-hour day have no axe violations, no sideways page scroll and full-size targets`, async ({ browser }) => {

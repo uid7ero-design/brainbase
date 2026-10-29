@@ -405,6 +405,8 @@ function Agenda({ view, lanes, today }: { view: View; lanes: CalendarLane[]; tod
                     <strong>{l.name}</strong>
                     {l.state === 'inactive' || l.state === 'archived' ? (
                       <span> — {laneStateText(l).toLowerCase()}, not available</span>
+                    ) : l.state === 'unsupported' ? (
+                      <span> — unavailable: it has a rule of a kind that is not supported yet</span>
                     ) : hours.length === 0 ? (
                       <span> — {closed.length > 0 ? `closed (${joinWindows(closed, zone)})` : 'no hours, not available'}</span>
                     ) : (

@@ -1,6 +1,6 @@
 # Scheduling Phase 2B.3e: availability hardening and sign-off
 
-Status: implemented on `feat/scheduling-availability-hardening`, **draft PR, not merged, not deployed**. No migration. No Production write and no Production SQL was run to build it: the Production baseline in section 1 was read with `SELECT` statements only.
+Status: implemented on `feat/scheduling-availability-hardening`, **draft PR #510, not merged, not deployed**. No migration. No Production write and no Production SQL was run to build it: the Production baseline in section 1 was read with `SELECT` statements only.
 
 Scope: the read-only availability calendar (2B.3d, PR #507, merged `62492066`) and the availability model under it (2B.3a to 2B.3c). Nothing here adds recurring sessions, reservations, holds, payments or public booking.
 
@@ -68,19 +68,38 @@ Shared core (`packages/scheduling/tests`), all pure:
 
 **Viewing never writes.** The permission suite (section 6) hashes every Scheduling table, the pinned zones, the users, access and audit tables before and after 24 calendar requests by 4 account types and after every refusal: identical. The 2B.3d API suite separately proves an owner with no hours is not pinned by being looked at.
 
-### `service_period`
+### `service_period` fails closed (release-review change)
 
-Finding (from the code, not assumed):
+Finding, reproduced first: the engine's rule type had no `kind`, and `calendarRules` dropped it, so a `service_period` window was drawn as hours and **made start times bookable** exactly like an `hours` window of the same times (the test that pinned this in the first 2B.3e commit has been replaced by the tests below). Production has 0 such rules.
 
-- The shared engine's rule type has no `kind` field. `calendarRules` converts a stored rule to an engine rule and drops `kind`, so a `service_period` window is drawn as hours and **makes start times bookable** exactly like an `hours` window of the same times (pinned by a test).
-- The screens never create it (only `hours` is offered); an existing one shows a "Service period" badge on the hours screen and can only be removed. The API still accepts the kind, and the database CHECK allows it. The `restaurant_tables` preset declares `availability: 'service_periods'`, which implies a different meaning (named sittings with a grid) that is not implemented.
-- Production has 0 such rules (it has one `hours` rule).
+Rule now (shared engine, calendar and API):
 
-Recommendation (no semantics invented here): **treat an owner that has a `service_period` rule as an explicit "unavailable" state in the calendar, with the reason in words, until the product decision is made; do not hide the rule, and do not let it open bookable time.** Fail closed matches the rule everywhere else in Scheduling (no hours means no availability), it is invisible today (zero rules), and it removes the risk that a `service_period` rule written through the API silently opens bookings in the reservations phase. The alternative, hiding the rule, leaves a stored rule the owner cannot see affecting nothing, which is harder to explain. This is a one-condition change in the view model plus the API refusing `kind: 'service_period'` until defined; it is **not** made in this PR because it changes behaviour and needs the product decision first.
+| Where | Behaviour |
+| --- | --- |
+| Engine type | `AvailabilityRule.kind?: 'hours' | 'service_period'`. Absent or `'hours'` is plain hours. **Anything else, including an unknown string, is unsupported** |
+| Engine (`hasUnsupportedRuleKind`, `expandOwnerAvailability`, `computeAvailability`) | An owner (offering or resource) that has **any** unsupported rule is **unavailable as a whole**, even if it also has hours rules (no mixed reading). It opens no time, whoever asks. `computeAvailability` reports `unsupported_rule_kind` (offering) or `resource_unsupported_rule_kind:<resource id>` and yields no slot through it; other resources are unaffected |
+| Calendar view model | The stored kind is carried through `calendarRules`. The lane state is `unsupported` ("Unavailable"); the reasons say so; the resource calendar gives `resource_unsupported_rule_kind:<id>` |
+| Hours API | Creating a `service_period` rule, or changing a rule to it, is `400 INVALID_INPUT` ("not supported yet; use 'hours'. An existing service_period rule can be removed or changed to 'hours'"). Removing one, or changing it to `hours`, still works, so there is always a way out |
+| Screens | The calendar says, in words, that the offering/resource "has an hours rule of a kind that is not supported yet (a service period), so it is unavailable until that rule is removed or changed to ordinary hours". The hours screen shows the same notice. No label, rule text, organisation or identifier is shown |
 
-### Closures move the slot grid
+Why whole-owner rather than ignoring just that rule: an owner with a rule nobody can interpret is misconfigured; opening only its `hours` rules would present a partly understood week as bookable. Failing the whole owner matches the rule everywhere else in Scheduling (no usable hours means no availability). What `service_period` should mean (the `restaurant_tables` preset declares `availability: 'service_periods'`, named sittings with a grid) remains a separate product decision; when it is made, support is added in the engine in one place.
 
-A closure that removes the start of a window re-anchors the remaining grid at the new start (a 09:00 grid on 45-minute steps becomes 10:00, 10:45, … once 09:00 to 10:00 is closed). This is the documented window-anchored design (the grid starts at each continuous *effective* window), and it is pinned by a test. It is recorded as a product observation for the reservations phase: a customer-facing grid that shifts when a morning closure is added may be unexpected for steps that are not a divisor of the duration.
+Tests: engine and view model (9, including a 300-calendar property check that an owner with such a rule never contributes a slot), the API (4: refusal on create and change, the offering and resource calendars through the real routes, the way out), and the browser (the calendar, the week, the hours screen, axe) on all three viewports.
+
+### Closures move the slot grid: preserved and documented
+
+Bookable start times lie on a grid **anchored at the start of each continuous effective offering window** (the hours after closures). This is the existing behaviour and it is unchanged; it is now written down where the code lives (`generateSlots` in the shared engine) and pinned in every shape:
+
+| Closure | Effect on start times |
+| --- | --- |
+| At the end of a window | Removes the slots it covers; **no other slot moves** |
+| In the middle | Splits the window; the part after the closure starts a **new grid at its own start** |
+| At the start | The grid starts where the remaining window starts. A 09:00 grid on 45-minute steps (09:00, 09:45, ...) becomes 10:00, 10:45, ... once 09:00 to 10:00 is closed |
+| Any, when the step divides the distance to the new start | The start times do not change (a 60-minute step with 09:00 to 10:00 closed keeps 10:00, 11:00, ...) |
+| A resource's closure or hold, or its own hours | Removes slots, **never re-anchors** (only the offering's own effective hours define anchors) |
+| Across a daylight-saving change | The step is elapsed time from the anchor, so spacing is kept and wall-clock times follow the clocks |
+
+Consequence to design for in the reservations phase: show the start times the engine returns; never recompute them from the offering's nominal hours, and tell a customer who held a start time when a closure is added after the fact.
 
 ## 5. Mobile, accessibility and first paint
 
@@ -134,8 +153,8 @@ Run through the **real chain** on disposable PostgreSQL: a session cookie signed
 
 | Topic | Finding |
 | --- | --- |
-| Error handling | Guard and handler failures return generic bodies (`Internal error.` / `Scheduling is temporarily unavailable.`) and log `[scheduling] handler failed <code or name>`. **Gap:** the log line has no route, organisation, request id or duration, so a production report cannot be tied to a request or a slow calendar. Recommend adding route and duration before real traffic |
-| Query timeout | Nothing sets a `statement_timeout` for Scheduling reads; a stuck read is bounded only by the platform function limit. Recommend a per-statement timeout on the Neon connection used by Scheduling before real traffic |
+| Error handling and observability | Guard and handler failures return generic bodies (`Internal error.` / `Scheduling is temporarily unavailable.`) and log only an error code or name. **Added:** every Scheduling API request now logs one line, `[scheduling] request {route, method, status, ms, outcome}`, where `route` is the template (`/api/scheduling/offerings/:id/calendar`; dynamic segments replaced), `outcome` is `ok`, `denied`, `unavailable`, `error` or `timeout`, and an `error` code appears only for failures. It never contains an organisation, user, role, session, cookie, query string, body, parameter value, error message or SQL (tested against the log text). A denied request, or one that ends before its params were read, logs only the family `/api/scheduling/(not resolved)`: the params are read only after authorisation, so a denied request's ids are never written anywhere. A request answered by the deadline logs once as `timeout`, and its aborted work is not reported as a fault |
+| Query timeout | **Implemented for the calendar reads.** The Neon HTTP protocol has no per-session `statement_timeout`, but the driver merges a query's `fetchOptions` into the request it makes, so an `AbortSignal` stops the wait. Each calendar route runs under a deadline (default 8 s, `SCHEDULING_CALENDAR_DEADLINE_MS`, always clamped to 250 ms to 25 s; a bad value falls back to 8 s, never to "no limit"). At the deadline the request's in-flight statements are told to stop, the caller gets `504 SCHEDULING_TIMEOUT` (generic body: no route, query, organisation or SQL), the late result is discarded, and the timeout is logged once. It applies only to routes that write nothing (a write must never be answered "timed out" while it may still commit). Proved on the real Neon driver (fake transport), on the full route with slow statements, and for the next request recovering. **What it does not do:** the statement already running at Neon is not cancelled by the client abort; the reads are indexed and bounded (14 days, 100 resources, 200 owners) so they end on their own. A server-side `statement_timeout` (role setting) would need a separate reviewed proposal and is not part of this PR |
 | Bounds | Range at most 14 days; at most 100 resources per offering calendar (new); at most 200 owners per batched read (new); holds are read for the range plus 2 days before and 3 after. Slot generation is linear in resources and days (about 58 ms CPU at 50 resources, one week) |
 | Index usage | Section 3; no new index |
 | Cache safety | Routes are `force-dynamic`; `no-store` on every Scheduling answer; no module-level data cache in the Scheduling libraries or routes (the only module-level map is a bounded `Intl.DateTimeFormat` cache keyed by validated IANA zone name, in the shared engine); the organisation always comes from the session |
@@ -145,10 +164,10 @@ Run through the **real chain** on disposable PostgreSQL: a session cookie signed
 
 ### Risks to settle before real booking traffic
 
-1. `service_period` semantics (section 4): fail closed until decided.
-2. No statement timeout and no request-level observability (section 7).
+1. What `service_period` should mean (section 4): it fails closed until decided.
+2. No server-side `statement_timeout` (the client-side deadline and the request log are in; a role-level timeout needs its own reviewed proposal).
 3. Occupied time is **resource holds only**: an occurrence with no resource and a reservation with no resource are not drawn. The reservations phase must define what the calendar shows for them.
-4. A closure re-anchors the slot grid (section 4).
+4. A closure re-anchors the slot grid (section 4): documented and pinned; the reservations phase must show the engine's start times.
 5. The calendar is advisory. Only the database's exclusion constraint decides a booking; the phase that books must re-check at write time.
 6. The manager and viewer experience is not yet verified on the deployed Production site (section 8).
 
