@@ -1,5 +1,6 @@
 import 'server-only';
-import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl, currentEveLegalAcceptance, currentEveLegalNoticeVersion, isDraftLegalVersion } from '@ticketing/core';
+import { checkoutCancelUrl, checkoutSuccessUrl, publicTicketUrl, currentEveLegalAcceptance, currentEveLegalNoticeVersion, isDraftLegalVersion, publicOrganiserName } from '@ticketing/core';
+import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 import { getPublicEventDetail } from '@/lib/events/publicEventDetail';
 import { getPublicTicketDetail } from '@/lib/events/publicTicket';
 import { getPublicBookingDetail } from '@/lib/events/publicBooking';
@@ -50,6 +51,19 @@ function validEventParams(p: EventParams): boolean {
   return isIdentifier(p.organisationSlug) && isIdentifier(p.eventSlug);
 }
 
+// Public organiser identity for the product's buyer pages. The shared readers
+// also return the internal organisations.name (BrainBase's own pages use it as
+// their fallback); it is dropped here so a holder of a public event, ticket or
+// booking link never receives it. organiser_name is the configured public
+// display name (settings.branding.name) or null — never the internal name.
+function withPublicOrganiser<T extends { organisationName?: string; branding?: PublicOrganisationBranding | null }>(
+  detail: T,
+): Omit<T, 'organisationName'> & { organiser_name: string | null } {
+  const rest: Omit<T, 'organisationName'> & { organisationName?: unknown } = { ...detail };
+  delete rest.organisationName;
+  return { ...rest, organiser_name: publicOrganiserName(detail.branding?.name) };
+}
+
 // Read-only answer to "would handleTicketingCheckout get past its
 // configuration gates for this organisation right now?" — the same checks,
 // from the same functions: the kill switch, the organisation allow-list, the
@@ -95,7 +109,7 @@ export async function handleTicketingPublicEvent(req: Request, params: EventPara
   const questionsBlockBooking = !result.eveQuestionsEnabled && questions.some(q => q.required);
   // Server-derived booleans only; never the flag, allow-list or opt-in values.
   return ticketingJson({
-    ...detail,
+    ...withPublicOrganiser(detail),
     questions: eveQuestions,
     questions_block_booking: questionsBlockBooking,
     paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug),
@@ -305,7 +319,7 @@ export async function handleTicketingTicket(req: Request, token: string): Promis
   if (!isIdentifier(token)) return ticketingJson({ error: 'Ticket not found.' }, 404);
   const result = await getPublicTicketDetail(token);
   if (!result.ok) return ticketingJson({ error: 'Ticket not found.' }, 404);
-  return ticketingJson({ ...result.detail, qr_svg: await productTicketQr(token) });
+  return ticketingJson({ ...withPublicOrganiser(result.detail), qr_svg: await productTicketQr(token) });
 }
 
 export async function handleTicketingBooking(req: Request, bookingToken: string): Promise<Response> {
@@ -315,5 +329,5 @@ export async function handleTicketingBooking(req: Request, bookingToken: string)
   if (!isIdentifier(bookingToken)) return ticketingJson({ error: 'Booking not found.' }, 404);
   const result = await getPublicBookingDetail(bookingToken);
   if (!result.ok) return ticketingJson({ error: 'Booking not found.' }, 404);
-  return ticketingJson(result.detail);
+  return ticketingJson(withPublicOrganiser(result.detail));
 }

@@ -27,3 +27,4 @@ export * from './sessionPolicy';
 export * from './paymentsView';
 export * from './legalVersions';
 export * from './eventSchedule';
+export * from './publicOrganiser';

@@ -82,7 +82,7 @@ from the code (`apps/eve/content/legal.ts`) against the published version, not r
 
 ---
 
-## B. In-form notices (exact text; `{Organiser}` = the organiser's name)
+## B. In-form notices (exact text; `{Organiser}` = the organiser's public display name (organisation branding), or "the event organiser" — "The event organiser" at the start of a sentence — when none is configured; never the internal organisation name)
 
 1. **General notice** — shown immediately before the first registration question:
    > {Organiser} asks these questions to help run this event. Your answers go to {Organiser} for this event. You can leave optional questions blank. [How we handle your answers]

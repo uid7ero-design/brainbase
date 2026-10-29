@@ -1,6 +1,7 @@
 'use client';
 
 import type { PublicQuestion } from '@/lib/ticketing/gateway';
+import { organiserReference } from '@ticketing/core/publicOrganiser';
 
 // One organiser-defined registration question on the buyer form. Display
 // and UX checks only: the ticketing API re-validates every answer against
@@ -27,13 +28,14 @@ const input = 'mt-1 block min-h-11 w-full rounded-lg border border-eve-line bg-w
 const labelCls = 'block text-sm font-medium text-eve-ink';
 
 // In-context privacy notes by category (ADR 0013 §4b), shown under the
-// field and announced with it (aria-describedby).
-export function categoryNote(q: PublicQuestion, organiserName: string): string | null {
+// field and announced with it (aria-describedby). organiserName is the
+// organiser's public display name, or null for the neutral wording.
+export function categoryNote(q: PublicQuestion, organiserName: string | null): string | null {
   switch (q.data_category) {
     case 'SENSITIVE':
-      return `This may include health, disability or accessibility information. ${organiserName} asks so they can make arrangements for you at this event. Only share what you’re comfortable with.`;
+      return `This may include health, disability or accessibility information. ${organiserReference(organiserName, { sentenceStart: true })} asks so they can make arrangements for you at this event. Only share what you’re comfortable with.`;
     case 'THIRD_PARTY':
-      return `Please make sure this person knows you’re giving their details to ${organiserName} for this event.`;
+      return `Please make sure this person knows you’re giving their details to ${organiserReference(organiserName)} for this event.`;
     case 'CONSENT':
       return q.field_type === 'YES_NO' ? 'Choosing No won’t affect your booking.' : null;
     default:
@@ -42,7 +44,7 @@ export function categoryNote(q: PublicQuestion, organiserName: string): string |
 }
 
 export function QuestionField({ question: q, idPrefix, value, onChange, organiserName }: {
-  question: PublicQuestion; idPrefix: string; value: Answer; onChange: (next: Answer) => void; organiserName: string;
+  question: PublicQuestion; idPrefix: string; value: Answer; onChange: (next: Answer) => void; organiserName: string | null;
 }) {
   const id = `${idPrefix}-${q.id}`;
   const note = categoryNote(q, organiserName);
