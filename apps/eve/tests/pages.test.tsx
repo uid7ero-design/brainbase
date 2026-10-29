@@ -42,7 +42,7 @@ const DETAIL = {
     { id: 't1', name: 'General', description: null, price_cents: 2500, capacity: 100, remaining: 40, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: false },
     { id: 't2', name: 'Presale', description: null, price_cents: 2000, capacity: 10, remaining: 10, sale_starts_at: null, sale_ends_at: null, sale_status: 'ON_SALE', requires_access_code: true },
   ],
-  session_inventory: [], has_promotions: true, organisationName: 'Acme Events', paid_checkout_available: true,
+  session_inventory: [], has_promotions: true, organiser_name: 'Acme Events', paid_checkout_available: true,
 };
 const SESSION_OK = (role = 'manager') => ({ status: 'ok', data: { user: { id: 'u1', name: 'Pat', role }, organisationId: 'org1', organisation: { slug: 'acme', name: 'Acme Events' } } });
 const EVENTS = [
@@ -154,7 +154,7 @@ describe('public event page', () => {
 });
 
 describe('ticket page and booking wallet', () => {
-  const base = { attendee_name: 'Alex', event: EVENT, ticket_type_name: 'General', session: { name: 'Evening', starts_at: EVENT.starts_at, ends_at: EVENT.ends_at }, organisationName: 'Acme' };
+  const base = { attendee_name: 'Alex', event: EVENT, ticket_type_name: 'General', session: { name: 'Evening', starts_at: EVENT.starts_at, ends_at: EVENT.ends_at }, organiser_name: 'Acme' };
 
   it('shows the ticket with its QR for a valid ticket and no QR or entry for a cancelled one', async () => {
     gw.getTicket.mockResolvedValueOnce({ status: 'ok', data: { ...base, status: 'VALID', checked_in_at: null, qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>' } });
@@ -210,7 +210,7 @@ describe('ticket page and booking wallet', () => {
     gw.getBookingWallet.mockResolvedValue({
       status: 'ok',
       data: {
-        purchaser_name: 'Sam Buyer', event: EVENT, organisationName: 'Acme',
+        purchaser_name: 'Sam Buyer', event: EVENT, organiser_name: 'Acme',
         tickets: [
           { attendee_name: 'Alex', ticket_type_name: 'General', session: null, ticket_token: 'tok-a', checked_in_at: null, status: 'VALID' },
           { attendee_name: 'Bo', ticket_type_name: 'General', session: null, ticket_token: 'tok-b', checked_in_at: EVENT.starts_at, status: 'VALID' },
@@ -494,7 +494,7 @@ describe('paid checkout unavailable (server-derived paid_checkout_available)', (
   const FREE = { ...GA, id: 'fr', name: 'Community pass', price_cents: 0, capacity: 50, remaining: 50 };
   const RIVERLIGHTS = {
     event: { ...DETAIL.event, name: 'Riverlights Music & Arts Festival 2027', artwork_url: 'https://cdn.example.test/riverlights.png', starts_at: '2027-03-20T01:30:00Z', ends_at: '2027-03-20T12:30:00Z' },
-    sessions: [], ticket_types: [GA], session_inventory: [], has_promotions: false, organisationName: 'Acme Events',
+    sessions: [], ticket_types: [GA], session_inventory: [], has_promotions: false, organiser_name: 'Acme Events',
   };
   const quoteBody = (cents: number) => ({ subtotal_cents: cents, discount_cents: 0, total_cents: cents, currency: 'aud', pricing: cents > 0 ? 'PAID' : 'FREE', promotion: null, promotion_error: null, access: null, access_error: null, cart_error: null });
   function mockFetch(cents = 0) {

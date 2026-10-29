@@ -28,7 +28,7 @@ const Q = {
 const ALL = Object.values(Q);
 const detail = (extra: Record<string, unknown> = {}) => ({
   event: { name: 'Riverlights (test)', slug: 'rl', description: null, venue: null, artwork_url: null, starts_at: '2027-03-20T01:30:00Z', ends_at: '2027-03-20T12:30:00Z', timezone: 'Australia/Adelaide' },
-  sessions: [], ticket_types: [TYPE], session_inventory: [], has_promotions: false, organisationName: 'Acme Events', paid_checkout_available: true,
+  sessions: [], ticket_types: [TYPE], session_inventory: [], has_promotions: false, organiser_name: 'Acme Events', paid_checkout_available: true,
   ...extra,
 });
 
@@ -363,7 +363,7 @@ describe('legal review pack stays in sync with the code (docs/compliance/eve-reg
 
   it('the general notice and both acknowledgement checkboxes in the pack match the rendered text', async () => {
     const user = userEvent.setup(); mockFetch();
-    view({ ...detail({ questions: [Q.ecName, Q.access] }), organisationName: '{Organiser}' });
+    view({ ...detail({ questions: [Q.ecName, Q.access] }), organiser_name: '{Organiser}' });
     await start(user);
     await user.type(screen.getByLabelText('Emergency Contact Name'), 'x');
     await user.type(screen.getByLabelText('Accessibility requirements (optional)'), 'y');

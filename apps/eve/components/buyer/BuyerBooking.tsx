@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { PublicEventDetail } from '@/lib/ticketing/gateway';
 import { formatAmount, formatDateTime, formatMoney } from '@/lib/format';
 import { QuestionField, isAnswered, type Answer } from './QuestionField';
+import { organiserReference } from '@ticketing/core/publicOrganiser';
 
 // The buyer's booking form. It talks only to this product's own origin
 // (/api/buyer/...); the server relays to the ticketing API, which owns
@@ -296,7 +297,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
           {questions.length > 0 ? (
             // Collection notice, immediately before the organiser's questions (ADR 0013 §4b).
             <p data-testid="questions-notice" className="rounded-lg bg-eve-surface-alt p-3 text-sm text-eve-ink">
-              {`${detail.organisationName} asks these questions to help run this event. Your answers go to ${detail.organisationName} for this event. You can leave optional questions blank. `}
+              {`${organiserReference(detail.organiser_name, { sentenceStart: true })} asks these questions to help run this event. Your answers go to ${organiserReference(detail.organiser_name)} for this event. You can leave optional questions blank. `}
               <Link href="/privacy#registration-questions" target="_blank" rel="noopener" className="underline">How we handle your answers</Link>
             </p>
           ) : null}
@@ -305,7 +306,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <fieldset className="space-y-4" data-testid="order-questions">
               <legend className="text-sm font-semibold">About your booking</legend>
               {orderQuestions.map(q => (
-                <QuestionField key={q.id} question={q} idPrefix="oq" value={orderAnswers[q.id]} organiserName={detail.organisationName}
+                <QuestionField key={q.id} question={q} idPrefix="oq" value={orderAnswers[q.id]} organiserName={detail.organiser_name ?? null}
                   onChange={v => setOrderAnswers(prev => ({ ...prev, [q.id]: v }))} />
               ))}
             </fieldset>
@@ -323,7 +324,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
                   </div>
                 ) : null}
                 {attendeeQuestions.map(q => (
-                  <QuestionField key={q.id} question={q} idPrefix={`aq-${slotKey(s)}`} value={slotAnswers[slotKey(s)]?.[q.id]} organiserName={detail.organisationName}
+                  <QuestionField key={q.id} question={q} idPrefix={`aq-${slotKey(s)}`} value={slotAnswers[slotKey(s)]?.[q.id]} organiserName={detail.organiser_name ?? null}
                     onChange={v => setSlotAnswers(prev => ({ ...prev, [slotKey(s)]: { ...prev[slotKey(s)], [q.id]: v } }))} />
                 ))}
               </fieldset>
@@ -359,7 +360,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="agree-sensitive">
               <input id="agree-sensitive" type="checkbox" checked={agreeSensitive} onChange={e => setAgreeSensitive(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
               <label htmlFor="agree-sensitive" className="text-eve-ink">
-                {`I agree to ${detail.organisationName} collecting my answers to ${sensitiveLabels.join(', ')} for this event, including health, disability or accessibility information. `}
+                {`I agree to ${organiserReference(detail.organiser_name)} collecting my answers to ${sensitiveLabels.join(', ')} for this event, including health, disability or accessibility information. `}
                 Only answer what you are comfortable sharing.
               </label>
             </div>
@@ -368,7 +369,7 @@ export function BuyerBooking({ organisationSlug, eventSlug, detail, cancelled }:
             <div className="flex items-start gap-3 rounded-lg border border-eve-line p-3" data-testid="confirm-third-party">
               <input id="confirm-third-party" type="checkbox" checked={confirmThirdParty} onChange={e => setConfirmThirdParty(e.target.checked)} required className="mt-1 h-5 w-5 shrink-0" />
               <label htmlFor="confirm-third-party" className="text-eve-ink">
-                {`I confirm that the person whose details I have given (${thirdPartyLabels.join(', ')}) knows I am giving them to ${detail.organisationName} for this event, or that I am allowed to give them.`}
+                {`I confirm that the person whose details I have given (${thirdPartyLabels.join(', ')}) knows I am giving them to ${organiserReference(detail.organiser_name)} for this event, or that I am allowed to give them.`}
               </label>
             </div>
           ) : null}
