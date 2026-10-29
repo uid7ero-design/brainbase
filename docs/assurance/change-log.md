@@ -8,6 +8,29 @@ Newest first.
 
 ---
 
+## Incidents & investigations
+
+- The **Incidents** register has views for **All**, **Open**, **Needs
+  triage**, **Investigation required**, **Under investigation**, **Findings
+  open**, **Ready for closure** and **Closed**, an **external organisation**
+  filter, and columns for where it happened, investigation, findings and
+  open actions.
+- An incident now shows **What still needs attention**: what prevents
+  closure, and factual triage facts. Owners can be assigned or changed.
+- **Start investigation** on an incident now starts the investigation right
+  there, with the incident as its primary incident. A second start is
+  refused while an active one exists. The incident's status is not changed.
+- An investigation of a **restricted** incident is always restricted.
+- The **Investigations** register has views by status plus **Findings
+  recorded**, and shows evidence, findings and open actions. An
+  investigation shows what still prevents completion, and its lead can be
+  assigned or changed.
+- Incidents and investigations list the **corrective actions** on their
+  findings.
+- Incidents and investigations cannot be reopened (unchanged), and closing
+  either never closes the other or any finding or action.
+
+
 ## Findings & corrective actions
 
 - The **Findings** register has views for **All**, **Open**, **Needs

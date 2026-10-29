@@ -24,28 +24,44 @@ structured examination.
 
 ## Steps
 
-1. Choose where to start:
-   - From an incident: open it, and in **Investigations** select **Start
-     investigation**. That incident is pre-selected as the **Primary
-     incident**.
-   - Or go to **Assurance → Investigations** and select **Start
-     investigation**.
-2. Enter a **Title** and the **Scope**: what will and will not be examined.
-3. Check the **Primary incident**, or leave it as **None**.
-4. Select any **Related incidents**. Hold Ctrl/Cmd to select several.
-5. Optionally choose the **Lead investigator**, **Risk level** and **Target
-   completion**.
-6. Tick **Restricted investigation** only if it must be limited to you, the
-   lead and organisation admins.
-7. Select **Start investigation**.
-8. To add another incident later, on the investigation page select **Link
+**From one incident** (most common)
+
+1. Open the incident. In the **Investigation** section select **Start
+   investigation**.
+2. Enter a **Title** and **What will the investigation establish?** — the
+   question you are trying to answer and what is in and out of scope.
+3. Optionally choose the **Lead investigator**, **Risk level** (pre-filled
+   from the incident) and **Target completion**.
+4. If the incident is not restricted, tick **Restricted investigation** only
+   if it must be limited to you, the lead and organisation admins. (An
+   investigation of a restricted incident is always restricted.)
+5. Select **Start investigation**. The investigation opens, with the
+   incident as its **primary** incident.
+
+**Covering several incidents**
+
+1. Go to **Assurance → Investigations** and select **Start investigation**
+   (or use **Start one that covers several incidents** on an incident).
+2. Enter a **Title** and the **Scope**.
+3. Choose the **Primary incident**, or leave it as **None**, and any
+   **Related incidents**. Hold Ctrl/Cmd to select several.
+4. Optionally choose the **Lead investigator**, **Risk level** and **Target
+   completion**, and tick **Restricted investigation** if needed (required
+   when any chosen incident is restricted).
+5. Select **Start investigation**.
+
+**Then**
+6. To add another incident later, on the investigation page select **Link
    another incident**. Choose the **Incident** and a **Relationship**
    (Primary, Related, Triggering or Context), then select **Link incident**.
-9. Progress the work with **Next step**: **Move to planning**, **Move to in
+7. Assign or change the **Lead investigator** under **Next step** if needed.
+8. Progress the work with **Next step**: **Move to planning**, **Move to in
    progress**, **Move to awaiting information** and **Move to awaiting
    review**.
+9. Record evidence in **Evidence gathered** and raise findings for the issues
+   you identify (**Raise finding**).
 10. When done, from **Awaiting review** select **Complete with conclusion**.
-    Enter the **Conclusion** and submit.
+    Enter the **Conclusion** — the factual outcome — and submit.
 
 ## What happens next
 
@@ -61,8 +77,17 @@ structured examination.
   shows this.
 - Links are permanent history. Incidents cannot be linked after completion or
   cancellation.
-- Completing does **not** close the linked incidents or any findings. Close
-  those separately.
+- Completing does **not** close the linked incidents, findings or actions.
+  Close those separately. Open findings do not block completion.
+- While an active investigation has an incident as its primary incident,
+  **Start investigation** on that incident is refused.
+- A restricted incident can only be investigated by a restricted
+  investigation.
+- The **Target completion** date is for planning only; it never blocks
+  anything.
+- A completed or cancelled investigation cannot be reopened.
+- The conclusion is written by people. BrainBase never infers a cause,
+  blame or liability.
 - Starting an investigation does not change the incident's status. Move the
   incident to **Investigation underway** yourself if appropriate.
 
@@ -74,6 +99,9 @@ structured examination.
 | "That incident is already linked." | It is already on the investigation; no action needed. |
 | **Complete with conclusion** not shown | The investigation must be in **Awaiting review**. |
 | An incident shows as **Restricted incident** | You can't see that restricted incident; this is expected. |
+| "This incident already has an active investigation as its primary incident…" | Open the existing investigation, or link this incident to it as Related. |
+| "A restricted incident can only be investigated by a restricted investigation…" | Tick **Restricted investigation**, or link a different incident. |
+| "The lead was not changed: someone else changed it…" | Refresh the page and try again. |
 
 ## Related records / next steps
 

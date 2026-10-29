@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { viewerCan, type AssuranceViewer } from './policy';
-import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, evidenceVisibleSql } from './access';
+import { incidentVisibleSql, investigationVisibleSql, findingVisibleSql, actionVisibleSql, evidenceVisibleSql } from './access';
 import { auditInsert, listAssuranceHistory, type AssuranceHistoryEntry } from './audit';
 import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
@@ -15,6 +15,7 @@ import {
   requiredDateTime, requiredEnum, requiredText, searchPattern,
 } from './input';
 import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError, AssuranceValidationError } from './errors';
+import { INCIDENT_TRANSITIONS, parseIncidentView } from './incidentRules';
 
 // ── Reads ─────────────────────────────────────────────────────────────────
 
@@ -22,10 +23,13 @@ export type IncidentListFilters = {
   q?: string;
   status?: string;
   state?: 'open' | 'closed' | 'all';
+  /** Register view (lib/assurance/incidentRules.ts). `state` is the legacy name. */
+  view?: string;
   category?: string;
   riskLevelId?: string;
   ownerUserId?: string;
   locationId?: string;
+  externalOrganisationId?: string;
   restricted?: 'yes' | 'no';
   occurredFrom?: string;
   occurredTo?: string;
@@ -43,8 +47,13 @@ export type IncidentListRow = {
   risk_rank: number | null;
   owner_name: string | null;
   location_name: string | null;
+  asset_name: string | null;
+  external_organisation_name: string | null;
   investigation_count: number;
+  active_investigation_count: number;
   finding_count: number;
+  open_finding_count: number;
+  open_action_count: number;
 };
 
 export const INCIDENT_LIST_LIMIT = 200;
@@ -57,7 +66,8 @@ export async function listIncidents(viewer: AssuranceViewer, filters: IncidentLi
   const riskLevelId = isUuid(filters.riskLevelId) ? filters.riskLevelId : null;
   const locationId = isUuid(filters.locationId) ? filters.locationId : null;
   const ownerUserId = typeof filters.ownerUserId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(filters.ownerUserId) ? filters.ownerUserId : null;
-  const state = filters.state === 'open' || filters.state === 'closed' ? filters.state : 'all';
+  const externalOrganisationId = isUuid(filters.externalOrganisationId) ? filters.externalOrganisationId : null;
+  const view = parseIncidentView(filters.view ?? filters.state);
   const restricted = filters.restricted === 'yes' ? true : filters.restricted === 'no' ? false : null;
   const from = safeDate(filters.occurredFrom);
   const to = safeDate(filters.occurredTo, true);
@@ -66,27 +76,51 @@ export async function listIncidents(viewer: AssuranceViewer, filters: IncidentLi
     SELECT inc.id, inc.incident_reference, inc.title, inc.category, inc.status, inc.occurred_at, inc.restricted,
            rl.name AS risk_name, rl.rank AS risk_rank,
            ou.name AS owner_name,
-           loc.name AS location_name,
+           loc.name AS location_name, ast.name AS asset_name, xo.name AS external_organisation_name,
            (SELECT count(*) FROM assurance_investigation_incidents ii
              JOIN assurance_investigations inv ON inv.organisation_id = ii.organisation_id AND inv.id = ii.investigation_id
              WHERE ii.organisation_id = inc.organisation_id AND ii.incident_id = inc.id
                AND ${investigationVisibleSql(viewer)})::int AS investigation_count,
+           (SELECT count(*) FROM assurance_investigation_incidents ii
+             JOIN assurance_investigations inv ON inv.organisation_id = ii.organisation_id AND inv.id = ii.investigation_id
+             WHERE ii.organisation_id = inc.organisation_id AND ii.incident_id = inc.id
+               AND inv.status NOT IN ('COMPLETED', 'CANCELLED') AND ${investigationVisibleSql(viewer)})::int AS active_investigation_count,
            (SELECT count(*) FROM assurance_incident_findings xf
              JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
              WHERE xf.organisation_id = inc.organisation_id AND xf.incident_id = inc.id
-               AND ${findingVisibleSql(viewer)})::int AS finding_count
+               AND ${findingVisibleSql(viewer)})::int AS finding_count,
+           (SELECT count(*) FROM assurance_incident_findings xf
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             WHERE xf.organisation_id = inc.organisation_id AND xf.incident_id = inc.id
+               AND f.status NOT IN ('CLOSED', 'CANCELLED') AND ${findingVisibleSql(viewer)})::int AS open_finding_count,
+           (SELECT count(DISTINCT a.id) FROM assurance_incident_findings xf
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             JOIN assurance_action_findings af ON af.organisation_id = f.organisation_id AND af.finding_id = f.id
+             JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+             WHERE xf.organisation_id = inc.organisation_id AND xf.incident_id = inc.id
+               AND a.status NOT IN ('CLOSED', 'CANCELLED')
+               AND ${findingVisibleSql(viewer)} AND ${actionVisibleSql(viewer)})::int AS open_action_count
     FROM assurance_incidents inc
     LEFT JOIN assurance_risk_levels rl ON rl.organisation_id = inc.organisation_id AND rl.id = inc.risk_level_id
     LEFT JOIN users ou ON ou.id = inc.owner_user_id AND ou.organisation_id = inc.organisation_id
     LEFT JOIN locations loc ON loc.organisation_id = inc.organisation_id AND loc.id = inc.location_id
+    LEFT JOIN assets ast ON ast.organisation_id = inc.organisation_id AND ast.id = inc.asset_id
+    LEFT JOIN external_organisations xo ON xo.organisation_id = inc.organisation_id AND xo.id = inc.external_organisation_id
     WHERE inc.organisation_id = ${org}
       AND ${incidentVisibleSql(viewer)}
       AND (${status}::text IS NULL OR inc.status = ${status})
-      AND (${state}::text <> 'open' OR inc.status NOT IN ('CLOSED', 'CANCELLED'))
-      AND (${state}::text <> 'closed' OR inc.status IN ('CLOSED', 'CANCELLED'))
+      AND (${view}::text IN ('all', 'closed') OR inc.status NOT IN ('CLOSED', 'CANCELLED'))
+      AND (${view}::text <> 'closed' OR inc.status IN ('CLOSED', 'CANCELLED'))
+      AND (${view}::text <> 'needs_triage' OR inc.status IN ('REPORTED', 'UNDER_REVIEW'))
+      AND (${view}::text <> 'investigation_required' OR inc.status = 'INVESTIGATION_REQUIRED')
+      AND (${view}::text <> 'under_investigation' OR inc.status = 'UNDER_INVESTIGATION')
+      -- Derived views count EVERY linked record (the closure guard does), never naming hidden ones.
+      AND (${view}::text <> 'findings_open' OR ${openFindingsAllSql} > 0)
+      AND (${view}::text <> 'ready' OR (inc.status = 'AWAITING_VERIFICATION' AND ${openFindingsAllSql} = 0 AND ${activeInvestigationsAllSql} = 0))
       AND (${category}::text IS NULL OR inc.category = ${category})
       AND (${riskLevelId}::uuid IS NULL OR inc.risk_level_id = ${riskLevelId}::uuid)
       AND (${locationId}::uuid IS NULL OR inc.location_id = ${locationId}::uuid)
+      AND (${externalOrganisationId}::uuid IS NULL OR inc.external_organisation_id = ${externalOrganisationId}::uuid)
       AND (${ownerUserId}::text IS NULL OR inc.owner_user_id = ${ownerUserId})
       AND (${restricted}::boolean IS NULL OR inc.restricted = ${restricted}::boolean)
       AND (${from}::timestamptz IS NULL OR inc.occurred_at >= ${from}::timestamptz)
@@ -96,6 +130,14 @@ export async function listIncidents(viewer: AssuranceViewer, filters: IncidentLi
     LIMIT ${INCIDENT_LIST_LIMIT}
   `) as IncidentListRow[];
 }
+
+/** Correlated counts over EVERY linked record of the incident aliased `inc` (closure-guard semantics). */
+const openFindingsAllSql = sql`(SELECT count(*) FROM assurance_incident_findings lx
+  JOIN assurance_findings g ON g.organisation_id = lx.organisation_id AND g.id = lx.finding_id
+  WHERE lx.organisation_id = inc.organisation_id AND lx.incident_id = inc.id AND g.status NOT IN ('CLOSED', 'CANCELLED'))`;
+const activeInvestigationsAllSql = sql`(SELECT count(*) FROM assurance_investigation_incidents li
+  JOIN assurance_investigations w ON w.organisation_id = li.organisation_id AND w.id = li.investigation_id
+  WHERE li.organisation_id = inc.organisation_id AND li.incident_id = inc.id AND w.status NOT IN ('COMPLETED', 'CANCELLED'))`;
 
 function safeDate(value: string | undefined, endOfDay = false): string | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -122,6 +164,11 @@ export type IncidentDetail = {
   }[];
   findings: { id: string; finding_reference: string; title: string; finding_type: string; status: string; identified_at: AssuranceTimestamp }[];
   hiddenFindingCount: number;
+  /** Open Findings / active Investigations the viewer cannot see — used only to say "one or more". */
+  hiddenOpenFindingCount: number;
+  hiddenActiveInvestigationCount: number;
+  /** Corrective Actions addressing this incident's (visible) Findings. Incidents never own Actions directly. */
+  actions: { id: string; action_reference: string; title: string; status: string; owner_name: string | null; finding_references: string[] }[];
   evidence: EvidenceLinkRow[];
   history: AssuranceHistoryEntry[];
 };
@@ -162,7 +209,7 @@ export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Pr
   const incident = rows[0];
   if (!incident) return null;
 
-  const [people, investigations, findings, hidden, evidence, history] = await Promise.all([
+  const [people, investigations, findings, hidden, evidence, history, hiddenOpen, actions] = await Promise.all([
     sql`
       SELECT ip.id, ip.role, ip.notes,
              COALESCE(NULLIF(btrim(p.preferred_name), ''), p.first_name) || ' ' || p.last_name AS display_name,
@@ -214,7 +261,32 @@ export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Pr
       ORDER BY l.removed_at NULLS FIRST, l.created_at DESC
     `,
     listAssuranceHistory(org, 'assurance_incident', id),
+    sql`
+      SELECT
+        (SELECT count(*) FROM assurance_incident_findings lx
+          JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
+          WHERE lx.organisation_id = ${org} AND lx.incident_id = ${id}::uuid
+            AND f.status NOT IN ('CLOSED', 'CANCELLED') AND NOT ${findingVisibleSql(viewer)})::int AS findings,
+        (SELECT count(*) FROM assurance_investigation_incidents ii
+          JOIN assurance_investigations inv ON inv.organisation_id = ii.organisation_id AND inv.id = ii.investigation_id
+          WHERE ii.organisation_id = ${org} AND ii.incident_id = ${id}::uuid
+            AND inv.status NOT IN ('COMPLETED', 'CANCELLED') AND NOT ${investigationVisibleSql(viewer)})::int AS investigations
+    `,
+    sql`
+      SELECT a.id, a.action_reference, a.title, a.status, ou.name AS owner_name,
+             array_agg(DISTINCT f.finding_reference ORDER BY f.finding_reference) AS finding_references
+      FROM assurance_incident_findings lx
+      JOIN assurance_findings f ON f.organisation_id = lx.organisation_id AND f.id = lx.finding_id
+      JOIN assurance_action_findings af ON af.organisation_id = f.organisation_id AND af.finding_id = f.id
+      JOIN assurance_actions a ON a.organisation_id = af.organisation_id AND a.id = af.action_id
+      LEFT JOIN users ou ON ou.id = a.owner_user_id AND ou.organisation_id = a.organisation_id
+      WHERE lx.organisation_id = ${org} AND lx.incident_id = ${id}::uuid
+        AND ${findingVisibleSql(viewer)} AND ${actionVisibleSql(viewer)}
+      GROUP BY a.id, a.action_reference, a.title, a.status, ou.name, a.created_at
+      ORDER BY a.created_at ASC
+    `,
   ]);
+  const h = (hiddenOpen as { findings: number; investigations: number }[])[0];
 
   return {
     incident,
@@ -222,6 +294,9 @@ export async function getIncidentDetail(viewer: AssuranceViewer, id: string): Pr
     investigations: investigations as IncidentDetail['investigations'],
     findings: findings as IncidentDetail['findings'],
     hiddenFindingCount: ((hidden as { n: number }[])[0]?.n) ?? 0,
+    hiddenOpenFindingCount: h?.findings ?? 0,
+    hiddenActiveInvestigationCount: h?.investigations ?? 0,
+    actions: actions as IncidentDetail['actions'],
     evidence: evidence as EvidenceLinkRow[],
     history,
   };
@@ -312,16 +387,7 @@ export async function createIncident(viewer: AssuranceViewer, raw: Record<string
 
 // Triage lifecycle. Closure is always an explicit step; nothing elsewhere
 // in Assurance ever moves an Incident to CLOSED as a side effect.
-export const INCIDENT_TRANSITIONS: Record<IncidentStatus, readonly IncidentStatus[]> = {
-  REPORTED: ['UNDER_REVIEW', 'CANCELLED'],
-  UNDER_REVIEW: ['INVESTIGATION_REQUIRED', 'ACTION_REQUIRED', 'AWAITING_VERIFICATION', 'CLOSED', 'CANCELLED'],
-  INVESTIGATION_REQUIRED: ['UNDER_INVESTIGATION', 'UNDER_REVIEW', 'CANCELLED'],
-  UNDER_INVESTIGATION: ['ACTION_REQUIRED', 'AWAITING_VERIFICATION', 'UNDER_REVIEW'],
-  ACTION_REQUIRED: ['AWAITING_VERIFICATION', 'UNDER_REVIEW'],
-  AWAITING_VERIFICATION: ['CLOSED', 'ACTION_REQUIRED'],
-  CLOSED: [],
-  CANCELLED: [],
-};
+export { INCIDENT_TRANSITIONS };
 
 export async function transitionIncident(
   viewer: AssuranceViewer,
@@ -398,5 +464,52 @@ export async function transitionIncident(
   ]);
   const rows = results[1] as { id: string; status: IncidentStatus }[];
   if (!rows[0]) throw new AssuranceConflictError('This incident changed while you were updating it. Refresh and try again.');
+  return rows[0];
+}
+
+/**
+ * Assigns (or clears) the incident owner. Optimistic: the request carries
+ * the owner the user saw; a concurrent change makes it a deterministic
+ * conflict instead of a silent overwrite. Finished incidents keep their
+ * owner. Ownership never changes status, risk or anything linked.
+ */
+export async function assignIncidentOwner(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<{ id: string; owner_user_id: string | null }> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  const ownerUserId = optionalUserId(raw.ownerUserId, 'Owner');
+  const expected = raw.expectedOwnerUserId === undefined ? undefined : optionalUserId(raw.expectedOwnerUserId, 'Current owner');
+  const current = await assertIncidentVisible(viewer, id);
+  if (current.status === 'CLOSED' || current.status === 'CANCELLED') {
+    throw new AssuranceConflictError('The owner of a closed or cancelled incident cannot be changed.');
+  }
+  await assertSameOrgUsers(viewer.organisationId, [{ field: 'Owner', userId: ownerUserId }]);
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_incidents WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
+      WITH prev AS (
+        SELECT owner_user_id FROM assurance_incidents
+        WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid
+      ), upd AS (
+        UPDATE assurance_incidents i
+        SET owner_user_id = ${ownerUserId}, updated_at = now()
+        WHERE i.organisation_id = ${viewer.organisationId} AND i.id = ${id}::uuid
+          AND i.status NOT IN ('CLOSED', 'CANCELLED')
+          AND (${expected === undefined}::boolean OR i.owner_user_id IS NOT DISTINCT FROM ${expected ?? null}::text)
+          AND i.owner_user_id IS DISTINCT FROM ${ownerUserId}::text
+        RETURNING i.id, i.owner_user_id
+      ), aud AS (
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_incident.owner_changed',
+               'assurance_incident', upd.id::text,
+               jsonb_build_object('owner_user_id', (SELECT owner_user_id FROM prev)),
+               jsonb_build_object('owner_user_id', upd.owner_user_id)
+        FROM upd
+      )
+      SELECT id, owner_user_id FROM upd
+    `,
+  ]);
+  const rows = results[1] as { id: string; owner_user_id: string | null }[];
+  if (!rows[0]) {
+    throw new AssuranceConflictError('The owner was not changed: someone else changed it (or the incident) first, or it is already that person. Refresh and try again.');
+  }
   return rows[0];
 }

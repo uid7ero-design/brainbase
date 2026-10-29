@@ -108,6 +108,46 @@ Optional fields: **Immediate response taken**, **Risk level**, **Owner**,
 
 A new incident starts as **Reported**. You are recorded as the reporter.
 
+An incident is the **event** — what happened. Working out why is an
+**investigation**; issues found are **findings**; corrective work is
+**actions**. Each is its own record.
+
+### The Incidents register
+
+The register has views for **All**, **Open**, **Needs triage** (Reported or
+Under review), **Investigation required**, **Under investigation**, **Findings
+open** (at least one linked finding still open), **Ready for closure**
+(Awaiting verification, with no open finding and no running investigation)
+and **Closed** (closed or cancelled). It can also be filtered by status,
+category, risk, owner, location, external organisation, restriction and
+date.
+
+Each row shows the risk, owner, where it happened (location, asset,
+external organisation), whether an investigation is active or finished, how
+many findings are open, and how many corrective actions are still open on
+those findings.
+
+### Owner
+
+The **owner** is responsible for the incident response. Use **Assign owner**
+(or **Change owner**) under **Next step**. If someone else changed the owner
+since you opened the page, your change is refused — refresh and try again.
+Changing the owner changes nothing else. A closed or cancelled incident
+keeps its owner.
+
+### What still needs attention
+
+An open incident shows two boxes:
+
+- **What still prevents this incident from being closed?** — only the
+  things that will actually stop closure: the status path, open findings
+  (named), and investigations that are not completed (named). Findings or
+  investigations hidden from you are reported only as "one or more".
+- **Triage facts** — whether a risk level is set, an owner is assigned, an
+  immediate response is recorded, an investigation is linked or marked
+  required, and whether findings have been raised. These are facts only;
+  BrainBase never decides the risk or whether to investigate.
+
 ### Restricted incidents
 
 Tick **Restricted incident** when the matter is sensitive. A restricted
@@ -121,6 +161,11 @@ lists, counts and search.
 
 If an unrestricted record is linked to a restricted one, the restricted
 record appears as a **Restricted** placeholder with no details.
+
+An investigation of a restricted incident must itself be restricted.
+**Start investigation** on a restricted incident always creates a restricted
+investigation, and a restricted incident cannot be linked to an unrestricted
+investigation.
 
 ### Status and lifecycle
 
@@ -141,9 +186,13 @@ closing actions does **not** change an incident's status. Keep it current
 yourself.
 
 **Closing** needs a **Closure summary**. It is refused while any linked
-finding is still open, or any linked investigation is still active. If that
-applies, a warning shows what is blocking closure. Nothing is closed on the
-incident's behalf.
+finding is still open, or any linked investigation is still active. The
+**What still prevents this incident from being closed?** box shows what is
+blocking closure. Nothing is closed on the incident's behalf, and closing an
+incident never closes its investigations, findings or actions.
+
+A closed or cancelled incident **cannot be reopened**. If the issue recurs,
+report a new incident.
 
 ### People
 
@@ -160,10 +209,21 @@ example injured person, witness, responder) with their role and notes.
 - **Link existing finding** (next to **Raise finding**) attaches a finding
   that already exists — for a repeat issue already being managed. It offers
   open findings you can see that are not already linked.
-- **Start investigation** in the **Investigations** section opens a new
-  investigation with this incident already chosen as the primary incident.
-- The **Investigations** table shows each linked investigation, its
+- **Start investigation** in the **Investigation** section starts a new
+  investigation with this incident as its **primary** incident. Enter the
+  **Title** and **What will the investigation establish?**, and optionally
+  the **Lead investigator**, **Risk level** (pre-filled from the incident;
+  change it if needed) and **Target completion**. The incident's own status
+  does **not** change — move it to **Investigation underway** yourself.
+- While an active investigation already has this incident as its primary
+  incident, a second **Start investigation** is refused; open the existing
+  one instead. To investigate several incidents together, use **Start one
+  that covers several incidents**.
+- The **Investigation** table shows each linked investigation, its
   relationship (Primary, Related, Triggering or Context) and its status.
+- **Corrective actions** lists the actions on this incident's findings.
+  Actions always address a finding — there is no action directly on an
+  incident — and closing them never closes the incident.
 - A note appears if some linked findings are hidden from you because they
   belong to restricted records.
 
@@ -184,6 +244,26 @@ Fill in:
   organisation admins will see it and the findings raised from it.
 
 A new investigation starts as **Open**.
+
+An investigation is the **structured process** to understand an incident:
+its scope, the evidence gathered, the findings it identifies and its
+conclusion. It is not a narrative copy of the incident — nothing is copied
+from the incident's description.
+
+### The Investigations register
+
+Views: **All**, **Active**, **Open / planning**, **In progress**, **Awaiting
+information**, **Ready for completion** (Awaiting review — the only status
+that can be completed), **Findings recorded** and **Completed / cancelled**.
+Each row shows the lead, start and target dates, source incidents, how much
+evidence is linked, open findings and open corrective actions.
+
+### Lead investigator
+
+Use **Assign lead investigator** (or **Change lead investigator**) under
+**Next step**. As with incident owners, a change made by someone else since
+you opened the page makes yours refused. The lead of a restricted
+investigation can see it and everything linked beneath it.
 
 ### Linked incidents
 
@@ -215,9 +295,26 @@ investigator, witness, subject, technical adviser, reviewer and so on).
 | Awaiting review | **Move to in progress**, **Complete with conclusion** |
 | Completed / Cancelled | No further steps |
 
-**Complete with conclusion** requires a **Conclusion**. Completing records
-the conclusion only. It does **not** close the linked incidents or any
-findings.
+**Complete with conclusion** requires a **Conclusion**: the factual outcome,
+written by the investigator. BrainBase never writes, suggests or infers a
+cause, blame or liability. Completing records the conclusion only. It does
+**not** close the linked incidents, findings or actions.
+
+The **What still prevents this investigation from being completed?** box
+shows the status path still needed. Open findings do **not** block
+completion — they are closed on their own — and the **Target completion**
+date is a planning date, not a deadline: it shows as overdue but never
+blocks anything.
+
+A completed or cancelled investigation **cannot be reopened**. Start a new
+investigation if more work is needed.
+
+### Evidence
+
+**Evidence gathered** works as everywhere in Assurance (see
+[Evidence](#evidence)): who recorded it, its verification state and any
+replacement history. Accepting evidence never completes the investigation
+or closes the incident.
 
 ### Findings
 

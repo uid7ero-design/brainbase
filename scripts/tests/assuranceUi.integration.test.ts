@@ -276,12 +276,15 @@ describe('restricted records', () => {
     expect(await m.incidents.getIncidentDetail(mgrA, inc.id)).toBeNull();
   });
 
-  it('an unrestricted investigation shows a restricted linked incident only as a redacted placeholder', async () => {
+  it('a restricted incident cannot join an unrestricted investigation; inside a restricted one it is a redacted placeholder for a lead who cannot see it', async () => {
     const secret = await m.incidents.createIncident(adminA, incidentInput({ title: 'Secret incident title', restricted: true }));
     const open = await m.incidents.createIncident(adminA, incidentInput({ title: 'Open incident' }));
+    const links = [{ incidentId: open.id, relationship: 'PRIMARY' }, { incidentId: secret.id, relationship: 'RELATED' }];
+    await expectError(m.investigations.createInvestigation(adminA, { title: 'Mixed investigation', scope: 'scope', incidents: links }), 'AssuranceValidationError', /restricted/);
+    // Restriction inheritance: the investigation must be restricted. Its lead (mgr2A) can see it,
+    // but not the restricted incident they are not involved in — that stays a redacted placeholder.
     const inv = await m.investigations.createInvestigation(adminA, {
-      title: 'Mixed investigation', scope: 'scope',
-      incidents: [{ incidentId: open.id, relationship: 'PRIMARY' }, { incidentId: secret.id, relationship: 'RELATED' }],
+      title: 'Mixed investigation', scope: 'scope', restricted: true, leadUserId: 'a-mgr2', incidents: links,
     });
     const d = await m.investigations.getInvestigationDetail(mgr2A, inv.id);
     expect(d).not.toBeNull();

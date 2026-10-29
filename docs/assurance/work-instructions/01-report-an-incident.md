@@ -49,6 +49,18 @@ cannot report them.
 
 ## Important rules
 
+- Assign or change the **Owner** later with **Assign owner** / **Change
+  owner** under **Next step**. A change made by someone else since you
+  opened the page makes yours refused; refresh and try again.
+- The **What still needs attention** box on the incident lists what still
+  prevents closure and the triage facts (risk, owner, immediate response,
+  investigation, findings). It never decides anything for you.
+- Risk level, location, asset and external organisation are set when the
+  incident is reported and cannot yet be edited afterwards.
+- People (injured person, witness and so on) cannot yet be added from the
+  Assurance screens.
+- A closed or cancelled incident cannot be reopened.
+
 - Status changes are manual. Nothing moves an incident's status for you.
 - A restricted incident is visible only to its owner, its reporter, its
   creator and organisation admins. Its findings, actions and evidence are
