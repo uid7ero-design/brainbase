@@ -24,7 +24,8 @@ describe('the two calendar routes are GET only, behind scheduling.view, through 
   it.each(ROUTES)('%s', f => {
     const src = code(f);
     expect([...src.matchAll(/export const (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)].map(m => m[1])).toEqual(['GET']);
-    expect(src).toMatch(/export const GET = schedulingRoute\('scheduling\.view', (offeringCalendar|resourceCalendar)\);/);
+    // 2B.3e adds a bounded execution time (a read, so answering "timed out" is always safe) and nothing else
+    expect(src).toMatch(/export const GET = schedulingRoute\('scheduling\.view', (offeringCalendar|resourceCalendar), \{ deadlineMs: calendarDeadlineMs \}\);/);
     expect(src).not.toMatch(/scheduling\.manage|scheduling\.reserve|scheduling\.attendance/);
     expect(src).not.toMatch(/requireSession|@\/lib\/db|@\/lib\/org|@scheduling\/postgres|NextResponse|cookies\(|headers\(/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);
@@ -48,7 +49,7 @@ describe('the handler reads and writes nothing', () => {
 
   it('uses only the repository reads the calendar needs', () => {
     const reads = [...src.matchAll(/context\.(?:persistence\.config|availability)\.(\w+)\(/g)].map(m => m[1]);
-    expect([...new Set(reads)].sort()).toEqual(['getOffering', 'getSchedule', 'listExceptions', 'listLiveHoldsForResources', 'listOfferingResources', 'listResources', 'listRules']);
+    expect([...new Set(reads)].sort()).toEqual(['getOffering', 'getSchedule', 'listExceptionsForOwners', 'listLiveHoldsForResources', 'listOfferingResources', 'listResources', 'listRulesForOwners', 'listZonesForOwners']);
   });
 
   it('accepts only from, to and (for an offering) step, and caps the range', () => {
@@ -129,7 +130,8 @@ describe('the pages authorise themselves', () => {
     const src = code(f);
     expect(src).toMatch(/resolveSchedulingPage\(\)/);
     expect(src).toMatch(/if \(denied\) return denied;/);
-    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\} \/>/);
+    // 2B.3e follow-up: the page also hands the screen the organisation's timezone (read beside the access check), so the screen need not ask /status for it
+    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\} organisationTimezone=\{timezone\} \/>/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);
   });
 });

@@ -3,6 +3,7 @@ import { requireSession, type OrgSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { getUserPermissions } from '@/lib/organisationUsers/access';
 import { SCHEDULING_CAPABILITY_KEY, permissionsForRole } from './adapters/brainbase';
+import { resolveOrganisationTimezone } from './organisationTimezone';
 
 // Phase 2B.2c — the page/layout gate for the Scheduling dashboard. It is a UX gate, not the security boundary: every number and
 // every button on a page comes from /api/scheduling/**, where schedulingRoute() re-checks the session, the organisation's
@@ -20,7 +21,7 @@ export type SchedulingPageAccess =
   | { status: 'unauthenticated' }
   | { status: 'not_enabled' }
   | { status: 'unavailable' }
-  | { status: 'ok'; canManage: boolean; role: string };
+  | { status: 'ok'; canManage: boolean; role: string; timezone: string | null };
 
 export async function getSchedulingPageAccess(): Promise<SchedulingPageAccess> {
   let session: OrgSession;
@@ -31,7 +32,12 @@ export async function getSchedulingPageAccess(): Promise<SchedulingPageAccess> {
   }
   if (!session || !session.organisationId || !session.userId) return { status: 'unauthenticated' };
 
-  const capability = await checkCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY);
+  // The organisation's timezone (host data, the same value /api/scheduling/status reports) is read BESIDE the entitlement check, not after it, so the page can hand it to a
+  // screen that would otherwise have to ask for it in a request of its own. It is only passed on when the access check passes; if it cannot be read the screen asks, as before.
+  const [capability, timezone] = await Promise.all([
+    checkCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY),
+    resolveOrganisationTimezone(session.organisationId).then(z => z.value, () => null),
+  ]);
   if (!capability.allowed) return capability.reason === 'DATABASE_ERROR' ? { status: 'unavailable' } : { status: 'not_enabled' };
 
   const permissions = permissionsForRole(session.role);
@@ -48,5 +54,5 @@ export async function getSchedulingPageAccess(): Promise<SchedulingPageAccess> {
     }
   }
   if (level === 'none') return { status: 'not_enabled' };
-  return { status: 'ok', canManage: permissions.includes('scheduling.manage') && level !== 'view', role: session.role };
+  return { status: 'ok', canManage: permissions.includes('scheduling.manage') && level !== 'view', role: session.role, timezone };
 }

@@ -98,7 +98,7 @@ test('day view: the offering and each court side by side, in the zone they are s
     await expect(agenda).toContainText('ZZ Calendar hire — open 09:00 to 17:00');
     // court A is set in Perth (08:00-12:00, closed 10:00-10:30) and is shown here in the OFFERING's zone, Adelaide (+2:30 ahead of Perth)
     await expect(agenda).toContainText('ZZ Calendar court A — open 10:30 to 12:30, 13:00 to 14:30; closed 12:30 to 13:00');
-    await expect(agenda).toContainText('ZZ Calendar court B — no hours, not available');
+    await expect(agenda).toContainText('ZZ Calendar court B — no hours set, so not available');
   } else {
     const grid = page.getByTestId('calendar-grid');
     await expect(grid).toBeVisible();

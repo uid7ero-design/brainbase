@@ -113,6 +113,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2B.3d (deliberate, reviewed change): the same for the read-only calendar API proof. It applies and removes the STAGED migrations
         // 034, 035 and 036 on its DISPOSABLE database (SCHEDULING_TEST_DATABASE_URL only) and creates no scheduling_* table itself.
         if (rel(full) === 'scripts/tests/schedulingCalendarApi2b3d.integration.test.ts') continue;
+        if (rel(full) === 'scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts') continue;
+        if (rel(full) === 'scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts') continue;
         // Scheduling browser harness (deliberate, reviewed change): it applies the committed Scheduling SQL to a DISPOSABLE Docker
         // database and seeds one scheduling_settings row per fixture organisation (the application never creates settings). Its
         // network guard refuses every non-loopback request and every non-fixture SQL connection; it creates no scheduling_* table itself.

@@ -253,6 +253,11 @@ export interface AvailabilityRule {
   endTime: LocalTime;
   validFrom: LocalDate | null;
   validTo: LocalDate | null;
+  /**
+   * What the rule means. Absent or 'hours': ordinary weekly opening hours. Anything else (today 'service_period') is NOT supported by the engine: an
+   * owner that has such a rule is UNAVAILABLE, never read as hours (see hasUnsupportedRuleKind). Optional so callers that only know hours are unaffected.
+   */
+  kind?: 'hours' | 'service_period';
 }
 
 export interface AvailabilityException {

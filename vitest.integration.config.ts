@@ -247,6 +247,8 @@ export default defineConfig({
       'scripts/tests/schedulingAvailabilityApi2b3b.integration.test.ts',
       'scripts/tests/schedulingAvailabilityApi2b3c.integration.test.ts',
       'scripts/tests/schedulingCalendarApi2b3d.integration.test.ts',
+      'scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts',
+      'scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

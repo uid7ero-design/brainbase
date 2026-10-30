@@ -117,6 +117,9 @@ const ownerOf = (r: { resourceId: string | null; offeringId: string | null }): A
  * else the tenant's (the organisation's, or the platform fallback). A resource has no schedule. It is only a default for the first write:
  * an owner that is already pinned keeps its pin whatever this returns, and nothing here reads the browser's timezone.
  */
+/** A 'service_period' rule has no defined meaning yet, so it cannot be saved: the engine treats an owner that has one as unavailable. An existing one can be removed, or changed to 'hours'. */
+const SERVICE_PERIOD_NOT_SUPPORTED = "kind 'service_period' is not supported yet; use 'hours'. An existing service_period rule can be removed or changed to 'hours'";
+
 async function defaultZone(context: SchedulingRouteContext, owner: AvailabilityOwner): Promise<IanaTimezone> {
   if (owner.kind === 'offering') {
     const offering = await context.persistence.config.getOffering(context.tenant, owner.id);
@@ -219,7 +222,7 @@ export const createRuleFor = (kind: OwnerKind) =>
     const validFrom = optionalDate(body, 'validFrom', problems);
     const validTo = optionalDate(body, 'validTo', problems);
     const ruleKind = has(body, 'kind') ? body.kind : 'hours';
-    if (ruleKind !== 'hours' && ruleKind !== 'service_period') problems.push("kind must be 'hours' or 'service_period'");
+    if (ruleKind !== 'hours') problems.push(ruleKind === 'service_period' ? SERVICE_PERIOD_NOT_SUPPORTED : "kind must be 'hours'");
     const overnight = has(body, 'overnight') ? body.overnight : false;
     if (typeof overnight !== 'boolean') problems.push('overnight must be true or false');
     const requested = requestedZone(body, problems);
@@ -296,7 +299,7 @@ export async function updateRule(context: SchedulingRouteContext): Promise<Respo
   const label = optionalText(changes, 'label', MAX_LABEL, problems);
   const validFrom = optionalDate(changes, 'validFrom', problems);
   const validTo = optionalDate(changes, 'validTo', problems);
-  if (has(changes, 'kind') && changes.kind !== 'hours' && changes.kind !== 'service_period') problems.push("kind must be 'hours' or 'service_period'");
+  if (has(changes, 'kind') && changes.kind !== 'hours') problems.push(changes.kind === 'service_period' ? SERVICE_PERIOD_NOT_SUPPORTED : "kind must be 'hours'");
   if (Object.keys(changes).length === 0) problems.push('nothing to change');
   if (problems.length > 0) return badRequest([...new Set(problems)]);
 

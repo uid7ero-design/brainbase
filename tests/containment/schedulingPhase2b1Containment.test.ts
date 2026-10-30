@@ -122,7 +122,7 @@ describe('the guard itself', () => {
   });
 
   it('returns the denial before reaching the runtime, and never calls the handler on a denial', () => {
-    expect(guard).toMatch(/if \(!auth\.ok\) return withNoStore\(auth\.response\);/);
+    expect(guard).toMatch(/if \(!auth\.ok\) return finish\(withNoStore\(auth\.response\), 'denied'\);/); // 2B.3e: the same early return, now also logged (route family only, no path, no identity)
     expect(guard).toMatch(/Cache-Control['"], ['"]no-store/);
   });
 
@@ -158,9 +158,13 @@ describe('settings are explicit: no application code creates or edits them', () 
   });
 
   it('the runtime reads settings only through the repository and organisations.timezone with one SELECT', () => {
+    // 2B.3e follow-up: the organisation-timezone lookup moved to its own module (the page gate reads the zone without importing the runtime). The pin still holds over both
+    // files together: the settings go through the repository, and the only SQL in either is the one SELECT of organisations.timezone.
     const rt = noTsComments(read('lib/scheduling/runtime.ts'));
-    expect(rt).toMatch(/persistence\.config\.getSettings\(tenant\)/);
-    expect([...rt.matchAll(/sql`([^`]*)`/g)].map(m => m[1].replace(/\s+/g, ' ').trim())).toEqual(['SELECT timezone FROM organisations WHERE id = ${organisationId} LIMIT 1']);
+    const tz = noTsComments(read('lib/scheduling/organisationTimezone.ts'));
+    expect(rt).toMatch(/persistence\.config\.getSettings\(/);
+    expect([...(rt + tz).matchAll(/sql`([^`]*)`/g)].map(m => m[1].replace(/\s+/g, ' ').trim())).toEqual(['SELECT timezone FROM organisations WHERE id = ${organisationId} LIMIT 1']);
+    expect(tz).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+)/i);
   });
 });
 

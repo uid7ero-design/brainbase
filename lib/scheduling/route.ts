@@ -1,5 +1,5 @@
 import { authorizeSchedulingRequest } from './access';
-import { loadSchedulingRuntime, SchedulingConfigurationError, type SchedulingRuntime } from './runtime';
+import { loadSchedulingRuntime, SchedulingConfigurationError, type SchedulingRuntime, type StatementRecorder } from './runtime';
 import type { OrgSession } from '@/lib/org';
 import type { SchedulingPermission } from '@scheduling/core';
 
@@ -40,28 +40,103 @@ function withNoStore(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-export function schedulingRoute(permission: SchedulingPermission, handler: SchedulingRouteHandler) {
-  const schedulingRouteHandler = async (request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> => {
-    const auth = await authorizeSchedulingRequest(permission);
-    if (!auth.ok) return withNoStore(auth.response);
+export interface SchedulingRouteOptions {
+  /**
+   * A bounded execution time for a READ route, in milliseconds (a function so it can be tuned without a redeploy). When it passes before the handler has answered, the
+   * request's database statements stop waiting (AbortSignal), the caller gets `504 SCHEDULING_TIMEOUT` with nothing else, and the late result is discarded. Only
+   * for routes that write nothing: a write must never be answered "timed out" while it may still commit.
+   */
+  deadlineMs?: () => number;
+}
 
-    let runtime: SchedulingRuntime;
+/** The answer when a bounded read ran out of time. Generic on purpose: no route, query, organisation or SQL. */
+const timedOut = (): Response => schedulingJson({ error: 'This took too long to load, so nothing was returned. Nothing was changed. Please try again.', code: 'SCHEDULING_TIMEOUT' }, { status: 504 });
+
+/**
+ * One log line per request: the route TEMPLATE (dynamic segments replaced), the method, the status, the duration and the outcome. Never an organisation, user, role, session,
+ * cookie, query string, body, parameter value, error message or SQL: there is nothing here that identifies a customer or could carry a token.
+ */
+function logRequest(request: Request, params: Readonly<Record<string, string>> | null, status: number, startedAt: number, outcome: 'ok' | 'denied' | 'error' | 'timeout' | 'unavailable', recorder: StatementRecorder, errorCode?: string): void {
+  // Before the route's params were resolved (a denial, an unconfigured organisation, a deadline hit while the runtime was loading) no path is logged at all: the params
+  // are only read after authorisation, and a denied request must not have its ids written anywhere.
+  let route = '/api/scheduling/(not resolved)';
+  if (params) {
     try {
-      runtime = await loadSchedulingRuntime(auth.session);
-    } catch (err) {
-      if (err instanceof SchedulingConfigurationError) {
-        return schedulingJson({ error: 'Scheduling is not configured for this organisation.', code: err.code }, { status: 503 });
-      }
-      console.error('[scheduling] runtime unavailable', (err as { code?: string })?.code ?? (err as Error)?.name);
-      return schedulingJson({ error: 'Scheduling is temporarily unavailable.' }, { status: 503 });
+      const values = new Set(Object.values(params));
+      route = new URL(request.url).pathname.split('/').map(segment => (values.has(segment) ? ':id' : segment)).join('/');
+    } catch {
+      route = 'unknown';
     }
+  }
+  // stmts and dbMs: how many repository statements the request issued and how long they took in total (they overlap, so dbMs can exceed ms). Numbers only.
+  const line: Record<string, string | number> = { route, method: request.method, status, ms: Math.round(performance.now() - startedAt), outcome, stmts: recorder.statements, dbMs: Math.round(recorder.dbMs) };
+  if (errorCode) line.error = errorCode;
+  console.info('[scheduling] request', JSON.stringify(line));
+}
+
+export function schedulingRoute(permission: SchedulingPermission, handler: SchedulingRouteHandler, options: SchedulingRouteOptions = {}) {
+  const schedulingRouteHandler = async (request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> => {
+    const startedAt = performance.now();
+    let loggedParams: Readonly<Record<string, string>> | null = null; // set only after authorisation and the runtime, for the log line's route template
+    const recorder: StatementRecorder = { statements: 0, dbMs: 0 };
+    let logged = false; // one line per request: a result that arrives after the deadline is not logged again
+    const finish = (response: Response, outcome: Parameters<typeof logRequest>[4], errorCode?: string): Response => {
+      if (logged) return response;
+      logged = true;
+      logRequest(request, loggedParams, response.status, startedAt, outcome, recorder, errorCode);
+      // Server-Timing lets the browser's own tools show where a request's time went: app = the whole request, db = the statements' total time (numbers only).
+      const headers = new Headers(response.headers);
+      headers.set('Server-Timing', `app;dur=${Math.round(performance.now() - startedAt)}, db;dur=${Math.round(recorder.dbMs)};desc="${recorder.statements} statements, summed"`);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    };
+
+    const auth = await authorizeSchedulingRequest(permission);
+    if (!auth.ok) return finish(withNoStore(auth.response), 'denied');
+
+    const controller = options.deadlineMs ? new AbortController() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = controller
+      ? new Promise<'timeout'>(resolve => {
+          timer = setTimeout(() => {
+            controller.abort();
+            resolve('timeout');
+          }, options.deadlineMs!());
+        })
+      : null;
+
+    const work = (async (): Promise<Response> => {
+      let runtime: SchedulingRuntime;
+      try {
+        runtime = await loadSchedulingRuntime(auth.session, { ...(controller ? { signal: controller.signal } : {}), recorder });
+      } catch (err) {
+        if (err instanceof SchedulingConfigurationError) {
+          return finish(schedulingJson({ error: 'Scheduling is not configured for this organisation.', code: err.code }, { status: 503 }), 'unavailable', err.code);
+        }
+        const code = (err as { code?: string })?.code ?? (err as Error)?.name;
+        if (!logged) console.error('[scheduling] runtime unavailable', code); // not after the deadline already answered: that is the abort, not a fault
+        return finish(schedulingJson({ error: 'Scheduling is temporarily unavailable.' }, { status: 503 }), 'unavailable', code);
+      }
+      try {
+        const params = await resolveParams(routeContext);
+        loggedParams = params;
+        return finish(withNoStore(await handler({ ...runtime, session: auth.session, request, params })), 'ok');
+      } catch (err) {
+        const code = (err as { code?: string })?.code ?? (err as Error)?.name;
+        if (!logged) console.error('[scheduling] handler failed', code);
+        return finish(schedulingJson({ error: 'Internal error.' }, { status: 500 }), 'error', code);
+      }
+    })();
 
     try {
-      const params = await resolveParams(routeContext);
-      return withNoStore(await handler({ ...runtime, session: auth.session, request, params }));
-    } catch (err) {
-      console.error('[scheduling] handler failed', (err as { code?: string })?.code ?? (err as Error)?.name);
-      return schedulingJson({ error: 'Internal error.' }, { status: 500 });
+      if (!deadline) return await work;
+      const winner = await Promise.race([work, deadline]);
+      if (winner === 'timeout') {
+        work.catch(() => undefined); // the aborted work settles later; its result is discarded
+        return finish(timedOut(), 'timeout');
+      }
+      return winner;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   };
   // Direct service callers may omit dynamic params; Next's HTTP export checker

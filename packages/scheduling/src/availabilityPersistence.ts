@@ -8,6 +8,9 @@ import type { IanaTimezone, LocalDate } from './types';
 
 export type AvailabilityOwner = { kind: 'resource' | 'offering'; id: string };
 
+/** The most owners one batched availability read accepts (an offering's resources, plus itself). */
+export const MAX_BATCH_OWNERS = 200;
+
 export type AvailabilityRuleKind = 'hours' | 'service_period';
 
 /** A stored rule, with its version token. `endTime` may be '24:00' (end of day). */
@@ -123,6 +126,15 @@ export interface SchedulingAvailabilityRepository {
 
   /** The owner's pinned zone, or null when it has none yet (or migration 036 is not applied). Read-only. */
   getZone(tenant: TenantContext, owner: AvailabilityOwner): Promise<StoredAvailabilityZone | null>;
+
+  /**
+   * Batched, read-only forms of listRules / listExceptions / getZone for MANY owners of ONE kind in ONE statement each (the calendar reads an offering
+   * and all its resources). Same rows, same order within an owner and same tenant scoping as the per-owner reads; an id that is missing, belongs to another
+   * organisation or has nothing stored simply contributes no rows. At most MAX_BATCH_OWNERS ids. Results are NOT grouped: each row names its owner.
+   */
+  listRulesForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<StoredAvailabilityRule[]>;
+  listExceptionsForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<StoredAvailabilityException[]>;
+  listZonesForOwners(tenant: TenantContext, kind: AvailabilityOwner['kind'], ownerIds: readonly string[]): Promise<Array<StoredAvailabilityZone & { ownerId: string }>>;
 
   /** Which optional parts of the availability schema are installed (read-only). Partial-day closures need migration 035, pinned zones 036. */
   capabilities(tenant: TenantContext): Promise<AvailabilityCapabilities>;
