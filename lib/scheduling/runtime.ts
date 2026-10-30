@@ -1,8 +1,9 @@
 import 'server-only';
 import sql from '@/lib/db';
-import { isIanaTimezone, type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
+import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
 import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, type SqlExecutor } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
+import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 
 // Phase 2B.1 — the BrainBase runtime for Scheduling: the one place that joins the app's Neon driver, the shared
 // @scheduling/postgres repositories, the session's organisation and the organisation's configuration.
@@ -20,19 +21,9 @@ import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brai
 //
 // The organisation comes only from the authenticated session. No function here accepts one from a request.
 
-/** The organisation is entitled to Scheduling but is not set up for it (no settings row, or an unusable timezone). */
-export class SchedulingConfigurationError extends Error {
-  readonly code = 'SCHEDULING_NOT_CONFIGURED' as const;
-  constructor(readonly reason: 'missing_settings' | 'invalid_timezone') {
-    super(reason === 'missing_settings' ? 'Scheduling settings are missing for this organisation' : 'The organisation timezone is not a valid IANA timezone');
-    this.name = 'SchedulingConfigurationError';
-  }
-}
-
-export interface ResolvedTimezone {
-  value: string;
-  source: 'organisation' | 'fallback';
-}
+// The organisation-timezone lookup and its configuration error live in ./organisationTimezone (the page gate needs the zone without the rest of the runtime) and are
+// re-exported here, so everything that imported them from the runtime still does.
+export { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 
 export interface SchedulingRuntime {
   tenant: TenantContext;
@@ -52,41 +43,48 @@ export const systemClock: Clock = {
 };
 
 /** The shared repositories run over the app's Neon HTTP driver, exactly as the 2A driver matrix proved. */
-export function createSchedulingExecutor(signal?: AbortSignal): SqlExecutor {
+/** What a request cost the database, for its log line and Server-Timing header: how many statements and how long they took IN TOTAL (they can overlap, so the total can exceed the request's own time). Numbers only: never SQL, parameters or rows. */
+export interface StatementRecorder {
+  statements: number;
+  dbMs: number;
+}
+
+export function createSchedulingExecutor(signal?: AbortSignal, recorder?: StatementRecorder): SqlExecutor {
   // With a signal (a route that has a deadline), every repository statement of the request stops waiting when it aborts. The Neon HTTP protocol has no
   // per-session statement_timeout, so this bounds what the REQUEST waits for; the server-side statement ends on its own (reads here are indexed and bounded).
-  return fromNeonHttpLike(
+  const inner = fromNeonHttpLike(
     sql as unknown as { query(text: string, params?: unknown[], queryOptions?: Record<string, unknown>): Promise<unknown> },
     signal ? { queryOptions: { fetchOptions: { signal } } } : {},
   );
-}
-
-/**
- * organisations.timezone for the SESSION's organisation, or the fallback when it has none. An organisation row that does
- * not exist, or a stored zone that is not valid, throws: the runtime fails closed rather than guess.
- */
-export async function resolveOrganisationTimezone(organisationId: string): Promise<ResolvedTimezone> {
-  const rows = (await sql`SELECT timezone FROM organisations WHERE id = ${organisationId} LIMIT 1`) as { timezone: string | null }[];
-  if (rows.length === 0) throw new Error('organisation not found');
-  const stored = rows[0].timezone;
-  if (stored === null || stored === undefined || stored.trim() === '') return { value: BRAINBASE_FALLBACK_TIMEZONE, source: 'fallback' };
-  if (!isIanaTimezone(stored.trim())) throw new SchedulingConfigurationError('invalid_timezone');
-  return { value: stored.trim(), source: 'organisation' };
+  if (!recorder) return inner;
+  return {
+    async query<Row>(text: string, params: readonly unknown[] = []) {
+      const started = performance.now();
+      try {
+        return await inner.query<Row>(text, params);
+      } finally {
+        recorder.statements += 1;
+        recorder.dbMs += performance.now() - started;
+      }
+    },
+  };
 }
 
 /** Builds the runtime for an authorised staff session. Read-only: it never writes to the database. */
-export async function loadSchedulingRuntime(session: { organisationId: string; userId: string; role: string }, options: { signal?: AbortSignal } = {}): Promise<SchedulingRuntime> {
-  const timezone = await resolveOrganisationTimezone(session.organisationId);
-  const tenant = staffTenantContext({
-    organisationId: session.organisationId,
-    userId: session.userId,
-    role: session.role,
-    timezone: timezone.value,
-  });
-  const executor = createSchedulingExecutor(options.signal);
+export async function loadSchedulingRuntime(session: { organisationId: string; userId: string; role: string }, options: { signal?: AbortSignal; recorder?: StatementRecorder } = {}): Promise<SchedulingRuntime> {
+  const executor = createSchedulingExecutor(options.signal, options.recorder);
   const persistence = createPostgresScheduling({ sql: executor, clock: systemClock });
   const availability = new PostgresAvailabilityRepository({ sql: executor });
-  const settings = await persistence.config.getSettings(tenant);
+  // The organisation's zone and its settings row are independent reads, so they are asked together (one round trip, not two). The settings read only needs the
+  // organisation and the caller's permission, and the stored settings never carry a zone (the host owns it), so it is made with a tenant built on the platform
+  // fallback zone; the tenant handed to the handler is built on the resolved zone below. Failure order is unchanged: an unusable zone is reported before a
+  // missing settings row, and nothing is created or repaired.
+  const identity = { organisationId: session.organisationId, userId: session.userId, role: session.role };
+  const [timezone, settings] = await Promise.all([
+    resolveOrganisationTimezone(session.organisationId),
+    persistence.config.getSettings(staffTenantContext({ ...identity, timezone: BRAINBASE_FALLBACK_TIMEZONE })),
+  ]);
+  const tenant = staffTenantContext({ ...identity, timezone: timezone.value });
   if (!settings) throw new SchedulingConfigurationError('missing_settings');
   return { tenant, persistence, availability, settings, timezone };
 }

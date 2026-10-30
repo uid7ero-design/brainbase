@@ -103,7 +103,7 @@ Consequence to design for in the reservations phase: show the start times the en
 
 ## 5. Mobile, accessibility and first paint
 
-Real Chromium, synthetic accounts signed in through the real login form, disposable PostgreSQL, at 390x844 (mobile), 768x1024 (tablet) and 1440x900 (desktop). New spec: `tests/browser/scheduling/calendarHardening.spec.ts` (14 tests x 3 viewports = 42, all pass). With the 2B.3d calendar spec and the rest of the Scheduling harness: **257 pass, 214 skip by design, 0 fail**.
+Real Chromium, synthetic accounts signed in through the real login form, disposable PostgreSQL, at 390x844 (mobile), 768x1024 (tablet) and 1440x900 (desktop). New spec: `tests/browser/scheduling/calendarHardening.spec.ts` (12 tests x 3 viewports = 42, all pass). With the 2B.3d calendar spec and the rest of the Scheduling harness: **257 pass, 214 skip by design, 0 fail**.
 
 | Check | Result |
 | --- | --- |
@@ -174,3 +174,62 @@ Run through the **real chain** on disposable PostgreSQL: a session cookie signed
 ## 8. What is still to do live
 
 No authenticated Production session was available to this work, and none was sought. The deployed-calendar checks listed in the sign-off report as "outstanding" need a person signed in as the platform owner (impersonating the pilot organisation), plus a manager and a viewer account in the pilot organisation, which do not exist in Production. They are read-only (no rule, closure, reservation, occurrence or hold is created).
+
+
+## 9. Live acceptance follow-up: time labels, an empty resource, and loading time
+
+Raised during authenticated Production acceptance of the calendar (PR #510 still draft). Everything below was reproduced on the disposable harness first (real login, synthetic accounts, 390x844, 768x1024, 1440x900), with before and after runs of the same spec (`tests/browser/scheduling/calendarUx.spec.ts`, 12 tests x 3 viewports). The availability calculations are untouched: the response digests at 1, 5, 20 and 50 resources are still identical to `main`'s.
+
+### 9.1 Time labels near the top of the day view
+
+| | |
+| --- | --- |
+| Reproduced | The first label (00:00) started **5.6 px above** the time column and that 5.6 px was **under the sticky header**, on the ordinary day and on the 23-hour and 25-hour days, desktop and tablet. (Below 768 px the agenda is drawn, so there is no positioned label to clip.) |
+| Root cause 1 | Every label is centred on its hour line (`top: -0.6em`). The first line is at the very top of the column, so half its label hangs above the column, into the header. |
+| Root cause 2 | The scroll box had `overflow-x: auto` only, which makes it a scroll container in **both** axes. It was exactly as tall as the day (`scrollHeight == clientHeight == 919`), so it never scrolled vertically: the sticky headers had nothing to stick to, the page scrolled instead, and the time column and headers scrolled away. |
+| Fix | The first label sits just **below** its line, inside the column. The grid is a scroll box of its own (`max-height: min(72vh, 46rem)`, both directions), so the lane headers, the corner cell and the time column stay put, and the keyboard scrolls it (it is a labelled, focusable region). It opens scrolled so the first open hour is on screen, **snapped** so a labelled hour line sits a fixed distance under the header (never an arbitrary offset that would leave a label half hidden) and no label straddles the bottom edge. |
+| Contract tested | At the position the page chooses and at the top: no label is cut anywhere; at the end: none across the bottom edge. Scrolled by hand, labels pass under the header like any scrolled content. Tested on an ordinary day, the 23-hour day and the 25-hour day. |
+| Keyboard | The grid takes focus with a visible ring; Home, the arrow keys, PageDown and End scroll it; ArrowUp scrolls back from the end. (Chromium animates key scrolling, so the tests poll.) |
+
+### 9.2 An offering whose resource has no hours
+
+Pilot shape: ZZ Test Junior Squad has Monday 09:00 to 12:00; ZZ Test Court 1 has no hours. The calculation was right (no bookable times) but the screen gave a blank dim column and one easily missed sentence. Now, above the calendar, three plain statements (a mark **and** words, never colour alone):
+
+1. **Offering hours are set:** 09:00 to 12:00 (or: no offering hours, archived, a rule not supported yet).
+2. One row per linked resource: **has hours** (and which), or **has no hours set, so it is unavailable, including when this offering needs it**, with a **Set hours** link for a manager or **View hours** for everyone else (it goes to that resource's hours screen; nothing is created from the calendar). Inactive and unsupported-rule resources say so.
+3. **Bookable:** the number of start times, or **No bookable times** and why (the offering is unavailable; no duration; the offering needs at least one linked resource with hours and the named ones have none; or the open time is held, closed or too short).
+
+In the grid, the empty resource's column is dotted (a closure is red hatching) and carries a sticky **No hours set / Unavailable** card that stays below the lane headers wherever the grid is scrolled. The week view shows the same note for a selected empty lane; the agenda says **no hours set, so not available**; the per-resource sentence that used to repeat in a separate paragraph is no longer repeated. Hours are **never** created or changed by looking.
+
+### 9.3 Slow loading: measured, not guessed
+
+Measured separately: the API, the page, hydration, rendering, and the requests each action makes (browser Resource Timing and a MutationObserver; local loopback unless stated).
+
+| Finding | Evidence |
+| --- | --- |
+| **Waterfall (the demonstrated bottleneck)** | Opened from another screen (no date in the address), the calendar request started **2 to 5 ms after** a `/status` request ended: the screen asked the API for the organisation's timezone before it could ask for the calendar. That `/status` call repeats the whole authorisation chain (8 statements, 9.4 round trips) |
+| Rendering is **not** a bottleneck | The calendar appears 17 to 25 ms after its response arrives before; 27 to 36 ms after (the explainer and the opening scroll are new work). HTML first byte about 100 ms, "Loading the calendar" shown at about 200 ms, unchanged |
+| No wasted refetching | Exactly **one** API request per action: day to week, week to day, next, previous, change step. Re-selecting the current view makes **zero**. Nothing to remove |
+| Server round trips | With every statement delayed 40 ms (one Neon HTTP request each) through the **real** middleware, session, entitlement, runtime and handler: the offering calendar took **14.1 round trips**, the resource calendar **12.2** |
+
+Changes, each tied to a finding:
+
+1. **No `/status` wait.** The page already runs the access check, so it reads the organisation's timezone beside it (in parallel: no added time) and hands it to the screen; the screen starts the calendar request at once. Without the zone it falls back to asking `/status`, as before. (The lookup moved into `lib/scheduling/organisationTimezone.ts` so the page gate can use it without importing the whole runtime; the containment pins follow it and still allow exactly one reader.)
+2. **Handler: two rounds, not four.** The offering and its linked resources are read together; then the schedule, the offering's hours, every resource's hours and the live holds together. The resource calendar is one round. The 100-resource cap is still checked before any availability is read; a missing or another organisation's id is still 404 (the reads are tenant scoped).
+3. **Runtime: the zone and the settings row are read together** (one round trip). Failure order is unchanged (an unusable zone before a missing settings row; nothing created or repaired).
+
+| Measured (final run, PG16 and PG17 agree) | Before | After |
+| --- | --- | --- |
+| Screen's path to a calendar, 40 ms per statement (`/status` then calendar, as the screen did it) | 939 ms, 23.5 round trips | **427 ms, 10.7** (the calendar request alone) |
+| Offering calendar request alone | 564 ms, 14.1 | 427 ms, 10.7 |
+| Resource calendar request alone | 487 ms, 12.2 | 388 ms, 9.7 |
+| Local, no network latency: calendar request starts (desktop, tablet, mobile) | 396, 355, 365 ms | 349, 276, 269 ms |
+| Local: calendar on screen (desktop, tablet, mobile) | 570, 490, 510 ms | 529, 423, 392 ms |
+| API requests on a cold open | 2 | 1 |
+| Statements per calendar request, 1, 5, 20, 50 resources | 14, 14, 14, 14 | 14, 14, 14, 14 (responses identical to main) |
+
+Local milliseconds understate the benefit: the saving is round trips, each a real Neon HTTP request. The remaining round trips are the shared authorisation chain (middleware, session, entitlement), which this PR does not touch.
+
+**Safe performance logging.** The per-request log line now also carries `stmts` (repository statements) and `dbMs` (their total time; they overlap, so it can exceed `ms`), and every Scheduling response carries `Server-Timing: app;dur=..., db;dur=...;desc="N statements, summed"`. Numbers only: no SQL, parameters, rows, identities or tokens (tested). Production request durations can be read from Vercel's logs once deployed. They could not be read for this work: the Vercel connection needs team access that only the account owner can grant, and it was not requested.
+
+Kept: tenant isolation (every statement is organisation scoped; the permission matrix, foreign ids and spoofing tests pass), the 14-day range limit, the 100-resource cap, the 200-owner batch bound, the 8-second deadline and every fail-closed rule.

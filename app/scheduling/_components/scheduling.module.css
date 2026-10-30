@@ -694,8 +694,13 @@
 .calSwatch[data-kind='none'] {
   background: var(--bg-sunken);
 }
+/* The grid scrolls inside its own box, in BOTH directions. (overflow-x alone made the box a scroll container that never scrolled vertically, so the
+   sticky headers had nothing to stick to and scrolled away with the page.) A box that is shorter than the day keeps the lane headers at its top and the time
+   column at its left while the day is scrolled, and the keyboard scrolls it once it has focus. */
 .calScroller {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: min(72vh, 46rem);
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
@@ -731,6 +736,21 @@
 .calColumn {
   position: relative;
 }
+/* The empty cell above the time column: it stays at the top-left while both headers and the time column move under it. */
+.calCorner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+.calAxis {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-surface);
+}
 .calColumn {
   border-left: 1px solid var(--border);
   background: var(--bg-sunken);
@@ -741,6 +761,11 @@
   right: 0;
   border-top: 1px solid var(--border);
   pointer-events: none;
+}
+/* A label is centred on its line, except the first (00:00), which has no room above the line: it would start above the time column and sit under the
+   sticky header. The first label sits just BELOW its line instead, wholly inside the column. */
+.calTick:first-child span {
+  top: 2px;
 }
 .calTick span {
   position: absolute;
@@ -783,6 +808,75 @@
   right: 6px;
   border: 2px solid var(--brand-brainbase-accent);
   background: transparent;
+}
+/* The label in an empty lane's column (a resource with no hours): in place, in words, and unlike a closure (red hatching) it is plain and dotted. */
+.calColumn[data-state='no_hours'] {
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+.calEmpty {
+  /* sticky, not absolute: it stays just below the lane headers however far the grid is scrolled, so the label is on screen wherever the working hours are */
+  position: sticky;
+  top: 4.75rem;
+  margin: 8px 8px 0;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  text-align: center;
+}
+.calEmpty span {
+  color: var(--text-secondary);
+}
+/* The plain statements above the calendar: the offering's hours, each resource's hours, and what that leaves bookable. A mark AND words, never colour alone. */
+.calExplainer {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.calExplainer li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+.calExplainer li > span:not(.calMark) {
+  flex: 1 1 16rem;
+}
+.calExplainer li[data-tone='missing'] {
+  border-color: var(--status-warning);
+}
+.calMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.calMark[data-tone='ok'] {
+  border-color: var(--status-success);
+}
+.calMark[data-tone='missing'] {
+  border-color: var(--status-warning);
 }
 .calAgenda {
   border: 1px solid var(--border);

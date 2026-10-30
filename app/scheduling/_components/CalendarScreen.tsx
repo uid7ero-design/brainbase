@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, PageHeader, Panel, StateMessage, buttonProps } from '@/components/ui/app';
 import { seg } from '@/lib/scheduling/dashboard/api';
 import { localToday } from '@/lib/scheduling/dashboard/availability';
@@ -55,10 +55,12 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-export default function CalendarScreen({ kind, id, canManage }: { kind: 'offering' | 'resource'; id: string; canManage: boolean }) {
+export default function CalendarScreen({ kind, id, canManage, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; organisationTimezone?: string | null }) {
   const ownerPath = kind === 'offering' ? `/offerings/${seg(id)}` : `/resources/${seg(id)}`;
   const params = useSearchParams();
-  const status = useSchedulingData<StatusView>('/status');
+  // The page already knows the organisation's zone (it is read beside the access check), so the calendar can start loading at once. Only without it
+  // (it could not be read) does the screen fall back to asking /status, as before.
+  const status = useSchedulingData<StatusView>(organisationTimezone ? null : '/status');
   const narrow = useNarrow();
 
   const [mode, setMode] = useState<CalendarMode>(params.get('view') === 'week' ? 'week' : 'day');
@@ -67,7 +69,7 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
   const [laneId, setLaneId] = useState<string | null>(null);
 
   // The first date is "today" in the zone the organisation shows; once the calendar answers, "Today" uses the zone it is drawn in.
-  const startDate = date ?? (status.state === 'ready' && status.data ? localToday(status.data.timezone) : status.state === 'error' ? localToday('UTC') : null);
+  const startDate = date ?? (organisationTimezone ? localToday(organisationTimezone) : status.state === 'ready' && status.data ? localToday(status.data.timezone) : status.state === 'error' ? localToday('UTC') : null);
   const range = startDate ? rangeFor(mode, startDate) : null;
   const query = range ? `from=${range.from}&to=${range.to}${kind === 'offering' && step ? `&step=${step}` : ''}` : '';
   const calendar = useSchedulingData<CalendarResponse>(range ? `${ownerPath}/calendar?${query}` : null);
@@ -147,6 +149,8 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
     ...view.adjustments.map(a => `${dayHeading(a.date)}: ${a.owner.kind === 'offering' ? 'the offering’s' : `${names[a.owner.id] ?? 'a resource'}’s`} hours ${a.startTime} to ${a.endTime} ${adjustmentText(a.kind)}`),
   ];
   const noSlotsReason = view.slot === null && kind === 'offering' ? reasonText('no_duration', names) : '';
+  // A resource's own missing hours or inactivity is stated beside it in the explainer above the calendar, so it is not repeated here.
+  const shownReasons = view.reasons.filter(r => !/^(resource_no_availability|resource_inactive):/.test(r) && r !== 'no_resource_availability');
 
   return (
     <div className={`${styles.page} ${styles.availability}`} data-testid="calendar-screen">
@@ -196,6 +200,8 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
       <h2 className={styles.calRange} data-testid="range-heading">{rangeHeading(view.fromDate, view.toDate)}</h2>
       {calendar.problem && <p className={styles.notice} role="alert">The calendar could not be refreshed, so what you see may be out of date. <Button variant="ghost" size="sm" className={styles.touch} onClick={calendar.reload}>Try again</Button></p>}
 
+      <Explainer kind={kind} view={view} lanes={lanes} canManage={canManage} />
+
       <Panel title="Timezone">
         <p className={styles.zoneFacts}>
           <strong data-testid="calendar-timezone">{zoneText}</strong>
@@ -219,9 +225,9 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
         </aside>
       )}
 
-      {view.reasons.length > 0 && (
+      {shownReasons.length > 0 && (
         <p className={styles.notice} role="status" data-testid="calendar-reasons">
-          {view.reasons.map(r => reasonText(r, names)).filter(Boolean).join(' ')}
+          {shownReasons.map(r => reasonText(r, names)).filter(Boolean).join(' ')}
         </p>
       )}
       {noSlotsReason && !view.reasons.includes('no_duration') && <p className={styles.notice} role="status">{noSlotsReason}</p>}
@@ -229,13 +235,20 @@ export default function CalendarScreen({ kind, id, canManage }: { kind: 'offerin
       <Legend />
 
       {!narrow && (
-        <div className={styles.calScroller} data-testid="calendar-grid" data-mode={mode} role="region" tabIndex={0} aria-label={mode === 'day' ? 'Day calendar. Scrolls sideways when there are many columns.' : 'Week calendar. Scrolls sideways on narrow screens.'}>
-          {mode === 'day' ? (
-            <DayGrid day={view.days[0]} lanes={lanes} view={view} />
-          ) : (
-            selected && <WeekGrid days={view.days} lane={selected} view={view} today={today} />
+        <>
+          {mode === 'week' && selected && selected.state === 'no_hours' && (
+            <p className={styles.notice} role="status" data-testid={`lane-empty-${selected.id}`}>
+              <strong>No hours set</strong> for {selected.name}, so it is unavailable this week.
+            </p>
           )}
-        </div>
+          <GridScroller
+            mode={mode}
+            focusKey={`${mode}|${view.fromDate}|${view.toDate}|${selected?.id ?? ''}`}
+            label={mode === 'day' ? 'Day calendar. Scrolls up and down, and sideways when there are many columns.' : 'Week calendar. Scrolls up and down, and sideways on narrow screens.'}
+          >
+            {mode === 'day' ? <DayGrid day={view.days[0]} lanes={lanes} view={view} /> : selected && <WeekGrid days={view.days} lane={selected} view={view} today={today} />}
+          </GridScroller>
+        </>
       )}
 
       <details className={styles.calAgenda} open={narrow} data-testid="calendar-agenda">
@@ -335,7 +348,7 @@ function DayGrid({ day, lanes, view }: { day: CalendarDay; lanes: CalendarLane[]
   const height = columnHeight(day);
   return (
     <div className={styles.calGrid} style={{ gridTemplateColumns: `3.5rem repeat(${lanes.length}, minmax(9rem, 1fr))` }}>
-      <div />
+      <div className={styles.calCorner} />
       {lanes.map(l => (
         <div key={l.id} className={styles.calHead} data-testid={`lane-head-${l.id}`}>
           <strong>{l.name}</strong>
@@ -348,6 +361,12 @@ function DayGrid({ day, lanes, view }: { day: CalendarDay; lanes: CalendarLane[]
       {lanes.map(l => (
         <div key={l.id} className={styles.calColumn} style={{ height }} data-lane={l.id} data-state={l.state}>
           <HourLines day={day} zone={view.timezone} labelled={false} />
+          {l.state === 'no_hours' && (
+            <div className={styles.calEmpty} data-testid={`lane-empty-${l.id}`}>
+              <strong>No hours set</strong>
+              <span>Unavailable</span>
+            </div>
+          )}
           <Blocks day={day} lane={l} view={view} />
         </div>
       ))}
@@ -407,6 +426,8 @@ function Agenda({ view, lanes, today }: { view: View; lanes: CalendarLane[]; tod
                       <span> — {laneStateText(l).toLowerCase()}, not available</span>
                     ) : l.state === 'unsupported' ? (
                       <span> — unavailable: it has a rule of a kind that is not supported yet</span>
+                    ) : l.state === 'no_hours' ? (
+                      <span> — no hours set, so {l.kind === 'resource' ? 'not available' : 'nothing is available'}</span>
                     ) : hours.length === 0 ? (
                       <span> — {closed.length > 0 ? `closed (${joinWindows(closed, zone)})` : 'no hours, not available'}</span>
                     ) : (
@@ -426,5 +447,163 @@ function Agenda({ view, lanes, today }: { view: View; lanes: CalendarLane[]; tod
         );
       })}
     </div>
+  );
+}
+
+// ── The grid's own scroll box ─────────────────────────────────────────────
+
+/**
+ * The time grid in a box that scrolls on its own (both ways), so the lane headers stay at the top and the time column stays at the left while the day is
+ * scrolled, and so the keyboard can scroll it (it is a labelled, focusable region). When a day or week is drawn the box is scrolled to just above the first
+ * open or bookable block, so the working hours are on screen without scrolling. Drawing only: nothing here changes what is calculated.
+ */
+function GridScroller({ mode, label, focusKey, children }: { mode: CalendarMode; label: string; focusKey: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.scrollHeight <= el.clientHeight) return;
+    const blocks = [...el.querySelectorAll<HTMLElement>('[data-kind=hours][data-start], [data-kind=slot][data-start]')];
+    const box = el.getBoundingClientRect();
+    // nothing open to show (a day with no hours): the top, unless that leaves a label across the bottom edge
+    const first = blocks.length === 0 ? 0 : Math.min(...blocks.map(b => b.getBoundingClientRect().top - box.top + el.scrollTop));
+    const header = el.querySelector<HTMLElement>('[class*=calHead]')?.offsetHeight ?? 0;
+    // Not an arbitrary offset. A LABELLED hour line is put a fixed distance (LINE_GAP) below the sticky header, so no time label is left half under it, and the position
+    // is also chosen so that no label straddles the bottom edge of the box. It is the last such position that still shows the first open block, and never beyond the end
+    // of the scroll range (a clamped position would not be aligned to anything). At the very top the first label (00:00) sits wholly inside the time column.
+    const LINE_GAP = 12;
+    const LABEL_ABOVE = 7; // a label is centred on its line: about 7px above it and 10px below
+    const LABEL_BELOW = 10.5;
+    const ticks = [...(el.querySelector('[class*=calAxis]') ?? el.querySelector('[class*=calColumn]') ?? el).querySelectorAll<HTMLElement>('[class*=calTick]')];
+    const labelled = ticks.filter(t => t.querySelector('span')).map(t => t.getBoundingClientRect().top - box.top + el.scrollTop);
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    const aligned = labelled.map(t => Math.round(t - header - LINE_GAP)).filter(top => top >= 0 && top <= maxScroll);
+    const straddlesBottom = (top: number) => labelled.some(t => t - top - LABEL_ABOVE < el.clientHeight && t - top + LABEL_BELOW > el.clientHeight);
+    if (blocks.length === 0) {
+      // nearest to the top first: the top itself, then each aligned position going down
+      el.scrollTop = [0, ...aligned.sort((a, b) => a - b)].find(top => !straddlesBottom(top)) ?? 0;
+      return;
+    }
+    const wanted = Math.min(first - header - LINE_GAP + 0.5, maxScroll);
+    const candidates = aligned.filter(top => top <= wanted).sort((a, b) => b - a);
+    el.scrollTop = candidates.find(top => !straddlesBottom(top)) ?? candidates[0] ?? 0;
+  }, [focusKey]);
+  return (
+    <div ref={ref} className={styles.calScroller} data-testid="calendar-grid" data-mode={mode} role="region" tabIndex={0} aria-label={label}>
+      {children}
+    </div>
+  );
+}
+
+// ── Why there may be nothing to book ──────────────────────────────────────
+
+type Tone = 'ok' | 'missing' | 'none';
+
+/** What each lane's hours are over the range, in words: "09:00 to 12:00" for a day, "Mon 11 Jan 09:00 to 12:00; …" for a week. */
+function hoursSummary(view: View, lane: CalendarLane): string {
+  const zone = view.timezone;
+  const parts = view.days
+    .map(day => ({ day, ws: clipToDay(day, lane.hours) }))
+    .filter(x => x.ws.length > 0)
+    .map(x => (view.days.length === 1 ? joinWindows(x.ws, zone) : `${dayHeading(x.day.date)} ${joinWindows(x.ws, zone)}`));
+  return parts.join('; ');
+}
+
+function Mark({ tone }: { tone: Tone }) {
+  // decorative: the words beside it say the same thing, so the state is never carried by the mark or its colour alone
+  return <span className={styles.calMark} data-tone={tone} aria-hidden="true">{tone === 'ok' ? '✓' : tone === 'missing' ? '✕' : '–'}</span>;
+}
+
+/**
+ * Three plain statements above the calendar, so nobody has to read the grid to learn why nothing can be booked: whether the OFFERING has hours, whether each
+ * linked RESOURCE has hours, and, from those, whether there are bookable times and why not. It reads the view the API already returned and creates nothing:
+ * the only action is a link to the hours screen of the resource, "Set hours" for a manager and "View hours" for everyone else.
+ */
+function Explainer({ kind, view, lanes, canManage }: { kind: 'offering' | 'resource'; view: View; lanes: CalendarLane[]; canManage: boolean }) {
+  const offering = lanes.find(l => l.kind === 'offering') ?? null;
+  const resources = lanes.filter(l => l.kind === 'resource');
+  const hoursLink = (l: CalendarLane) => (
+    <Link href={`/scheduling/resources/${seg(l.id)}/availability`} {...buttonProps('secondary', 'sm')} className={`${buttonProps('secondary', 'sm').className} ${styles.touch}`}>
+      {canManage ? 'Set hours' : 'View hours'}
+    </Link>
+  );
+
+  const resourceRow = (l: CalendarLane) => {
+    const names = { [l.id]: l.name };
+    if (l.state === 'open')
+      return { tone: 'ok' as Tone, body: <><strong>{l.name} has hours:</strong> {hoursSummary(view, l) || 'none in this period'}.</>, link: false };
+    if (l.state === 'inactive') return { tone: 'missing' as Tone, body: <><strong>{l.name} is inactive,</strong> so it is unavailable.</>, link: false };
+    if (l.state === 'unsupported') return { tone: 'missing' as Tone, body: <><strong>{l.name}:</strong> {reasonText(`resource_unsupported_rule_kind:${l.id}`, names)}</>, link: true };
+    return {
+      tone: 'missing' as Tone,
+      body: <><strong>{l.name} has no hours set,</strong> so it is unavailable, including when this offering needs it.</>,
+      link: true,
+    };
+  };
+
+  if (kind === 'resource') {
+    const only = lanes[0];
+    if (!only) return null;
+    const row = resourceRow(only);
+    return (
+      <ul className={styles.calExplainer} data-testid="calendar-explainer" aria-label="About this calendar">
+        <li data-testid={`explain-resource-${only.id}`} data-tone={row.tone}>
+          <Mark tone={row.tone} />
+          <span>{row.body}</span>
+          {row.link && hoursLink(only)}
+        </li>
+      </ul>
+    );
+  }
+
+  const offeringRow: { tone: Tone; body: ReactNode } = !offering
+    ? { tone: 'none', body: <>No offering.</> }
+    : offering.state === 'open'
+      ? { tone: 'ok', body: <><strong>Offering hours are set:</strong> {hoursSummary(view, offering)}.</> }
+      : offering.state === 'archived'
+        ? { tone: 'missing', body: <><strong>This offering is archived,</strong> so it has no availability.</> }
+        : offering.state === 'unsupported'
+          ? { tone: 'missing', body: <><strong>This offering has a rule that is not supported yet,</strong> so it is unavailable.</> }
+          : { tone: 'missing', body: <><strong>No offering hours are set</strong> in this period, so nothing can be booked.</> };
+
+  const noResource = resources.filter(r => r.state !== 'open');
+  const withHours = resources.filter(r => r.state === 'open');
+  const nameList = (ls: CalendarLane[]) => ls.map(r => r.name).join(', ');
+  let bookable: { tone: Tone; body: ReactNode };
+  if (view.slots.length > 0) {
+    bookable = { tone: 'ok', body: <><strong>{view.slots.length} bookable start time{view.slots.length === 1 ? '' : 's'}</strong> in this period.</> };
+  } else if (offering && offering.state !== 'open') {
+    bookable = { tone: 'none', body: <><strong>No bookable times:</strong> the offering itself is not available.</> };
+  } else if (view.reasons.includes('no_duration')) {
+    bookable = { tone: 'none', body: <><strong>No bookable times:</strong> this offering has no duration, so start times cannot be worked out.</> };
+  } else if (resources.length > 0 && withHours.length === 0) {
+    bookable = {
+      tone: 'none',
+      body: <><strong>No bookable times:</strong> this offering needs at least one linked resource with hours, and {nameList(noResource)} {noResource.length === 1 ? 'has' : 'have'} none that can be used.</>,
+    };
+  } else {
+    bookable = { tone: 'none', body: <><strong>No bookable times</strong> in this period: the open time is shorter than a session, already held, or closed.</> };
+  }
+
+  return (
+    <ul className={styles.calExplainer} data-testid="calendar-explainer" aria-label="Why there may be nothing to book">
+      <li data-testid="explain-offering" data-tone={offeringRow.tone}>
+        <Mark tone={offeringRow.tone} />
+        <span>{offeringRow.body}</span>
+      </li>
+      {resources.map(l => {
+        const row = resourceRow(l);
+        return (
+          <li key={l.id} data-testid={`explain-resource-${l.id}`} data-tone={row.tone}>
+            <Mark tone={row.tone} />
+            <span>{row.body}</span>
+            {row.link && hoursLink(l)}
+          </li>
+        );
+      })}
+      <li data-testid="explain-bookable" data-tone={bookable.tone}>
+        <Mark tone={bookable.tone} />
+        <span>{bookable.body}</span>
+      </li>
+    </ul>
   );
 }

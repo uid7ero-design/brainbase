@@ -1,5 +1,5 @@
 import { authorizeSchedulingRequest } from './access';
-import { loadSchedulingRuntime, SchedulingConfigurationError, type SchedulingRuntime } from './runtime';
+import { loadSchedulingRuntime, SchedulingConfigurationError, type SchedulingRuntime, type StatementRecorder } from './runtime';
 import type { OrgSession } from '@/lib/org';
 import type { SchedulingPermission } from '@scheduling/core';
 
@@ -56,7 +56,7 @@ const timedOut = (): Response => schedulingJson({ error: 'This took too long to 
  * One log line per request: the route TEMPLATE (dynamic segments replaced), the method, the status, the duration and the outcome. Never an organisation, user, role, session,
  * cookie, query string, body, parameter value, error message or SQL: there is nothing here that identifies a customer or could carry a token.
  */
-function logRequest(request: Request, params: Readonly<Record<string, string>> | null, status: number, startedAt: number, outcome: 'ok' | 'denied' | 'error' | 'timeout' | 'unavailable', errorCode?: string): void {
+function logRequest(request: Request, params: Readonly<Record<string, string>> | null, status: number, startedAt: number, outcome: 'ok' | 'denied' | 'error' | 'timeout' | 'unavailable', recorder: StatementRecorder, errorCode?: string): void {
   // Before the route's params were resolved (a denial, an unconfigured organisation, a deadline hit while the runtime was loading) no path is logged at all: the params
   // are only read after authorisation, and a denied request must not have its ids written anywhere.
   let route = '/api/scheduling/(not resolved)';
@@ -68,7 +68,8 @@ function logRequest(request: Request, params: Readonly<Record<string, string>> |
       route = 'unknown';
     }
   }
-  const line: Record<string, string | number> = { route, method: request.method, status, ms: Math.round(performance.now() - startedAt), outcome };
+  // stmts and dbMs: how many repository statements the request issued and how long they took in total (they overlap, so dbMs can exceed ms). Numbers only.
+  const line: Record<string, string | number> = { route, method: request.method, status, ms: Math.round(performance.now() - startedAt), outcome, stmts: recorder.statements, dbMs: Math.round(recorder.dbMs) };
   if (errorCode) line.error = errorCode;
   console.info('[scheduling] request', JSON.stringify(line));
 }
@@ -77,13 +78,16 @@ export function schedulingRoute(permission: SchedulingPermission, handler: Sched
   const schedulingRouteHandler = async (request: Request, routeContext?: SchedulingNextRouteContext): Promise<Response> => {
     const startedAt = performance.now();
     let loggedParams: Readonly<Record<string, string>> | null = null; // set only after authorisation and the runtime, for the log line's route template
+    const recorder: StatementRecorder = { statements: 0, dbMs: 0 };
     let logged = false; // one line per request: a result that arrives after the deadline is not logged again
     const finish = (response: Response, outcome: Parameters<typeof logRequest>[4], errorCode?: string): Response => {
-      if (!logged) {
-        logged = true;
-        logRequest(request, loggedParams, response.status, startedAt, outcome, errorCode);
-      }
-      return response;
+      if (logged) return response;
+      logged = true;
+      logRequest(request, loggedParams, response.status, startedAt, outcome, recorder, errorCode);
+      // Server-Timing lets the browser's own tools show where a request's time went: app = the whole request, db = the statements' total time (numbers only).
+      const headers = new Headers(response.headers);
+      headers.set('Server-Timing', `app;dur=${Math.round(performance.now() - startedAt)}, db;dur=${Math.round(recorder.dbMs)};desc="${recorder.statements} statements, summed"`);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     };
 
     const auth = await authorizeSchedulingRequest(permission);
@@ -103,7 +107,7 @@ export function schedulingRoute(permission: SchedulingPermission, handler: Sched
     const work = (async (): Promise<Response> => {
       let runtime: SchedulingRuntime;
       try {
-        runtime = await loadSchedulingRuntime(auth.session, controller ? { signal: controller.signal } : {});
+        runtime = await loadSchedulingRuntime(auth.session, { ...(controller ? { signal: controller.signal } : {}), recorder });
       } catch (err) {
         if (err instanceof SchedulingConfigurationError) {
           return finish(schedulingJson({ error: 'Scheduling is not configured for this organisation.', code: err.code }, { status: 503 }), 'unavailable', err.code);

@@ -138,7 +138,9 @@ describe('Prisma schema files — minimal, matching synchronization (Phase F.2A)
 
 // Deliberately updated in Phase 2B.1: the Scheduling runtime is now the ONE reader of organisations.timezone, to resolve a
 // tenant's zone (falling back to Australia/Adelaide when NULL). Nothing writes it, and no other consumer may read it.
-const TIMEZONE_READERS_ALLOWED = ['lib/scheduling/runtime.ts']
+// Updated again for the 2B.3e follow-up: the lookup itself moved into lib/scheduling/organisationTimezone.ts (one read-only SELECT), which the runtime and the Scheduling
+// page gate both call, so the page can read the zone beside its entitlement check instead of making the browser ask for it. It is still ONE reader; the runtime stays allowed.
+const TIMEZONE_READERS_ALLOWED = ['lib/scheduling/runtime.ts', 'lib/scheduling/organisationTimezone.ts']
 
 describe('The only organisations.timezone consumer is the Scheduling runtime (read-only)', () => {
   it('no route reads or writes organisations.timezone, and only the allow-listed Scheduling runtime reads it', () => {

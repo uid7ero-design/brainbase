@@ -75,7 +75,7 @@ echo "== 2. read cost: statements per calendar request at 1, 5, 20 and 50 resour
 SCHEDULING_PERF_ASSERT=1 npx vitest run --config vitest.integration.config.ts --reporter=verbose scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts || RC=1
 
 echo "== 3. permission and isolation matrix through the real session, middleware (module access) and Scheduling guards"
-npx vitest run --config vitest.integration.config.ts --reporter=verbose scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts || RC=1
+SCHEDULING_LATENCY_ASSERT=1 npx vitest run --config vitest.integration.config.ts --reporter=verbose scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts || RC=1
 
 echo "== 4. batched repository reads: equal to the per-owner reads, tenant scoped, permission checked, bounded"
 npx vitest run --config vitest.integration.config.ts --reporter=verbose packages/scheduling-postgres/tests/availabilityBatchedReads.integration.test.ts || RC=1

@@ -130,7 +130,8 @@ describe('the pages authorise themselves', () => {
     const src = code(f);
     expect(src).toMatch(/resolveSchedulingPage\(\)/);
     expect(src).toMatch(/if \(denied\) return denied;/);
-    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\} \/>/);
+    // 2B.3e follow-up: the page also hands the screen the organisation's timezone (read beside the access check), so the screen need not ask /status for it
+    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\} organisationTimezone=\{timezone\} \/>/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);
   });
 });

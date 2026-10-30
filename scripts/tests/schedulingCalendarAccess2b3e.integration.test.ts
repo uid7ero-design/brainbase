@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
 
@@ -17,7 +18,7 @@ const suite = TEST_URL ? describe : describe.skip;
 
 const state = vi.hoisted(() => {
   process.env.SESSION_SECRET = 'test-only-session-secret-for-the-disposable-calendar-matrix-0123456789';
-  return { cookie: null as string | null, failScheduling: false, delayScheduling: 0, aborted: 0 };
+  return { cookie: null as string | null, failScheduling: false, delayScheduling: 0, aborted: 0, latencyMs: 0, statements: 0 };
 });
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -30,7 +31,12 @@ vi.mock('@/lib/db', async () => {
   const { Pool: P } = await import('pg');
   const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 20 });
   // a switch that makes every Scheduling statement fail the way a dead database does (the session and module lookups still work)
+  // A networked database: with latencyMs set, EVERY statement (middleware, session, entitlement, runtime, handler) takes that long, as one Neon HTTP request does
   const run = (text: string, params: unknown[], opts?: { fetchOptions?: { signal?: AbortSignal } }) => {
+    state.statements += 1;
+    return state.latencyMs > 0 ? new Promise<void>(resolve => setTimeout(resolve, state.latencyMs)).then(() => run0(text, params, opts)) : run0(text, params, opts);
+  };
+  const run0 = (text: string, params: unknown[], opts?: { fetchOptions?: { signal?: AbortSignal } }) => {
     // a slow database: Scheduling statements take delayScheduling ms, and stop waiting (like the Neon HTTP driver does) when the request's signal aborts
     if (state.delayScheduling > 0 && /scheduling_/.test(text)) {
       const signal = opts?.fetchOptions?.signal;
@@ -97,7 +103,7 @@ const signIn = async (p: Person, over: Partial<{ organisationId: string; role: s
 const signOut = () => { state.cookie = null; };
 
 type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
-interface Outcome { status: number; json: Json; text: string; by: 'middleware' | 'route' }
+interface Outcome { status: number; json: Json; text: string; by: 'middleware' | 'route'; serverTiming: string | null }
 /** One request through the whole chain. The middleware runs first, exactly as in the deployment; it either answers or lets the route handle it. */
 async function request(route: Route, method: Method, params: Record<string, string>, urlPath: string, opts: { query?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<Outcome> {
   const url = `http://bb.test${urlPath}${opts.query ?? ''}`;
@@ -106,11 +112,11 @@ async function request(route: Route, method: Method, params: Record<string, stri
   const gate = await middleware(new NextRequest(url, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) }));
   if (gate.headers.get('x-middleware-next') !== '1') {
     const text = await gate.text();
-    return { status: gate.status, json: text ? safeJson(text) : null, text, by: 'middleware' };
+    return { status: gate.status, json: text ? safeJson(text) : null, text, by: 'middleware', serverTiming: null };
   }
   const response = await route[method]!(new Request(url, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) }), { params: Promise.resolve(params) });
   const text = await response.text();
-  return { status: response.status, json: text ? safeJson(text) : null, text, by: 'route' };
+  return { status: response.status, json: text ? safeJson(text) : null, text, by: 'route', serverTiming: response.headers.get('server-timing') };
 }
 const safeJson = (t: string) => { try { return JSON.parse(t); } catch { return null; } };
 
@@ -479,14 +485,28 @@ suite('Scheduling 2B.3e calendar: permission and isolation matrix through the re
 
       expect(logged).toHaveLength(4);
       const [a, b, c, d] = logLines();
-      expect(a).toEqual({ route: '/api/scheduling/offerings/:id/calendar', method: 'GET', status: 200, ms: expect.any(Number), outcome: 'ok' });
+      expect(a).toEqual({ route: '/api/scheduling/offerings/:id/calendar', method: 'GET', status: 200, ms: expect.any(Number), outcome: 'ok', stmts: expect.any(Number), dbMs: expect.any(Number) });
+      expect(a.stmts, 'the repository statements of one calendar: settings, offering, links, schedule, three batched reads for the offering, three for the resources, holds').toBe(11);
+      expect(a.dbMs).toBeGreaterThanOrEqual(0);
       expect(b).toMatchObject({ route: '/api/scheduling/offerings/:id/calendar', status: 404, outcome: 'ok' }); // a handled 404 is the handler's normal answer
-      expect(c).toEqual({ route: '/api/scheduling/(not resolved)', method: 'GET', status: 403, ms: expect.any(Number), outcome: 'denied' });
+      expect(c).toEqual({ route: '/api/scheduling/(not resolved)', method: 'GET', status: 403, ms: expect.any(Number), outcome: 'denied', stmts: 0, dbMs: 0 });
       expect(d).toMatchObject({ status: 401, outcome: 'denied', route: '/api/scheduling/(not resolved)' });
       for (const line of logged) {
         expect(line).not.toMatch(new RegExp(`${ids.offering}|${ids.resource}|org-|u-manager|u-analyst|nope|eyJ|session|cookie|from=|step=|SELECT|INSERT|scheduling_|password|@`, 'i'));
       }
       expect(logLines().every(l => Number.isInteger(l.ms) && l.ms >= 0 && l.ms < 10_000)).toBe(true);
+    });
+
+    it('the response carries a Server-Timing header with numbers only (request time, database time, statement count), on success and on a refusal that reached the runtime', async () => {
+      await signIn(PEOPLE.viewerView);
+      const ok = await offCal();
+      expect(ok.serverTiming, 'Server-Timing on a 200').toMatch(/^app;dur=\d+, db;dur=\d+;desc="\d+ statements, summed"$/);
+      const missing = await request(offeringCalendar, 'GET', { offeringId: 'nope' }, '/api/scheduling/offerings/nope/calendar', { query: '?from=2027-01-11' });
+      expect(missing.status).toBe(404);
+      expect(missing.serverTiming).toMatch(/^app;dur=\d+, db;dur=\d+;desc="\d+ statements, summed"$/);
+      expect(`${ok.serverTiming} ${missing.serverTiming}`).not.toMatch(new RegExp(`${ids.offering}|org-|nope|SELECT|scheduling_`));
+      const denied = (signOut(), await offCal());
+      expect(denied.status).toBe(401);
     });
 
     it('a failing database is logged as an error with its code or name only', async () => {
@@ -504,6 +524,42 @@ suite('Scheduling 2B.3e calendar: permission and isolation matrix through the re
       expect(line.error).toBe('ECONNREFUSED');
       expect(logged.join('\n')).not.toMatch(/hunter2|10\.1\.2\.3|password|relation|scheduling_/i);
     });
+  });
+
+  describe('request time with a networked database (every statement takes one round trip)', () => {
+    const ROUND_TRIP_MS = Number(process.env.SCHEDULING_LATENCY_MS ?? 40);
+    afterEach(() => { state.latencyMs = 0; });
+
+    /** One request through the whole chain, timed, with the number of statements it issued. */
+    async function timed(call: () => Promise<Outcome>) {
+      state.statements = 0;
+      const t0 = performance.now();
+      const r = await call();
+      const ms = Math.round(performance.now() - t0);
+      return { status: r.status, statements: state.statements, ms, roundTrips: Math.round((ms / ROUND_TRIP_MS) * 10) / 10 };
+    }
+
+    it('records the cost of the calendar request, of the /status request the screen used to wait for, and of both in a row; the calendar needs no more than its bound', async () => {
+      const statusRoute = (await import('@/app/api/scheduling/status/route')) as Route;
+      await signIn(PEOPLE.viewerView);
+      await offCal(); // warm the pool
+      state.latencyMs = ROUND_TRIP_MS;
+      const status = await timed(() => request(statusRoute, 'GET', {}, '/api/scheduling/status'));
+      const offering = await timed(() => offCal());
+      const resource = await timed(() => resCal());
+      const old = { statusThenCalendarMs: status.ms + offering.ms, statusThenCalendarRoundTrips: Math.round(((status.ms + offering.ms) / ROUND_TRIP_MS) * 10) / 10 };
+      const report = { roundTripMs: ROUND_TRIP_MS, status, offering, resource, old };
+      console.log('[latency]', JSON.stringify(report));
+      if (process.env.SCHEDULING_LATENCY_REPORT) fs.writeFileSync(process.env.SCHEDULING_LATENCY_REPORT, JSON.stringify(report, null, 2));
+      expect([status.status, offering.status, resource.status]).toEqual([200, 200, 200]);
+      // the bound this change establishes: the calendar's own work is a handful of sequential round trips, however many statements it issues
+      // Bounds with room for scheduler noise. Before the handler read its inputs together and the runtime read the zone and settings together these were 14.1 and 12.2 round trips
+      // (and the screen waited for a /status request of 9.4 before asking for the calendar at all). Time-based, so it is only enforced where the proof script asks (a loaded machine would flake).
+      if (process.env.SCHEDULING_LATENCY_ASSERT === '1') {
+        expect(offering.roundTrips, JSON.stringify(offering)).toBeLessThanOrEqual(12.5);
+        expect(resource.roundTrips, JSON.stringify(resource)).toBeLessThanOrEqual(11.5);
+      }
+    }, 60_000);
   });
 
   describe('when the database fails', () => {

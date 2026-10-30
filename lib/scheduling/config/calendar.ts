@@ -68,10 +68,10 @@ type OwnerZone = { timezone: string; pinned: boolean; source: string | null };
 
 /**
  * The hours, closures and zones of MANY owners of one kind, in three statements whatever the number of owners (rules, closures, pins), each tenant scoped.
- * `fallbackZone` is the zone a not-yet-pinned owner would be pinned to by its first save (the caller already holds the schedule, so nothing is looked up
- * here). Every id in `ids` is present in the result, with empty rules and closures when it has none.
+ * `zone` is the owner's pinned zone, or null when it has none: the caller applies the zone a first save WOULD pin (zoneOrFallback), because that can depend on a read
+ * (the offering's schedule) that is made at the same time as this one. Every id in `ids` is present in the result, with empty rules and closures when it has none.
  */
-async function readOwners(context: SchedulingRouteContext, kind: AvailabilityOwner['kind'], ids: readonly string[], fallbackZone: (id: string) => IanaTimezone) {
+async function readOwners(context: SchedulingRouteContext, kind: AvailabilityOwner['kind'], ids: readonly string[]) {
   const [rules, exceptions, zones] = await Promise.all([
     context.availability.listRulesForOwners(context.tenant, kind, ids),
     context.availability.listExceptionsForOwners(context.tenant, kind, ids),
@@ -82,7 +82,7 @@ async function readOwners(context: SchedulingRouteContext, kind: AvailabilityOwn
   return new Map(
     ids.map(id => {
       const pin = pinned.get(id);
-      const zone: OwnerZone = pin ? { timezone: pin.timezone, pinned: true, source: pin.source } : { timezone: fallbackZone(id), pinned: false, source: null };
+      const zone: OwnerZone | null = pin ? { timezone: pin.timezone, pinned: true, source: pin.source } : null;
       return [
         id,
         {
@@ -94,6 +94,9 @@ async function readOwners(context: SchedulingRouteContext, kind: AvailabilityOwn
     }),
   );
 }
+
+/** The owner's pinned zone, else the zone its first save would pin (nothing is pinned by a read). */
+const zoneOrFallback = (zone: OwnerZone | null, fallback: IanaTimezone): OwnerZone => zone ?? { timezone: fallback, pinned: false, source: null };
 
 /** The zone an offering's first save would pin: its schedule's zone, else the organisation's (the same rule as the hours screen). */
 const offeringFallback = (context: SchedulingRouteContext, scheduleTimezone: string | null | undefined): IanaTimezone =>
@@ -133,29 +136,34 @@ export async function offeringCalendar(context: SchedulingRouteContext): Promise
   if (!id) return notFound();
   const query = readQuery(context.request, true);
   if (!query.ok) return badRequest(query.problems);
-  const offering = await context.persistence.config.getOffering(context.tenant, id);
+  // Round 1: the offering and the resources linked to it. They depend on nothing but the id, so they are asked together (a missing or another organisation's
+  // offering answers 404 below; its link read is tenant scoped and returns nothing).
+  const [offering, linked] = await Promise.all([context.persistence.config.getOffering(context.tenant, id), context.persistence.config.listOfferingResources(context.tenant, id)]);
   if (!offering) return notFound();
-  const schedule = await context.persistence.config.getSchedule(context.tenant, offering.scheduleId);
+  if (linked.length > CALENDAR_MAX_RESOURCES) return tooManyResources(linked.length); // before any availability is read
+  // Round 2: the schedule, the offering's own hours, every linked resource's hours and the live holds. With the ids from round 1 they are independent, so again together.
+  const window = holdWindow(query.from, query.to);
+  const resourceIds = linked.map(r => r.id);
+  const [schedule, read] = await Promise.all([
+    context.persistence.config.getSchedule(context.tenant, offering.scheduleId),
+    guardedAvailability(async () => {
+      const [ownOwners, resourceOwners, holds] = await Promise.all([
+        readOwners(context, 'offering', [id]),
+        readOwners(context, 'resource', resourceIds),
+        context.persistence.config.listLiveHoldsForResources(context.tenant, resourceIds, window.fromInstant, window.toInstant) as Promise<ResourceHold[]>,
+      ]);
+      return { ownOwners, resourceOwners, holds };
+    }),
+  ]);
   if (!schedule) return notFound();
-
-  const read = await guardedAvailability(async () => {
-    const linked = await context.persistence.config.listOfferingResources(context.tenant, id);
-    if (linked.length > CALENDAR_MAX_RESOURCES) return { tooMany: linked.length } as const;
-    const window = holdWindow(query.from, query.to);
-    const resourceIds = linked.map(r => r.id);
-    // the offering's own hours, every linked resource's hours and the live holds: independent reads, started together
-    const [ownOwners, resourceOwners, holds] = await Promise.all([
-      readOwners(context, 'offering', [id], () => offeringFallback(context, schedule.timezone)),
-      readOwners(context, 'resource', resourceIds, () => context.tenant.timezone),
-      context.persistence.config.listLiveHoldsForResources(context.tenant, resourceIds, window.fromInstant, window.toInstant) as Promise<ResourceHold[]>,
-    ]);
-    const own = ownOwners.get(id)!;
-    const perResource = linked.map(r => ({ stored: r, ...resourceOwners.get(r.id)! }));
-    return { own, perResource, holds };
-  });
   if (!read.ok) return read.response;
-  if ('tooMany' in read.value) return tooManyResources((read.value as { tooMany: number }).tooMany);
-  const { own, perResource, holds } = read.value;
+  const { holds } = read.value;
+  const ownRead = read.value.ownOwners.get(id)!;
+  const own = { rules: ownRead.rules, exceptions: ownRead.exceptions, zone: zoneOrFallback(ownRead.zone, offeringFallback(context, schedule.timezone)) };
+  const perResource = linked.map(r => {
+    const o = read.value.resourceOwners.get(r.id)!;
+    return { stored: r, rules: o.rules, exceptions: o.exceptions, zone: zoneOrFallback(o.zone, context.tenant.timezone) };
+  });
 
   const view = buildOfferingCalendar({
     timezone: own.zone.timezone as IanaTimezone,
@@ -190,19 +198,24 @@ export async function resourceCalendar(context: SchedulingRouteContext): Promise
   if (!id) return notFound();
   const query = readQuery(context.request, false);
   if (!query.ok) return badRequest(query.problems);
-  const resource = (await context.persistence.config.listResources(context.tenant)).find(r => r.id === id);
+  // One round: the resource itself, its hours and closures, its pin and its live holds are independent, so they are asked together. For an id that does not exist (or is
+  // another organisation's) the other reads are tenant scoped and return nothing, and the answer below is 404.
+  const window = holdWindow(query.from, query.to);
+  const [resources, read] = await Promise.all([
+    context.persistence.config.listResources(context.tenant),
+    guardedAvailability(async () => {
+      const [owners, holds] = await Promise.all([
+        readOwners(context, 'resource', [id]),
+        context.persistence.config.listLiveHoldsForResources(context.tenant, [id], window.fromInstant, window.toInstant),
+      ]);
+      return { own: owners.get(id)!, holds };
+    }),
+  ]);
+  const resource = resources.find(r => r.id === id);
   if (!resource) return notFound();
-
-  const read = await guardedAvailability(async () => {
-    const window = holdWindow(query.from, query.to);
-    const [owners, holds] = await Promise.all([
-      readOwners(context, 'resource', [id], () => context.tenant.timezone),
-      context.persistence.config.listLiveHoldsForResources(context.tenant, [id], window.fromInstant, window.toInstant),
-    ]);
-    return { own: owners.get(id)!, holds };
-  });
   if (!read.ok) return read.response;
-  const { own, holds } = read.value;
+  const { holds } = read.value;
+  const own = { rules: read.value.own.rules, exceptions: read.value.own.exceptions, zone: zoneOrFallback(read.value.own.zone, context.tenant.timezone) };
 
   const view = buildResourceCalendar({
     timezone: own.zone.timezone as IanaTimezone,
