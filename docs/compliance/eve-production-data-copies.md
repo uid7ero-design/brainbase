@@ -58,6 +58,8 @@ PR states read from GitHub on 2026-10-24.
 | 31 | snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 | snapshot | 2026-10-25 14:44Z | Eve | yes | yes — rollback point before the free-order legal-notice migration (PR #502) | 2026-11-25 (Neon `expires_at` set, auto-expires) | n/a | **C** |
 | 32 | preview/feat/eve-free-order-legal-notice · br-still-sea-a7hliwa0 | Preview | 2026-10-25 | Eve | yes | no — PR #502 merged 2026-10-25 (184a76e0) | **gone 2026-10-26** — removed by the Vercel integration on merge, along with its branch-scoped Preview DB settings | no | **C** |
 | 33 | preview/feat/eve-public-organiser-identity · br-super-bonus-a7njfl6e | Preview | 2026-10-29 07:31Z | Eve | yes | no — PR #509 merged 2026-10-29 (2a5bbfd4) | **gone by 2026-10-30** — removed by the Vercel integration after merge (absent from the 2026-10-30 re-list); its branch-scoped Preview env entries were deleted 2026-10-30 | no | **C** |
+| 34 | preview/feat/eve-organiser-contact · br-fancy-sound-a7pr18pc | Preview | 2026-10-29 20:13Z | Eve | yes | no — PR #512 merged 2026-10-30 (fd4aac91) | **gone by 2026-10-31 (ACDT)** — present before merge and absent from the post-merge Neon re-list; Vercel integration removed its branch-scoped DB settings; four branch-scoped TICKETING entries removed and absence verified 2026-10-31 (ACDT) | no | **C** |
+| 35 | preview/docs/eve-509-preview-copy · br-shy-butterfly-a71neu8g | Preview | 2026-10-29 14:31Z | Eve | yes | no — PR #513 merged 2026-10-30 (b9631295) | **gone by 2026-10-31 (ACDT)** — present before merge and absent from the post-merge Neon re-list; Vercel integration removed its branch-scoped DB settings | no | **C** |
 
 #30: parent `production`, no children, no Vercel DB setting.
 
