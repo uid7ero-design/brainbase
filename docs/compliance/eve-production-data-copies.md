@@ -57,6 +57,7 @@ PR states read from GitHub on 2026-10-24.
 | 30 | rehearse/scheduling-032-after-031-20261024 · br-muddy-mode-a724td4r | proof | 2026-10-24 | Scheduling | yes | yes — active 030/031/032 rehearsal, kept pending owner review | max 2026-10-31 (owner decision pending) | no | **B** |
 | 31 | snap-sweet-smoke-a71semfx · pre-eve-free-legal-notice-20261026 | snapshot | 2026-10-25 14:44Z | Eve | yes | yes — rollback point before the free-order legal-notice migration (PR #502) | 2026-11-25 (Neon `expires_at` set, auto-expires) | n/a | **C** |
 | 32 | preview/feat/eve-free-order-legal-notice · br-still-sea-a7hliwa0 | Preview | 2026-10-25 | Eve | yes | no — PR #502 merged 2026-10-25 (184a76e0) | **gone 2026-10-26** — removed by the Vercel integration on merge, along with its branch-scoped Preview DB settings | no | **C** |
+| 33 | preview/feat/eve-public-organiser-identity · br-super-bonus-a7njfl6e | Preview | 2026-10-29 07:31Z | Eve | yes | no — PR #509 merged 2026-10-29 (2a5bbfd4) | **gone by 2026-10-30** — removed by the Vercel integration after merge (absent from the 2026-10-30 re-list); its branch-scoped Preview env entries were deleted 2026-10-30 | no | **C** |
 
 #30: parent `production`, no children, no Vercel DB setting.
 
