@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { BrainbaseLockup } from '@/components/public/BrainbaseLockup';
-import { HlnaMark } from '@/components/public/brand';
 import styles from './AuthShell.module.css';
 
 type AuthShellProps = {
@@ -13,15 +12,8 @@ export function AuthShell({ children }: AuthShellProps) {
     <main className={`bb-public ${styles.page}`}>
       <section className={styles.shell} aria-label="BrainBase account access">
         <header className={styles.brand}>
-          <BrainbaseLockup idPrefix="bb-auth-lockup" width={210} className={styles.lockup} title="BrainBase" />
-          <div className={styles.meta}>
-            <span>Intelligence layer</span>
-            <span className={styles.metaStrong}><HlnaMark /></span>
-            <span className={styles.status}>
-              <span className={styles.statusDot} aria-hidden="true" />
-              Ready
-            </span>
-          </div>
+          <BrainbaseLockup idPrefix="bb-auth-lockup" width={340} className={styles.lockup} title="BrainBase" />
+          <p className={styles.poweredBy}>Powered by <strong>HLNA Labs</strong></p>
         </header>
 
         {children}
