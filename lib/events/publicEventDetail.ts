@@ -2,7 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { listActiveQuestions, isDataCategory, type DataCategory, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
-import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
+import type { EveOrganiserContact, PublicOrganisationBranding } from '@/lib/organisations/branding';
 import { resolveFeePolicy, publicFeeDisclosure, type PublicFeeDisclosure } from '@/lib/events/services/fees';
 import { hasEventEnded } from '@/lib/events/saleWindow';
 
@@ -119,11 +119,12 @@ export type PublicEventDetail = {
   organisationName: string;
 };
 
-// eveQuestionsEnabled sits beside `detail`, not inside it: only the Eve
-// event read uses it (to decide whether Eve shows the questions), and it is
-// never part of the public body as such.
+// eveQuestionsEnabled and eveOrganiserContact sit beside `detail`, not inside
+// it: only the Eve event read uses them (whether Eve shows the questions; the
+// organiser contact Eve shows), and they are never part of the BrainBase
+// public body.
 export type PublicEventDetailResult =
-  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean }
+  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean; eveOrganiserContact: EveOrganiserContact | null }
   | { ok: false };
 
 // Shared by both the public API route and the public page's own
@@ -167,7 +168,7 @@ export async function getPublicEventDetail(
 ): Promise<PublicEventDetailResult> {
   const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return { ok: false };
-  const { organisationId, organisationName, event, branding } = resolved;
+  const { organisationId, organisationName, event, branding, eveOrganiserContact } = resolved;
 
   // Phase 4: the sold-quantity subtraction now also excludes a pending
   // paid reservation whose expires_at has passed — mirroring exactly
@@ -297,5 +298,6 @@ export async function getPublicEventDetail(
       organisationName,
     },
     eveQuestionsEnabled: event.eve_questions_enabled === true,
+    eveOrganiserContact,
   };
 }

@@ -54,11 +54,12 @@ const FULL_VALID_BRANDING = {
   abn: '12 345 678 901',
   emailFooter: 'Thanks for supporting our school!',
   emailSenderName: 'Acme School Events Team',
+  publicEmail: 'tickets@acme.test',
 }
 
 const ALL_NULL_BRANDING = {
   name: null, logoUrl: null, accentColor: null, email: null, phone: null,
-  website: null, address: null, abn: null, emailFooter: null, emailSenderName: null,
+  website: null, address: null, abn: null, emailFooter: null, emailSenderName: null, publicEmail: null,
 }
 
 beforeEach(() => {

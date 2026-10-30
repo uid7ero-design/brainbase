@@ -110,6 +110,9 @@ export async function handleTicketingPublicEvent(req: Request, params: EventPara
   // Server-derived booleans only; never the flag, allow-list or opt-in values.
   return ticketingJson({
     ...withPublicOrganiser(detail),
+    // Organiser contact v1: { email, website } from the organiser's explicitly
+    // public fields, or null when neither is set. Never the private contact.
+    organiser_contact: result.eveOrganiserContact ?? null,
     questions: eveQuestions,
     questions_block_booking: questionsBlockBooking,
     paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug),
@@ -329,5 +332,6 @@ export async function handleTicketingBooking(req: Request, bookingToken: string)
   if (!isIdentifier(bookingToken)) return ticketingJson({ error: 'Booking not found.' }, 404);
   const result = await getPublicBookingDetail(bookingToken);
   if (!result.ok) return ticketingJson({ error: 'Booking not found.' }, 404);
-  return ticketingJson(withPublicOrganiser(result.detail));
+  // Organiser contact v1: the public email + website allowlist, or null.
+  return ticketingJson({ ...withPublicOrganiser(result.detail), organiser_contact: result.eveOrganiserContact ?? null });
 }

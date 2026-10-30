@@ -72,6 +72,14 @@ export async function PUT(req: NextRequest) {
   if (logoUrlError) return NextResponse.json({ error: logoUrlError }, { status: 400 });
   const emailError = validateEmail(body.email);
   if (emailError) return NextResponse.json({ error: emailError }, { status: 400 });
+  // The public contact email shown to Eve buyers — same rule, own message so
+  // the settings page can tell the two email fields apart. Blank or
+  // whitespace-only means "not set" (stored as null), never an error.
+  const publicEmail = typeof body.publicEmail === 'string' && body.publicEmail.trim() ? body.publicEmail : null;
+  if (publicEmail !== null && validateEmail(publicEmail)) return NextResponse.json({ error: 'Public contact email must be a valid email address.' }, { status: 400 });
+  if (body.publicEmail !== undefined && body.publicEmail !== null && typeof body.publicEmail !== 'string') {
+    return NextResponse.json({ error: 'Public contact email must be a valid email address.' }, { status: 400 });
+  }
 
   // Every field is required-but-nullable on the wire, matching
   // setOrganisationBranding's own "caller submits the full current
@@ -91,6 +99,7 @@ export async function PUT(req: NextRequest) {
     abn: str(body.abn),
     emailFooter: str(body.emailFooter),
     emailSenderName: str(body.emailSenderName),
+    publicEmail,
   };
 
   await setOrganisationBranding(auth.session.organisationId, branding);

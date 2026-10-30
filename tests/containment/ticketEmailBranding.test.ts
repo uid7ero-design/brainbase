@@ -307,7 +307,7 @@ describe('ticketEmail.ts — no raw settings parsing, TicketEmailBranding only',
   const code = stripComments(read('lib/events/ticketEmail.ts'))
 
   it('imports TicketEmailBranding as a type only, never constructs branding from raw settings itself', () => {
-    expect(code).toContain("import type { TicketEmailBranding } from '@/lib/organisations/branding'")
+    expect(code).toContain("import type { EveOrganiserContact, TicketEmailBranding } from '@/lib/organisations/branding'")
     expect(code).not.toMatch(/JSON\.parse|\.settings\b/)
   })
 

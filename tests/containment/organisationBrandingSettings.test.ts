@@ -69,7 +69,7 @@ const ORG_A_LOOKALIKE_URL = 'https://abc123.public.blob.vercel-storage.com/organ
 const FULL_BRANDING = {
   name: 'Acme School', logoUrl: null, accentColor: '#8a4dff', email: 'events@acme.test',
   phone: '0400 000 000', website: 'https://acme.test', address: '1 Example St', abn: '12 345 678 901',
-  emailFooter: 'Thanks!', emailSenderName: 'Acme Events Team',
+  emailFooter: 'Thanks!', emailSenderName: 'Acme Events Team', publicEmail: 'tickets@acme.test',
 }
 
 // A minimal magic-byte-valid PNG buffer/File for upload tests.
@@ -487,8 +487,9 @@ describe('Settings page — route, auth, and V1 field coverage (static)', () => 
     expect(clientCode).toMatch(/MAX_LOGO_MB/)
   })
 
-  it('blank brand name explains the organisation-name fallback', () => {
-    expect(clientCode).toMatch(/will be used instead/)
+  it('blank brand name explains both fallbacks: the organisation name on BrainBase, neutral wording on Eve', () => {
+    expect(clientCode).toMatch(/Left blank, BrainBase pages use/)
+    expect(clientCode).toMatch(/Eve says “the event organiser”/)
   })
 
   it('never imports TicketCard (PR #142) — the preview card is self-contained', () => {
@@ -559,5 +560,78 @@ describe('TopNav — Branding link', () => {
     expect(brandingVisible('viewer')).toBe(false)
     expect(brandingVisible('analyst')).toBe(false)
     expect(brandingVisible('')).toBe(false)
+  })
+})
+
+describe('Eve organiser contact v1 — publicEmail through the branding route', () => {
+  const clientCode = stripComments(read('app/settings/branding/BrandingSettingsClient.tsx'))
+  function putReq(body: unknown) {
+    return new Request('http://localhost/x', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  }
+  function writtenBranding(): Record<string, unknown> {
+    const updateCall = sqlCalls.find(c => sqlText(c).includes('UPDATE organisations'))
+    expect(updateCall).toBeTruthy()
+    const json = (updateCall!.slice(1) as unknown[]).find(v => typeof v === 'string' && v.startsWith('{')) as string
+    return JSON.parse(json)
+  }
+
+  it('an invalid public contact email is rejected with 400 and its own message, no DB write attempted', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin'))
+    for (const bad of ['not-an-email', 'a@b', 'two words@x.test']) {
+      sqlMock.mockClear()
+      const res = await brandingRoute.PUT(putReq({ ...FULL_BRANDING, publicEmail: bad }) as never)
+      expect(res.status, bad).toBe(400)
+      expect((await res.json()).error).toBe('Public contact email must be a valid email address.')
+      expect(sqlMock).not.toHaveBeenCalled()
+    }
+  })
+
+  it('a valid public contact email is trimmed, lower-cased and stored as branding.publicEmail', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin'))
+    queue([], [{ name: 'Acme', settings: { branding: FULL_BRANDING } }])
+    const res = await brandingRoute.PUT(putReq({ ...FULL_BRANDING, publicEmail: '  Tickets@Acme.TEST ' }) as never)
+    expect(res.status).toBe(200)
+    expect(writtenBranding().publicEmail).toBe('tickets@acme.test')
+  })
+
+  it('blank / whitespace public email is stored as null, and is never filled from the private email', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin'))
+    for (const blank of ['', '   ', undefined]) {
+      sqlCalls.length = 0
+      queue([], [{ name: 'Acme', settings: { branding: FULL_BRANDING } }])
+      await brandingRoute.PUT(putReq({ ...FULL_BRANDING, email: 'private@acme.test', publicEmail: blank }) as never)
+      const written = writtenBranding()
+      expect(written.publicEmail).toBeNull()
+      expect(written.email).toBe('private@acme.test')
+    }
+  })
+
+  it('below admin cannot set it (403, no DB access); no session -> 401', async () => {
+    for (const role of ['viewer', 'manager']) {
+      sqlMock.mockClear()
+      requireSessionMock.mockResolvedValue(sessionAs(role))
+      const res = await brandingRoute.PUT(putReq({ ...FULL_BRANDING, publicEmail: 'tickets@acme.test' }) as never)
+      expect(res.status, role).toBe(403)
+      expect(sqlMock).not.toHaveBeenCalled()
+    }
+    requireSessionMock.mockRejectedValue(new Error('Unauthorized'))
+    expect((await brandingRoute.PUT(putReq({ publicEmail: 'tickets@acme.test' }) as never)).status).toBe(401)
+  })
+
+  it('tenant isolation: written to the session organisation only, never a body-supplied one', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin', 'org-a'))
+    queue([], [{ name: 'Acme', settings: { branding: FULL_BRANDING } }])
+    await brandingRoute.PUT(putReq({ ...FULL_BRANDING, publicEmail: 'tickets@acme.test', organisationId: 'org-b' }) as never)
+    const updateCall = sqlCalls.find(c => sqlText(c).includes('UPDATE organisations'))!
+    expect(JSON.stringify(updateCall.slice(1))).toContain('org-a')
+    expect(JSON.stringify(updateCall.slice(1))).not.toContain('org-b')
+  })
+
+  it('the settings page labels the public email as shown to buyers on Eve and the support email/phone as private', () => {
+    expect(clientCode).toMatch(/Public contact email \(shown to buyers on Eve\)/)
+    expect(clientCode).toMatch(/Support\/contact email \(private\)/)
+    expect(clientCode).toMatch(/Phone \(private\)/)
+    expect(clientCode).toMatch(/Shown to buyers on Eve/)
+    expect(clientCode).not.toMatch(/not yet used anywhere/)
   })
 })

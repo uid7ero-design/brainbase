@@ -5,6 +5,7 @@ import { TicketCard } from '@/components/buyer/TicketCard';
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
 import { formatDateTime } from '@/lib/format';
 import { BearerLinkNotice } from '@/components/buyer/BearerLinkNotice';
+import { OrganiserContact } from '@/components/buyer/OrganiserContact';
 
 export const metadata: Metadata = { title: 'Your tickets', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export default async function BookingWalletPage({ params }: Props) {
       </Container>
     );
   }
-  const { event, tickets, purchaser_name } = result.data;
+  const { event, tickets, purchaser_name, organiser_name, organiser_contact } = result.data;
   return (
     <Container className="py-10 sm:py-14">
       <h1 className="eve-display text-3xl">{event.name}</h1>
@@ -43,6 +44,7 @@ export default async function BookingWalletPage({ params }: Props) {
           </li>
         ))}
       </ul>
+      <OrganiserContact organiserName={organiser_name} contact={organiser_contact} className="mt-10 max-w-xl" />
     </Container>
   );
 }

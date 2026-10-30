@@ -148,7 +148,11 @@ describe('organiser Settings page', () => {
     gw.getSettings.mockResolvedValue(settings());
     await page();
     expect(screen.getByTestId('branding-chip')).toHaveTextContent('Not configured');
-    expect(screen.getByTestId('section-branding')).toHaveTextContent('using your organisation name');
+    // Organiser contact v1: Eve never shows the organisation name as the
+    // organiser, so the settings no longer claim it is used.
+    expect(screen.getByTestId('section-branding')).not.toHaveTextContent('using your organisation name');
+    expect(screen.getByTestId('section-branding')).not.toHaveTextContent('Acme Events');
+    expect(screen.getByTestId('section-branding')).toHaveTextContent('Not set. Buyers see “the event organiser”.');
     expect(screen.getByTestId('section-branding')).toHaveTextContent('Logo');
   });
 

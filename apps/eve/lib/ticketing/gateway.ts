@@ -91,6 +91,9 @@ export type PublicEventDetail = {
   // The organiser's public display name (organisation branding), or null when
   // none is configured. The API never sends the internal organisation name.
   organiser_name?: string | null;
+  // The organiser's public contact (their public email and website), or null
+  // when they have set neither. Never their private contact details.
+  organiser_contact?: OrganiserContact | null;
   // Registration questions this event asks on Eve (definitions only, never
   // answers). Empty unless the organiser opted the event in on Eve.
   questions?: PublicQuestion[];
@@ -101,6 +104,8 @@ export type PublicEventDetail = {
   // Anything other than true (missing, older API) means it is not.
   paid_checkout_available?: boolean;
 };
+
+export type OrganiserContact = { email: string | null; website: string | null };
 
 export type TicketDetail = {
   attendee_name: string;
@@ -118,6 +123,7 @@ export type BookingDetail = {
   event: TicketDetail['event'];
   tickets: { attendee_name: string; ticket_type_name: string | null; session: TicketDetail['session']; ticket_token: string; checked_in_at: string | null; status: PublicTicketStatus }[];
   organiser_name?: string | null;
+  organiser_contact?: OrganiserContact | null;
 };
 
 export type CheckoutStatus = {
@@ -186,6 +192,8 @@ export type FeePolicyView =
 export type BrandingView = {
   configured: boolean; display_name: string; display_name_is_custom: boolean; logo_configured: boolean;
   accent_color: string | null; website: string | null; support_email: string | null; support_phone: string | null; email_footer: string | null;
+  // The public contact email Eve shows buyers (branding.publicEmail).
+  public_email?: string | null;
 };
 export type OrganiserSettings = {
   organisation: { name: string; slug: string };

@@ -313,7 +313,7 @@ describe('public event read: server-derived paid_checkout_available (one boolean
     for (const mk of [brainbase, params]) {
       const body = await (await read(mk())).json()
       // organisationName (internal) is replaced by organiser_name (public display name or null).
-      const expectedKeys = [...Object.keys(DETAIL).filter(k => k !== 'organisationName'), 'organiser_name', 'paid_checkout_available', 'questions_block_booking']
+      const expectedKeys = [...Object.keys(DETAIL).filter(k => k !== 'organisationName'), 'organiser_contact', 'organiser_name', 'paid_checkout_available', 'questions_block_booking']
       expect(Object.keys(body).sort()).toEqual(expectedKeys.sort())
       expect(body.organiser_name).toBeNull()
       expect(JSON.stringify(body)).not.toContain('Brainbase')
