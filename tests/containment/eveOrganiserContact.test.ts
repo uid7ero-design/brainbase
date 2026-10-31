@@ -32,7 +32,9 @@ let orgSettings: unknown = {}
 const db = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
   const q = strings.join('?')
   if (q.includes('INSERT INTO ticketing_rate_limits')) return [{ count: 1, key: values[0] }]
-  if (q.includes('FROM organisations WHERE slug')) return [{ id: 'org-a', name: INTERNAL, settings: orgSettings }]
+  // Eve-enabled organisation (Eve organiser allow-list): these tests are about
+  // what an Eve response carries, so the organisation must be on Eve.
+  if (q.includes('FROM organisations WHERE slug')) return [{ id: 'org-a', name: INTERNAL, settings: { ...(orgSettings as object), events: { eveEnabled: true } } }]
   if (/FROM events\b/.test(q) && q.includes("status = 'PUBLISHED'")) {
     return [{ id: 'ev-1', organisation_id: 'org-a', name: 'Gala', slug: 'gala', description: null, venue: 'Hall', artwork_url: null, starts_at: '2030-01-01T10:00:00Z', ends_at: '2030-01-01T12:00:00Z', timezone: 'Australia/Adelaide', eve_questions_enabled: false }]
   }

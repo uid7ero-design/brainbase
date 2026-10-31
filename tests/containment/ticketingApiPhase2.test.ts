@@ -242,7 +242,7 @@ describe('public API', () => {
   })
 
   it('accepts a Node-style server fetch (which sets sec-fetch-mode) but refuses anything carrying Sec-Fetch-Site', async () => {
-    publicSvc.getPublicEventDetail.mockResolvedValue({ ok: true, detail: { event: { name: 'Gala' } } })
+    publicSvc.getPublicEventDetail.mockResolvedValue({ ok: true, eveEnabled: true, detail: { event: { name: 'Gala' } } })
     const serverFetch = gated('http://bb.test/x', { headers: { 'sec-fetch-mode': 'cors' } })
     expect((await pub.handleTicketingPublicEvent(serverFetch, params)).status).toBe(200)
     const browserFetch = gated('http://bb.test/x', { headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'cors' } })
@@ -250,7 +250,7 @@ describe('public API', () => {
   })
 
   it('paid checkout returns Eve URLs for success and cancel, and never reads the request host', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     let captured: { successUrl: string; cancelUrl: string } | null = null
     publicSvc.startPaidCheckout.mockImplementation(async (opts: { buildReturnUrls: () => Promise<{ successUrl: string; cancelUrl: string }> }) => {
       captured = await opts.buildReturnUrls()
@@ -278,7 +278,7 @@ describe('public API', () => {
   })
 
   it('rate-limits paid checkout per buyer address and event using the shared limiter key', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
     const statuses: number[] = []
     for (let i = 0; i < 11; i++) {
@@ -289,7 +289,7 @@ describe('public API', () => {
   })
 
   it('maps service results to the same status and message the public checkout route returns', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'ACCESS_CODE_REQUIRED' })
     const res = await pub.handleTicketingCheckout(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': '198.51.100.8' } }), { organisationSlug: 'acme', eventSlug: 'codes' })
     expect(res.status).toBe(400)
@@ -402,7 +402,7 @@ describe('distributed rate limiting wiring (Phase 3.5)', () => {
   const exhaust = (policy: { cls: string; max: number }, dims: string[]) => db.counters.set(limiterKeyHash(policy.cls, dims), policy.max)
 
   it('paid checkout: the 11th request from one address is a 429 and the service (reservation, Stripe) is NOT called a 11th time', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
     const run = () => pub.handleTicketingCheckout(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': IP } }), params)
     const statuses: number[] = []
@@ -430,7 +430,7 @@ describe('distributed rate limiting wiring (Phase 3.5)', () => {
 
   it('another address or another event keeps its own budget', async () => {
     exhaust(LIMITS.paidCheckout, ['acme', 'gala', IP])
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: false, code: 'CAPACITY_UNAVAILABLE' })
     const go = (ip: string, eventSlug = 'gala') => pub.handleTicketingCheckout(gated('http://bb.test/x', { method: 'POST', body: JSON.stringify(VALID), headers: { 'x-ticketing-client-ip': ip } }), { organisationSlug: 'acme', eventSlug })
     expect((await go(IP)).status).toBe(429)
@@ -522,7 +522,7 @@ describe('paid checkout acceptance is enforced server-side (launch compliance)',
   })
 
   it('accept_terms: true proceeds to the normal checkout path, and the field never reaches the service input', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
     const res = await pub.handleTicketingCheckout(gated({ ...BASE, accept_terms: true }), params())
     expect(res.status).toBe(201)
@@ -531,7 +531,7 @@ describe('paid checkout acceptance is enforced server-side (launch compliance)',
   })
 
   it('the acceptance snapshot comes from trusted server constants — hostile client versions / timestamps are ignored', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
     const { currentEveLegalAcceptance } = await import('@ticketing/core')
     const res = await pub.handleTicketingCheckout(gated({
@@ -548,7 +548,7 @@ describe('paid checkout acceptance is enforced server-side (launch compliance)',
   })
 
   it('Production refuses to record a DRAFT legal version (503, nothing reserved); Preview records it', async () => {
-    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1' } })
+    publicSvc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1' } })
     publicSvc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
     // The repo's legal version is now the dated 2026-10-21 version, so the draft
     // guard is exercised with a mocked draft version (it is independent of the

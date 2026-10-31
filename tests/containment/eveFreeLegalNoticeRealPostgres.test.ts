@@ -173,7 +173,8 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve free-registration legal notice
         user_id text NULL REFERENCES users(id) ON DELETE SET NULL, action text NOT NULL, resource_type text NOT NULL,
         resource_id text NULL, before_state jsonb NULL, after_state jsonb NULL, ip_address text NULL, user_agent text NULL,
         created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP);`,
-      `INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a');`,
+      // Eve-enabled (Eve organiser allow-list): Eve registers only for these.
+      `INSERT INTO organisations (id, name, slug, settings) VALUES ('org-a', 'Org A', 'org-a', '{"events":{"eveEnabled":true}}');`,
       `INSERT INTO events (id, organisation_id, name, slug, status, starts_at, ends_at, timezone)
          VALUES ('event-1', 'org-a', 'Gala', 'gala', 'PUBLISHED', '2030-01-01T10:00:00Z', '2030-01-01T12:00:00Z', 'Australia/Adelaide');`,
       `INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active)
