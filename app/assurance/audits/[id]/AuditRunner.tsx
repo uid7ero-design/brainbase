@@ -34,6 +34,11 @@ type Props = {
   responses: AuditRunnerResponse[];
   findings: AuditRunnerFinding[];
   findingFields: FormField[];
+  /** Active, visible evidence links per criterion_key. */
+  evidenceByCriterion: Record<string, number>;
+  /** Evidence can be added (not cancelled, viewer may record). */
+  canAddEvidence: boolean;
+  evidenceFormFields: FormField[];
 };
 
 type OutcomeTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
@@ -48,7 +53,9 @@ const OUTCOMES: { value: AuditOutcome; label: string; help: string; tone: Outcom
 
 const control = fieldControlClassName;
 
-export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc, criteria, responses, findings, findingFields }: Props) {
+export default function AuditRunner({
+  auditId, editable, canRaiseFindings, adHoc, criteria, responses, findings, findingFields, evidenceByCriterion, canAddEvidence, evidenceFormFields,
+}: Props) {
   const byKey = new Map(responses.map(r => [r.criterion_key, r]));
   const items: AuditCriterion[] = adHoc
     ? responses.map(r => ({ key: r.criterion_key, label: r.criterion_label, responseType: r.response_type, guidance: null, required: false, options: [], section: null }))
@@ -75,7 +82,8 @@ export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc
             )}
             <CriterionRow index={idx} criterion={c} response={byKey.get(c.key) ?? null} auditId={auditId}
               editable={editable} adHoc={adHoc} canRaiseFindings={canRaiseFindings}
-              findings={findings.filter(f => f.source_criterion_key === c.key)} findingFields={findingFields} />
+              findings={findings.filter(f => f.source_criterion_key === c.key)} findingFields={findingFields}
+              evidenceCount={evidenceByCriterion[c.key] ?? 0} canAddEvidence={canAddEvidence} evidenceFormFields={evidenceFormFields} />
           </Fragment>
         ))}
       </ol>
@@ -84,11 +92,15 @@ export default function AuditRunner({ auditId, editable, canRaiseFindings, adHoc
   );
 }
 
-function CriterionRow({ index, criterion, response, auditId, editable, adHoc, canRaiseFindings, findings, findingFields }: {
+function CriterionRow({ index, criterion, response, auditId, editable, adHoc, canRaiseFindings, findings, findingFields, evidenceCount, canAddEvidence, evidenceFormFields }: {
   index: number; criterion: AuditCriterion; response: AuditRunnerResponse | null; auditId: string; editable: boolean; adHoc: boolean;
   canRaiseFindings: boolean; findings: AuditRunnerFinding[]; findingFields: FormField[];
+  evidenceCount: number; canAddEvidence: boolean; evidenceFormFields: FormField[];
 }) {
   const router = useRouter();
+  // One key per attempt to raise a finding from this criterion: a double tap
+  // or a retry after a lost response returns the same finding, not a duplicate.
+  const [findingRequestKey] = useState(() => crypto.randomUUID());
   const [editing, setEditing] = useState(false);
   const [outcome, setOutcome] = useState<AuditOutcome | ''>(response?.outcome ?? '');
   const [value, setValue] = useState<string>(displayValue(response?.response_value));
@@ -170,8 +182,11 @@ function CriterionRow({ index, criterion, response, auditId, editable, adHoc, ca
         </div>
       )}
 
-      {(findings.length > 0 || raisable || (editable && response && !showEditor && !frozen)) && (
-        <div className={styles.row} style={{ marginTop: 10 }}>
+      {(findings.length > 0 || raisable || evidenceCount > 0 || (response && canAddEvidence) || (editable && response && !showEditor && !frozen)) && (
+        <div className={styles.runnerTools}>
+          {evidenceCount > 0 && (
+            <a href="#evidence" className={styles.runnerTag}>{evidenceCount} evidence</a>
+          )}
           {findings.map(f => (
             <Link key={f.id} href={`/assurance/findings/${f.id}`} className={styles.refChip} style={{ fontFamily: 'inherit', fontSize: '0.75rem', padding: '4px 8px' }}>
               Finding {f.finding_reference} · {assuranceLabel(f.status)}
@@ -180,12 +195,22 @@ function CriterionRow({ index, criterion, response, auditId, editable, adHoc, ca
           {editable && response && !showEditor && !frozen && (
             <Button size="sm" onClick={() => setEditing(true)}>Revise</Button>
           )}
+          {response && canAddEvidence && !showEditor && (
+            <ActionPanel
+              label="Add evidence"
+              endpoint="/api/assurance/evidence"
+              extraBody={{ target: 'audit', targetId: auditId, criterionKey: criterion.key }}
+              fields={evidenceFormFields}
+              submitLabel="Add evidence"
+              description="Linked to this audit and this criterion. Accepting the evidence later does not change the rating."
+            />
+          )}
           {raisable && (
             <ActionPanel
               label={findings.length > 0 ? 'Raise another finding' : 'Raise finding'}
               endpoint="/api/assurance/findings"
               variant={response?.outcome === 'NON_COMPLIANT' ? 'primary' : 'secondary'}
-              extraBody={{ auditId, auditCriterionKey: criterion.key }}
+              extraBody={{ auditId, auditCriterionKey: criterion.key, requestKey: findingRequestKey }}
               fields={withDefaults(findingFields, criterion, response!)}
               submitLabel="Raise finding"
               redirectTo="/assurance/findings/{id}"

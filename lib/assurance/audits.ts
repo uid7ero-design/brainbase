@@ -2,6 +2,8 @@ import 'server-only';
 import sql from '@/lib/db';
 import { viewerCan, type AssuranceViewer } from './policy';
 import { findingVisibleSql, evidenceVisibleSql } from './access';
+import { listActionsViaFindings, openActionCountSql, type LinkedActionRow } from './executionLinks';
+import { executionReadiness, matchesExecutionView, parseExecutionView, type ExecutionReadiness } from './executionRules';
 import { auditInsert, listAssuranceHistory, type AssuranceHistoryEntry } from './audit';
 import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
@@ -38,7 +40,7 @@ import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError
 export type AuditListFilters = {
   q?: string;
   status?: string;
-  view?: 'due' | 'planned' | 'in_progress' | 'completed' | 'all';
+  view?: string;
   auditType?: string;
   source?: 'template' | 'adhoc';
   auditorUserId?: string;
@@ -51,24 +53,37 @@ export type AuditListRow = {
   standard_reference: string | null; scheduled_at: AssuranceTimestamp | null; started_at: AssuranceTimestamp | null;
   completed_at: AssuranceTimestamp | null; auditor_name: string | null; location_name: string | null;
   external_organisation_name: string | null; template_name: string | null; template_version_number: number | null;
-  response_count: number; non_compliant_count: number; partial_count: number; finding_count: number;
+  response_count: number; non_compliant_count: number; partial_count: number;
+  /** Findings, open Actions and active evidence links the VIEWER may see (restricted ones are not counted). */
+  finding_count: number; open_action_count: number; evidence_count: number;
+  readiness: ExecutionReadiness;
 };
 
+/**
+ * The register. Linked-record counts use the shared visibility predicates;
+ * readiness uses the same rule completion enforces (executionRules.ts).
+ */
 export async function listAudits(viewer: AssuranceViewer, filters: AuditListFilters = {}): Promise<AuditListRow[]> {
   const pattern = searchPattern(filters.q);
   const status = AUDIT_STATUSES.includes(filters.status as AuditStatus) ? filters.status! : null;
   const type = AUDIT_TYPES.includes(filters.auditType as AuditType) ? filters.auditType! : null;
-  const view = filters.view && ['due', 'planned', 'in_progress', 'completed'].includes(filters.view) ? filters.view : 'all';
+  const view = parseExecutionView(filters.view);
+  const sqlStatus = view === 'planned' || view === 'due' ? 'PLANNED'
+    : view === 'in_progress' || view === 'incomplete' || view === 'ready' ? 'IN_PROGRESS'
+      : view === 'completed' ? 'COMPLETED' : view === 'cancelled' ? 'CANCELLED' : null;
   const source = filters.source === 'template' || filters.source === 'adhoc' ? filters.source : null;
   const auditor = typeof filters.auditorUserId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(filters.auditorUserId) ? filters.auditorUserId : null;
   const locationId = isUuid(filters.locationId) ? filters.locationId : null;
   const externalOrganisationId = isUuid(filters.externalOrganisationId) ? filters.externalOrganisationId : null;
 
-  return (await sql`
+  const rows = (await sql`
     SELECT au.id, au.audit_reference, au.title, au.audit_type, au.status, au.standard_reference,
            au.scheduled_at, au.started_at, au.completed_at,
            uu.name AS auditor_name, loc.name AS location_name, xo.name AS external_organisation_name,
-           t.name AS template_name, v.version_number AS template_version_number,
+           t.name AS template_name, v.version_number AS template_version_number, v.criteria AS template_criteria,
+           (au.template_version_id IS NULL) AS ad_hoc,
+           COALESCE((SELECT array_agg(r.criterion_key) FROM assurance_audit_responses r
+             WHERE r.organisation_id = au.organisation_id AND r.audit_id = au.id), '{}') AS answered_keys,
            (SELECT count(*) FROM assurance_audit_responses r
              WHERE r.organisation_id = au.organisation_id AND r.audit_id = au.id)::int AS response_count,
            (SELECT count(*) FROM assurance_audit_responses r
@@ -77,7 +92,12 @@ export async function listAudits(viewer: AssuranceViewer, filters: AuditListFilt
              WHERE r.organisation_id = au.organisation_id AND r.audit_id = au.id AND r.outcome = 'PARTIAL')::int AS partial_count,
            (SELECT count(*) FROM assurance_audit_findings xf
              JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
-             WHERE xf.organisation_id = au.organisation_id AND xf.audit_id = au.id AND ${findingVisibleSql(viewer)})::int AS finding_count
+             WHERE xf.organisation_id = au.organisation_id AND xf.audit_id = au.id AND ${findingVisibleSql(viewer)})::int AS finding_count,
+           ${openActionCountSql(viewer, 'audit')} AS open_action_count,
+           (SELECT count(*) FROM assurance_evidence_audits l
+             JOIN assurance_evidence e ON e.organisation_id = l.organisation_id AND e.id = l.evidence_id
+             WHERE l.organisation_id = au.organisation_id AND l.audit_id = au.id AND l.removed_at IS NULL
+               AND ${evidenceVisibleSql(viewer)})::int AS evidence_count
     FROM assurance_audits au
     LEFT JOIN users uu ON uu.id = au.auditor_user_id AND uu.organisation_id = au.organisation_id
     LEFT JOIN locations loc ON loc.organisation_id = au.organisation_id AND loc.id = au.location_id
@@ -86,11 +106,9 @@ export async function listAudits(viewer: AssuranceViewer, filters: AuditListFilt
     LEFT JOIN assurance_audit_templates t ON t.organisation_id = v.organisation_id AND t.id = v.template_id
     WHERE au.organisation_id = ${viewer.organisationId}
       AND (${status}::text IS NULL OR au.status = ${status})
+      AND (${sqlStatus}::text IS NULL OR au.status = ${sqlStatus})
       AND (${type}::text IS NULL OR au.audit_type = ${type})
-      AND (${view}::text <> 'due' OR (au.status = 'PLANNED' AND au.scheduled_at IS NOT NULL AND au.scheduled_at < now() + interval '14 days'))
-      AND (${view}::text <> 'planned' OR au.status = 'PLANNED')
-      AND (${view}::text <> 'in_progress' OR au.status = 'IN_PROGRESS')
-      AND (${view}::text <> 'completed' OR au.status = 'COMPLETED')
+      AND (${view}::text <> 'due' OR (au.scheduled_at IS NOT NULL AND au.scheduled_at < now() + interval '14 days'))
       AND (${source}::text IS NULL OR (${source}::text = 'template') = (au.template_version_id IS NOT NULL))
       AND (${auditor}::text IS NULL OR au.auditor_user_id = ${auditor})
       AND (${locationId}::uuid IS NULL OR au.location_id = ${locationId}::uuid)
@@ -100,7 +118,16 @@ export async function listAudits(viewer: AssuranceViewer, filters: AuditListFilt
       CASE au.status WHEN 'IN_PROGRESS' THEN 0 WHEN 'PLANNED' THEN 1 WHEN 'COMPLETED' THEN 2 ELSE 3 END,
       COALESCE(au.scheduled_at, au.started_at, au.created_at) DESC
     LIMIT 200
-  `) as AuditListRow[];
+  `) as (Omit<AuditListRow, 'readiness'> & { template_criteria: unknown; ad_hoc: boolean; answered_keys: string[] })[];
+
+  return rows
+    .map(({ template_criteria, ad_hoc, answered_keys, ...r }) => ({
+      ...r,
+      readiness: executionReadiness({
+        status: r.status, adHoc: ad_hoc, items: parseCriteria(template_criteria).items, answeredKeys: answered_keys, noun: 'audit',
+      }),
+    }))
+    .filter(r => matchesExecutionView(view, r));
 }
 
 export type AuditResponseRow = {
@@ -129,7 +156,10 @@ export type AuditDetail = {
     identified_at: AssuranceTimestamp; source_criterion_key: string | null;
   }[];
   hiddenFindingCount: number;
+  /** Actions raised from this audit's visible Findings (Audit → Finding → Action; no shortcut). */
+  actions: LinkedActionRow[];
   evidence: EvidenceLinkRow[];
+  readiness: ExecutionReadiness;
   history: AssuranceHistoryEntry[];
 };
 
@@ -163,7 +193,7 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
   const { template_criteria, ...audit } = row;
   const parsed = parseCriteria(template_criteria);
 
-  const [responses, findings, hidden, evidence, history] = await Promise.all([
+  const [responses, findings, hidden, actions, evidence, history] = await Promise.all([
     sql`
       SELECT r.id, r.criterion_key, r.criterion_label, r.response_type, r.response_value, r.outcome, r.notes, r.responded_at,
              u.name AS responded_by_name
@@ -190,6 +220,7 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
       WHERE lx.organisation_id = ${org} AND lx.audit_id = ${id}::uuid
         AND NOT ${findingVisibleSql(viewer)}
     `,
+    listActionsViaFindings(viewer, 'audit', id),
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
              e.verification_status,
@@ -216,7 +247,12 @@ export async function getAuditDetail(viewer: AssuranceViewer, id: string): Promi
     responses: responses as AuditResponseRow[],
     findings: findings as AuditDetail['findings'],
     hiddenFindingCount: ((hidden as { n: number }[])[0]?.n) ?? 0,
+    actions,
     evidence: evidence as EvidenceLinkRow[],
+    readiness: executionReadiness({
+      status: audit.status, adHoc: !audit.template_version_id, items: parsed.items,
+      answeredKeys: (responses as { criterion_key: string }[]).map(r => r.criterion_key), noun: 'audit',
+    }),
     history,
   };
 }
@@ -477,14 +513,14 @@ export async function completeAudit(viewer: AssuranceViewer, id: string, raw: Re
     WHERE organisation_id = ${viewer.organisationId} AND audit_id = ${id}::uuid
   `) as { criterion_key: string }[];
   const answeredKeys = new Set(answered.map(r => r.criterion_key));
-  if (state.template_version_id) {
-    const missing = parseCriteria(state.criteria).items.filter(c => c.required && !answeredKeys.has(c.key));
-    if (missing.length > 0) {
-      throw new AssuranceConflictError(`${missing.length} required criteri${missing.length === 1 ? 'on has' : 'a have'} no response yet.`);
-    }
-  } else if (answeredKeys.size === 0) {
-    throw new AssuranceConflictError('Record at least one criterion before completing an ad hoc audit.');
-  }
+  // Same rule the register and detail page show (executionRules.ts).
+  // Responses are never deleted, so a blocker cannot reappear before the
+  // guarded status write. Findings, open Actions and evidence never block.
+  const readiness = executionReadiness({
+    status: state.status, adHoc: !state.template_version_id, items: parseCriteria(state.criteria).items,
+    answeredKeys, noun: 'audit',
+  });
+  if (!readiness.ready) throw new AssuranceConflictError(readiness.blockers[0] ?? 'This audit is not ready to complete.');
 
   const rows = (await sql`
     WITH upd AS (
@@ -502,6 +538,53 @@ export async function completeAudit(viewer: AssuranceViewer, id: string, raw: Re
     SELECT id FROM upd
   `) as unknown[];
   if (rows.length === 0) throw new AssuranceConflictError('This audit was changed by someone else. Refresh and try again.');
+}
+
+/**
+ * Assigns (or clears) the auditor of a planned or in-progress audit. Lock +
+ * guarded write with optional `expectedAuditorUserId`, audited atomically;
+ * nothing else on the audit changes.
+ */
+export async function assignAuditor(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<{ id: string; auditor_user_id: string | null }> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  const auditorUserId = optionalUserId(raw.auditorUserId, 'Auditor');
+  const expected = raw.expectedAuditorUserId === undefined ? undefined : optionalUserId(raw.expectedAuditorUserId, 'Current auditor');
+  const state = await getAuditState(viewer, id);
+  id = state.id;
+  if (state.status !== 'PLANNED' && state.status !== 'IN_PROGRESS') {
+    throw new AssuranceConflictError('The auditor of a completed or cancelled audit cannot be changed.');
+  }
+  await assertSameOrgUsers(viewer.organisationId, [{ field: 'Auditor', userId: auditorUserId }]);
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_audits WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
+      WITH prev AS (
+        SELECT auditor_user_id FROM assurance_audits
+        WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid
+      ), upd AS (
+        UPDATE assurance_audits au
+        SET auditor_user_id = ${auditorUserId}, updated_at = now()
+        WHERE au.organisation_id = ${viewer.organisationId} AND au.id = ${id}::uuid
+          AND au.status IN ('PLANNED', 'IN_PROGRESS')
+          AND (${expected === undefined}::boolean OR au.auditor_user_id IS NOT DISTINCT FROM ${expected ?? null}::text)
+          AND au.auditor_user_id IS DISTINCT FROM ${auditorUserId}::text
+        RETURNING au.id, au.auditor_user_id
+      ), aud AS (
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_audit.assigned',
+               'assurance_audit', upd.id::text,
+               jsonb_build_object('auditor_user_id', (SELECT auditor_user_id FROM prev)),
+               jsonb_build_object('auditor_user_id', upd.auditor_user_id)
+        FROM upd
+      )
+      SELECT id, auditor_user_id FROM upd
+    `,
+  ]);
+  const rows = results[1] as { id: string; auditor_user_id: string | null }[];
+  if (!rows[0]) {
+    throw new AssuranceConflictError('The auditor was not changed: someone else changed it (or the audit) first, or it is already that person. Refresh and try again.');
+  }
+  return rows[0];
 }
 
 export async function cancelAudit(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<void> {

@@ -15,6 +15,10 @@ import styles from '../../_components/assurance.module.css';
 // template version (or are defined ad hoc). Each save posts ONE response
 // to the server, which re-derives the item label/type from the version —
 // nothing here is trusted for integrity.
+//
+// A Fail / Observation NEVER creates a Finding: the inspector is offered
+// "Raise finding" and decides. Evidence added from an item carries that
+// item's key; accepting it later does not change the response.
 
 export type RunnerResponse = {
   item_key: string; item_label: string; response_type: InspectionResponseType; response_value: unknown;
@@ -31,6 +35,11 @@ type Props = {
   responses: RunnerResponse[];
   findings: RunnerFinding[];
   findingFields: FormField[];
+  /** Active, visible evidence links per item_key. */
+  evidenceByItem: Record<string, number>;
+  /** Evidence can be added (not cancelled, viewer may record). */
+  canAddEvidence: boolean;
+  evidenceFormFields: FormField[];
 };
 
 type OutcomeTone = 'success' | 'danger' | 'warning' | 'info' | 'neutral';
@@ -44,7 +53,9 @@ const OUTCOMES: { value: InspectionOutcome; label: string; tone: OutcomeTone }[]
 
 const control = fieldControlClassName;
 
-export default function InspectionRunner({ inspectionId, editable, canRaiseFindings, adHoc, checklist, responses, findings, findingFields }: Props) {
+export default function InspectionRunner({
+  inspectionId, editable, canRaiseFindings, adHoc, checklist, responses, findings, findingFields, evidenceByItem, canAddEvidence, evidenceFormFields,
+}: Props) {
   const byKey = new Map(responses.map(r => [r.item_key, r]));
   // Ad hoc inspections: the items ARE the responses recorded so far.
   const items: ChecklistItem[] = adHoc
@@ -80,6 +91,9 @@ export default function InspectionRunner({ inspectionId, editable, canRaiseFindi
               canRaiseFindings={canRaiseFindings}
               findings={findings.filter(f => f.source_item_key === item.key)}
               findingFields={findingFields}
+              evidenceCount={evidenceByItem[item.key] ?? 0}
+              canAddEvidence={canAddEvidence}
+              evidenceFormFields={evidenceFormFields}
             />
           </Fragment>
         ))}
@@ -89,11 +103,15 @@ export default function InspectionRunner({ inspectionId, editable, canRaiseFindi
   );
 }
 
-function ItemRow({ index, item, response, inspectionId, editable, adHoc, canRaiseFindings, findings, findingFields }: {
+function ItemRow({ index, item, response, inspectionId, editable, adHoc, canRaiseFindings, findings, findingFields, evidenceCount, canAddEvidence, evidenceFormFields }: {
   index: number; item: ChecklistItem; response: RunnerResponse | null; inspectionId: string; editable: boolean; adHoc: boolean;
   canRaiseFindings: boolean; findings: RunnerFinding[]; findingFields: FormField[];
+  evidenceCount: number; canAddEvidence: boolean; evidenceFormFields: FormField[];
 }) {
   const router = useRouter();
+  // One key per attempt to raise a finding from this item: a double tap or a
+  // retry after a lost response returns the same finding, never a duplicate.
+  const [findingRequestKey] = useState(() => crypto.randomUUID());
   const [editing, setEditing] = useState(false);
   const [outcome, setOutcome] = useState<InspectionOutcome | ''>(response?.outcome ?? '');
   const [value, setValue] = useState<string>(displayValue(response?.response_value));
@@ -125,6 +143,8 @@ function ItemRow({ index, item, response, inspectionId, editable, adHoc, canRais
   }
 
   const outcomeStyle = OUTCOMES.find(o => o.value === response?.outcome);
+  // A response is frozen once a finding has been raised from it (server-enforced).
+  const frozen = findings.length > 0;
   const raisable = canRaiseFindings && response && (response.outcome === 'FAIL' || response.outcome === 'OBSERVATION');
 
   return (
@@ -172,22 +192,35 @@ function ItemRow({ index, item, response, inspectionId, editable, adHoc, canRais
         </div>
       )}
 
-      {(findings.length > 0 || raisable || (editable && response && !showEditor)) && (
-        <div className={styles.row} style={{ marginTop: 10 }}>
+      {(findings.length > 0 || raisable || evidenceCount > 0 || (response && canAddEvidence) || (editable && response && !showEditor && !frozen)) && (
+        <div className={styles.runnerTools}>
+          {evidenceCount > 0 && (
+            <a href="#evidence" className={styles.runnerTag}>{evidenceCount} evidence</a>
+          )}
           {findings.map(f => (
             <Link key={f.id} href={`/assurance/findings/${f.id}`} className={styles.refChip} style={{ fontFamily: 'inherit', fontSize: '0.75rem', padding: '4px 8px' }}>
               Finding {f.finding_reference} · {assuranceLabel(f.status)}
             </Link>
           ))}
-          {editable && response && !showEditor && (
+          {editable && response && !showEditor && !frozen && (
             <Button size="sm" onClick={() => setEditing(true)}>Revise</Button>
+          )}
+          {response && canAddEvidence && !showEditor && (
+            <ActionPanel
+              label="Add evidence"
+              endpoint="/api/assurance/evidence"
+              extraBody={{ target: 'inspection', targetId: inspectionId, itemKey: item.key }}
+              fields={evidenceFormFields}
+              submitLabel="Add evidence"
+              description="Linked to this inspection and this checklist item. Accepting the evidence later does not change the response."
+            />
           )}
           {raisable && (
             <ActionPanel
               label={findings.length > 0 ? 'Raise another finding' : 'Raise finding'}
               endpoint="/api/assurance/findings"
               variant="primary"
-              extraBody={{ inspectionId, inspectionItemKey: item.key }}
+              extraBody={{ inspectionId, inspectionItemKey: item.key, requestKey: findingRequestKey }}
               fields={withDefaults(findingFields, item, response)}
               submitLabel="Raise finding"
               redirectTo="/assurance/findings/{id}"

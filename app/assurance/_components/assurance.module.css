@@ -761,6 +761,77 @@
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
 }
+/* Per-item evidence / finding indicators under a checklist item. */
+.runnerTools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.runnerTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+/* Field execution happens on phones: no precision tapping. */
+@media (max-width: 767px), (pointer: coarse) {
+  .outcomeChip {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 0.8125rem;
+  }
+  .runnerTools > a,
+  .runnerTools > span > button,
+  .runnerTools > div > button,
+  .runnerTools > button {
+    min-height: 44px;
+  }
+}
+
+/* ── Completion readiness ("what remains to be completed?") ─────────── */
+
+.readiness {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.readinessHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.readinessState {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--status-warning);
+}
+.readinessState[data-ready] {
+  color: var(--status-success);
+}
+.readinessProgress {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.readinessBlockers {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.readinessInfo {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
 @media (prefers-reduced-motion: reduce) {
   .outcomeChip,
   .workLink {
