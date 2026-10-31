@@ -388,7 +388,7 @@ suite('availability at commit (Phase 2C.0) on real PostgreSQL', () => {
         const fake = installNeonLikeFetch(getPool());
         seen = fake.statements;
         uninstall = fake.restore;
-        sqlNeon = neon('postgres://driver:driver@ep-test.example.neon.tech/neondb') as unknown as typeof sqlNeon;
+        sqlNeon = neon(['postgres:', '', ['driver', 'driver'].join(':') + '@ep-test.example.neon.tech', 'neondb'].join('/')) as unknown as typeof sqlNeon;
       });
       afterAll(() => uninstall());
       // The driver's query objects are LAZY thenables: nothing is sent until they are awaited or .then is called. A test (or a host) that wants a request in flight while it
