@@ -85,7 +85,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve sessions + shared rate limiter
     if (!ready) throw new Error('postgres container did not become ready within 30s')
     db.pool = new Pool({ host: 'localhost', port: HOST_PORT, user: 'postgres', password: 'test', database: 'testdb', max: 30, types: neonTypes as unknown as import('pg').CustomTypesConfig })
     for (const stmt of [
-      `CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'ACTIVE');`,
+      `CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'ACTIVE', settings JSONB);`,
       `CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT REFERENCES organisations(id) ON DELETE CASCADE, username TEXT UNIQUE, name TEXT, role TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE', password_hash TEXT);`,
       `CREATE TABLE modules (key TEXT PRIMARY KEY, active BOOLEAN NOT NULL DEFAULT true);`,
       `CREATE TABLE organisation_modules (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, module_key TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, config JSONB NOT NULL DEFAULT '{}');`,
@@ -109,7 +109,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve sessions + shared rate limiter
     await q(`DELETE FROM ticketing_rate_limits`)
     await q(`DELETE FROM organisation_modules`); await q(`DELETE FROM users`); await q(`DELETE FROM organisations`); await q(`DELETE FROM modules`)
     await q(`INSERT INTO modules (key, active) VALUES ('events', true)`)
-    await q(`INSERT INTO organisations (id, name, slug) VALUES ('org-a','A','a'),('org-b','B','b')`)
+    await q(`INSERT INTO organisations (id, name, slug, settings) VALUES ('org-a','A','a','{"events":{"eveEnabled":true}}'),('org-b','B','b','{"events":{"eveEnabled":true}}')`)
     await q(`INSERT INTO organisation_modules (id, organisation_id, module_key) VALUES ('m-a','org-a','events'),('m-b','org-b','events')`)
     await q(`INSERT INTO users (id, organisation_id, username, name, role) VALUES ('u-mgr','org-a','mgr','Mgr','MANAGER'),('u-sa','org-a','sa','SA','SUPER_ADMIN'),('u-other','org-b','other','Other','MANAGER')`)
   })

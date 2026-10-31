@@ -76,8 +76,8 @@ beforeEach(() => {
   for (const f of [...Object.values(reads), ...Object.values(connect)]) f.mockReset()
   db.entitled = new Set(['org-a', 'org-b'])
   db.orgs = [
-    { id: 'org-a', name: 'Acme Events', slug: 'acme', status: 'ACTIVE' },
-    { id: 'org-b', name: 'B', slug: 'b', status: 'ACTIVE' },
+    { id: 'org-a', name: 'Acme Events', slug: 'acme', status: 'ACTIVE', settings: { events: { eveEnabled: true } } },
+    { id: 'org-b', name: 'B', slug: 'b', status: 'ACTIVE', settings: { events: { eveEnabled: true } } },
   ]
   db.users = [
     { id: 'u-mgr', organisation_id: 'org-a', role: 'MANAGER', status: 'ACTIVE', name: 'Mgr' },

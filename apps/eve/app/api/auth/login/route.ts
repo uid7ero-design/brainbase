@@ -1,4 +1,5 @@
 import { getTicketingGateway } from '@/lib/ticketing/gateway';
+import { EVE_NOT_ENABLED_MESSAGE } from '@/lib/organiserAuth';
 import { writeSessionToken } from '@/lib/session';
 import { forbiddenOrigin, jsonResponse, readJsonBody, sameOriginRequest, visitorIp } from '@/lib/requestGuards';
 
@@ -20,8 +21,11 @@ export async function POST(req: Request) {
     case 'ok':
       await writeSessionToken(result.data.token, result.data.expiresAt);
       return jsonResponse({ ok: true, user: { name: result.data.user.name, role: result.data.user.role }, organisationId: result.data.organisationId });
-    case 'unauthorised':
     case 'forbidden':
+      // Sent only after the password was verified, about the user's own organisation.
+      if (result.code === 'EVE_NOT_ENABLED') return jsonResponse({ error: EVE_NOT_ENABLED_MESSAGE }, 403);
+      return jsonResponse({ error: 'Invalid username or password.' }, 401);
+    case 'unauthorised':
     case 'not_found':
       return jsonResponse({ error: 'Invalid username or password.' }, 401);
     case 'error':

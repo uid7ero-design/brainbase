@@ -29,6 +29,7 @@ vi.mock('@/lib/capabilities/requireCapability', () => ({ checkCapability: vi.fn(
 describe.runIf(HAS_DOCKER)('real Postgres — Eve organiser allow-list setting', () => {
   let mod: typeof import('@/lib/organisations/eveEnablement')
   let resolvePublicEvent: typeof import('@/lib/events/publicResolve').resolvePublicEvent
+  let login: typeof import('@/lib/ticketing/login')
   const q = async <T = Record<string, unknown>>(text: string, values: unknown[] = []) => (await db.pool.query(text, values)).rows as T[]
   const settingsOf = async (id: string) => (await q<{ settings: unknown }>('SELECT settings FROM organisations WHERE id = $1', [id]))[0].settings
 
@@ -49,7 +50,9 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve organiser allow-list setting',
       try { await db.pool.query('SELECT 1'); break } catch { await new Promise(r => setTimeout(r, 500)) }
     }
     await db.pool.query(`
-      CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, settings JSONB DEFAULT '{}', updated_at TIMESTAMPTZ);
+      CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'ACTIVE', settings JSONB DEFAULT '{}', updated_at TIMESTAMPTZ);
+      CREATE TABLE modules (key TEXT PRIMARY KEY, active BOOLEAN NOT NULL DEFAULT true);
+      CREATE TABLE organisation_modules (organisation_id TEXT NOT NULL, module_key TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true);
       CREATE TABLE events (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, description TEXT, venue TEXT, artwork_url TEXT,
         starts_at TIMESTAMPTZ NOT NULL, ends_at TIMESTAMPTZ NOT NULL, timezone TEXT NOT NULL, status TEXT NOT NULL, eve_questions_enabled BOOLEAN NOT NULL DEFAULT false);
       INSERT INTO organisations (id, name, slug, settings) VALUES
@@ -63,6 +66,7 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve organiser allow-list setting',
     `)
     mod = await import('@/lib/organisations/eveEnablement')
     ;({ resolvePublicEvent } = await import('@/lib/events/publicResolve'))
+    login = await import('@/lib/ticketing/login')
   }, 90_000)
 
   afterAll(async () => {
@@ -113,5 +117,22 @@ describe.runIf(HAS_DOCKER)('real Postgres — Eve organiser allow-list setting',
     await mod.setOrganisationEveEnabled('org-ld', true)
     const after = await resolvePublicEvent('ld-tennis', 'grad')
     expect(after.ok && after.eveEnabled).toBe(true)
+  })
+
+  it('Eve organiser portal: the super_admin organisation list and the eligibility check use the same JSON-boolean rule', async () => {
+    await q(`INSERT INTO modules (key) VALUES ('events')`)
+    await q(`INSERT INTO organisations (id, name, slug, settings) VALUES
+      ('org-p-on', 'Portal On', 'p-on', '{"events":{"eveEnabled":true}}'),
+      ('org-p-str', 'Portal String', 'p-str', '{"events":{"eveEnabled":"true"}}'),
+      ('org-p-off', 'Portal Off', 'p-off', '{"events":{"eveEnabled":false}}'),
+      ('org-p-none', 'Portal None', 'p-none', NULL)`)
+    await q(`INSERT INTO organisation_modules (organisation_id, module_key)
+      SELECT id, 'events' FROM organisations WHERE id LIKE 'org-p-%'`)
+    const listed = (await login.listEligibleOrganisations()).map(o => o.id).filter(id => id.startsWith('org-p-'))
+    expect(listed).toEqual(['org-p-on'])
+    expect(await login.organisationEligibility('org-p-on')).toBe('ok')
+    for (const id of ['org-p-str', 'org-p-off', 'org-p-none']) expect(await login.organisationEligibility(id), id).toBe('not_enabled')
+    await mod.setOrganisationEveEnabled('org-p-off', true)
+    expect((await login.listEligibleOrganisations()).map(o => o.id)).toContain('org-p-off')
   })
 })

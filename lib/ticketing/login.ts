@@ -4,6 +4,8 @@ import sql from '@/lib/db';
 import { LIMITS, limit, resetLimit } from './rateLimit';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import type { Role } from '@/lib/session';
+import { isEveEnabledSetting } from '@/lib/organisations/eveEnablement';
+import { EVE_NOT_ENABLED as EVE_NOT_ENABLED_CODE } from './authorize';
 import { checkTicketingGate, TICKETING_SESSION_HEADER } from './gate';
 import { ticketingClientIp } from './http';
 import { issueTicketingSession, pruneTicketingSessions, revokeTicketingSession, verifyTicketingSession } from './session';
@@ -13,17 +15,28 @@ const json = (body: unknown, status: number) => Response.json(body, { status, he
 
 // One response for every credential/eligibility failure, so the endpoint
 // cannot be used to learn which usernames exist, are disabled, or belong to
-// organisations without the capability.
+// organisations without the capability. The one exception, EVE_NOT_ENABLED
+// below, is answered only once the password has been verified.
 const INVALID = () => json({ error: 'Invalid username or password.' }, 401);
 
 export type EligibleOrganisation = { id: string; name: string };
 
-// Organisation eligible for the ticketing product: ACTIVE and holding the
-// 'events' capability (same canonical check authorizeEventsRequest uses).
+// After valid credentials only, and about the user's own organisation only.
+const EVE_NOT_ENABLED = () => json({ error: EVE_NOT_ENABLED_CODE }, 403);
+
+// Organisation eligible for the ticketing product (Eve): ACTIVE, holding the
+// 'events' capability (same canonical check authorizeEventsRequest uses), and
+// explicitly enabled on Eve (settings.events.eveEnabled === true).
+// 'not_enabled' is the last case: the organisation is otherwise eligible.
+export async function organisationEligibility(organisationId: string): Promise<'ok' | 'ineligible' | 'not_enabled'> {
+  const rows = await sql`SELECT status, settings FROM organisations WHERE id = ${organisationId} LIMIT 1`;
+  if (!rows[0] || String(rows[0].status ?? '').toUpperCase() !== 'ACTIVE') return 'ineligible';
+  if (!(await checkCapability(organisationId, 'events')).allowed) return 'ineligible';
+  return isEveEnabledSetting(rows[0].settings) ? 'ok' : 'not_enabled';
+}
+
 export async function isEligibleOrganisation(organisationId: string): Promise<boolean> {
-  const rows = await sql`SELECT status FROM organisations WHERE id = ${organisationId} LIMIT 1`;
-  if (!rows[0] || String(rows[0].status ?? '').toUpperCase() !== 'ACTIVE') return false;
-  return (await checkCapability(organisationId, 'events')).allowed;
+  return (await organisationEligibility(organisationId)) === 'ok';
 }
 
 export async function listEligibleOrganisations(): Promise<EligibleOrganisation[]> {
@@ -33,6 +46,7 @@ export async function listEligibleOrganisations(): Promise<EligibleOrganisation[
     JOIN organisation_modules om ON om.organisation_id = o.id AND om.module_key = 'events' AND om.enabled = true
     JOIN modules m ON m.key = om.module_key AND m.active = true
     WHERE o.status = 'ACTIVE'
+      AND (o.settings -> 'events' -> 'eveEnabled') = 'true'::jsonb
     ORDER BY o.name
   `;
   return rows.map(r => ({ id: r.id as string, name: r.name as string }));
@@ -100,14 +114,15 @@ export async function handleTicketingLogin(req: Request): Promise<Response> {
       if (!(await isEligibleOrganisation(organisationId))) {
         // Credentials were valid; super_admin may choose a different org.
         if (requestedOrg) return INVALID();
-        return json(
-          { error: 'ORGANISATION_SELECTION_REQUIRED', organisations: await listEligibleOrganisations() },
-          409,
-        );
+        const organisations = await listEligibleOrganisations();
+        if (organisations.length === 0) return EVE_NOT_ENABLED();
+        return json({ error: 'ORGANISATION_SELECTION_REQUIRED', organisations }, 409);
       }
     } else {
       if (requestedOrg && requestedOrg !== homeOrg) return INVALID();
-      if (!(await isEligibleOrganisation(homeOrg))) return INVALID();
+      const eligibility = await organisationEligibility(homeOrg);
+      if (eligibility === 'not_enabled') return EVE_NOT_ENABLED();
+      if (eligibility !== 'ok') return INVALID();
     }
   } catch {
     return json({ error: 'Unable to sign in right now.' }, 503);
