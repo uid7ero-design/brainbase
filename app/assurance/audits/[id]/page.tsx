@@ -8,7 +8,9 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime, isPast } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, LinkExistingFinding, raiseFindingFields } from '../../_components/shared';
+import {
+  CompletionReadiness, evidenceFields, EvidenceSection, FindingsTable, LinkedActionsTable, LinkExistingFinding, raiseFindingFields,
+} from '../../_components/shared';
 import {
   Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
 import AuditRunner, { type AuditRunnerFinding, type AuditRunnerResponse } from './AuditRunner';
@@ -33,7 +35,11 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
     ])
     : [[], [], [], []];
   const linkedIds = new Set(detail.findings.map(f => f.id));
-  const requiredMissing = detail.criteria.filter(c => c.required && !detail.responses.some(r => r.criterion_key === c.key)).length;
+  const open = au.status === 'PLANNED' || au.status === 'IN_PROGRESS';
+  const activeEvidence = detail.evidence.filter(e => !e.removed_at);
+  const evidenceByCriterion: Record<string, number> = {};
+  for (const e of activeEvidence) if (e.item_key) evidenceByCriterion[e.item_key] = (evidenceByCriterion[e.item_key] ?? 0) + 1;
+  const openActions = detail.actions.filter(a => a.status !== 'CLOSED' && a.status !== 'CANCELLED').length;
   const newerVersion = au.template_version_number !== null && au.latest_template_version_number !== null
     && au.latest_template_version_number > au.template_version_number;
   const gaps = detail.responses.filter(r => r.outcome === 'NON_COMPLIANT' || r.outcome === 'PARTIAL');
@@ -52,20 +58,32 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
         subtitle={`${assuranceLabel(au.audit_type)} audit${au.standard_reference ? ` against ${au.standard_reference}` : ''}`}
       />
 
-      {canRecord && (au.status === 'PLANNED' || au.status === 'IN_PROGRESS') && (
+      {open && (
+        <Section title="What remains" id="readiness">
+          <CompletionReadiness readiness={detail.readiness} noun="audit" findingCount={detail.findings.length}
+            openActionCount={openActions} evidenceCount={activeEvidence.length} />
+        </Section>
+      )}
+
+      {canRecord && open && (
         <Section title="Next step">
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {au.status === 'PLANNED' && <ActionPanel label="Start audit" endpoint={`/api/assurance/audits/${au.id}/start`} variant="primary" />}
             {au.status === 'IN_PROGRESS' && (
               <ActionPanel label="Complete audit" endpoint={`/api/assurance/audits/${au.id}/complete`} variant="primary"
-                description={requiredMissing > 0
-                  ? `${requiredMissing} required criteri${requiredMissing === 1 ? 'on still needs' : 'a still need'} a rating — completion will be refused until they are assessed.`
-                  : 'Completing records the summary and recommendations. It does not create or close any findings or actions.'}
+                description={detail.readiness.ready
+                  ? 'Completing records the summary and recommendations. It does not create, close or change any finding, action or evidence.'
+                  : `${detail.readiness.blockers.join(' ')} Completion will be refused until this is resolved.`}
                 fields={[
                   { kind: 'textarea', name: 'summary', label: 'Summary', rows: 3 },
                   { kind: 'textarea', name: 'recommendations', label: 'Recommendations', rows: 4, help: 'Advice for improvement. Formal corrective work belongs in Findings → Actions.' },
                 ]} submitLabel="Complete audit" />
             )}
+            <ActionPanel label={au.auditor_name ? 'Change auditor' : 'Assign auditor'} endpoint={`/api/assurance/audits/${au.id}/auditor`}
+              extraBody={{ expectedAuditorUserId: au.auditor_user_id ?? null }}
+              description="The auditor is responsible for conducting this audit. Changing the auditor changes nothing else."
+              fields={[{ kind: 'select', name: 'auditorUserId', label: 'Auditor', options: users.map(u => ({ value: u.id, label: u.name })), defaultValue: au.auditor_user_id ?? undefined, emptyLabel: 'Unassigned' }]}
+              submitLabel="Save auditor" />
             {canClose && (
               <ActionPanel label="Cancel audit" endpoint={`/api/assurance/audits/${au.id}/cancel`} variant="danger"
                 fields={[{ kind: 'textarea', name: 'reason', label: 'Reason', required: true, rows: 2 }]} submitLabel="Cancel audit" />
@@ -134,6 +152,9 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
             responses={detail.responses as unknown as AuditRunnerResponse[]}
             findings={detail.findings as unknown as AuditRunnerFinding[]}
             findingFields={raiseFindingFields({ risks, users, orgs })}
+            evidenceByCriterion={evidenceByCriterion}
+            canAddEvidence={canRecord && !cancelled}
+            evidenceFormFields={evidenceFields()}
           />
         </div>
       </Section>
@@ -148,7 +169,11 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ id
         </p>
       </Section>
 
-      <Section title="Evidence" count={detail.evidence.filter(e => !e.removed_at).length} id="evidence">
+      <Section title="Actions" count={detail.actions.length} id="actions">
+        <LinkedActionsTable rows={detail.actions} emptyText="No actions have been raised from this audit's findings." />
+      </Section>
+
+      <Section title="Evidence" count={activeEvidence.length} id="evidence">
         <EvidenceSection rows={detail.evidence} target="audit" targetId={au.id} canRecord={canRecord}
           locked={cancelled ? 'This audit is cancelled; its evidence can no longer be changed.' : undefined}
           items={detail.responses.map(r => ({ value: r.criterion_key, label: r.criterion_label }))} />

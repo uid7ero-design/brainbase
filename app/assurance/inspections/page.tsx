@@ -5,6 +5,7 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { INSPECTION_STATUSES, INSPECTION_TYPES, assuranceLabel, isPast } from '@/lib/assurance/domain';
 import { firstParam } from '@/lib/assurance/input';
 import { resolvePageViewer } from '../_components/pageAccess';
+import { ExecutionProgressCell, LinkedWorkCell } from '../_components/shared';
 import {
   Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td, assuranceStyles as styles, tableStyles } from '../_components/ui';
 
@@ -12,12 +13,17 @@ export const dynamic = 'force-dynamic';
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
+// Views are derived from real statuses and the completion rule only.
 const VIEWS = [
   { value: '', label: 'All' },
   { value: 'due', label: 'Due (7 days)' },
   { value: 'planned', label: 'Planned' },
   { value: 'in_progress', label: 'In progress' },
+  { value: 'incomplete', label: 'Incomplete' },
+  { value: 'findings', label: 'Findings raised' },
+  { value: 'ready', label: 'Ready to complete' },
   { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export default async function InspectionsPage({ searchParams }: { searchParams: SP }) {
@@ -27,7 +33,7 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
   const f = {
     q: firstParam(sp.q), status: firstParam(sp.status), inspectionType: firstParam(sp.type),
     source: firstParam(sp.source) as 'template' | 'adhoc' | undefined, locationId: firstParam(sp.location),
-    view: firstParam(sp.view) as 'due' | 'planned' | 'in_progress' | 'completed' | undefined,
+    view: firstParam(sp.view),
   };
   const [rows, locations] = await Promise.all([listInspections(viewer, f), listLocationOptions(viewer.organisationId, { includeInactive: true })]);
   const filtered = Object.values(f).some(Boolean);
@@ -65,31 +71,40 @@ export default async function InspectionsPage({ searchParams }: { searchParams: 
         ]}
       />
       <DataTable
-        headers={['Inspection', 'Type', 'Status', 'Scheduled', 'Inspector', 'Checklist', 'Result']}
-        minWidth={980}
+        headers={['Inspection', 'Status', 'Planned', 'Inspector', 'Applies to', 'Progress', 'Result', 'Linked work']}
+        minWidth={1120}
         empty={rows.length === 0 ? (filtered ? 'No inspections match these filters.' : 'No inspections have been planned yet.') : undefined}
       >
         {rows.map((r, i) => (
           <Row key={r.id} last={i === rows.length - 1}>
             <td style={{ ...td, maxWidth: 320 }}>
               <RecordLink href={`/assurance/inspections/${r.id}`} reference={r.inspection_reference} title={r.title} />
-              {r.location_name && <div className={tableStyles.meta}>{r.location_name}</div>}
+              <div className={tableStyles.meta}>
+                {assuranceLabel(r.inspection_type)} · {r.template_name ? `${r.template_name} · v${r.template_version_number}` : 'Ad hoc'}
+              </div>
             </td>
-            <td style={td}>{assuranceLabel(r.inspection_type)}</td>
             <td style={td}><Badge value={r.status} /></td>
             <td style={td}><DateCell value={r.scheduled_at} overdue={r.status === 'PLANNED' && isPast(r.scheduled_at)} /></td>
             <td style={td}>{r.inspector_name ?? <Dim>Unassigned</Dim>}</td>
-            <td style={td}>{r.template_name ? `${r.template_name} · v${r.template_version_number}` : <Dim>Ad hoc</Dim>}</td>
+            <td style={{ ...td, maxWidth: 220 }}>
+              {r.location_name || r.asset_name || r.external_organisation_name ? (
+                <>
+                  {r.location_name && <div>{r.location_name}</div>}
+                  {r.asset_name && <div className={tableStyles.meta}>{r.asset_name}</div>}
+                  {r.external_organisation_name && <div className={tableStyles.meta}>{r.external_organisation_name}</div>}
+                </>
+              ) : <Dim>—</Dim>}
+            </td>
+            <td style={td}><ExecutionProgressCell readiness={r.readiness} status={r.status} noun="inspection" /></td>
             <td style={{ ...td, fontSize: 12, whiteSpace: 'nowrap' }}>
               {r.response_count === 0 ? <Dim>—</Dim> : (
                 <>
-                  {r.response_count} answered
-                  {r.fail_count > 0 && <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}> · {r.fail_count} fail</span>}
-                  {r.observation_count > 0 && <span style={{ color: 'var(--status-warning)' }}> · {r.observation_count} obs.</span>}
-                  {r.finding_count > 0 && <div>{r.finding_count} finding{r.finding_count === 1 ? '' : 's'}</div>}
+                  {r.fail_count > 0 ? <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}>{r.fail_count} fail</span> : <span>No fails</span>}
+                  {r.observation_count > 0 && <div style={{ color: 'var(--status-warning)' }}>{r.observation_count} observation{r.observation_count === 1 ? '' : 's'}</div>}
                 </>
               )}
             </td>
+            <td style={td}><LinkedWorkCell findings={r.finding_count} openActions={r.open_action_count} evidence={r.evidence_count} /></td>
           </Row>
         ))}
       </DataTable>

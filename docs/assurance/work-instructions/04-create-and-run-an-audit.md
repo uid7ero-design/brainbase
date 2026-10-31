@@ -36,9 +36,15 @@ audits — from an audit template or ad hoc.
    **Contractor / external organisation**.
 7. Select **Plan audit**.
 
+**Assign** (optional, any time before completion)
+
+- Under **Next step**, select **Assign auditor** (or **Change auditor**),
+  choose the person and select **Save auditor**.
+
 **Run**
 
-8. Select **Start audit**.
+8. Select **Start audit**. **What remains** shows what is left before you can
+   complete.
 9. For each criterion choose a rating: **Compliant**, **Partially
    compliant**, **Non-compliant**, **Not applicable** or **Observation**.
    Add notes, especially evidence sighted. Select **Save response**.
@@ -49,6 +55,7 @@ audits — from an audit template or ad hoc.
     that criterion (see [work instruction 05](05-raise-and-manage-a-finding.md)).
 12. For a repeat issue already managed as a finding, use **Link existing
     finding** in the **Findings** section.
+- To attach proof to a criterion, select **Add evidence** on that criterion.
 
 **Finish**
 
@@ -74,6 +81,12 @@ audits — from an audit template or ad hoc.
 - There is **no audit-to-action shortcut**. Actions are created on the
   finding.
 - Completion is refused until every required criterion is rated.
+- Findings, open actions and evidence never block completion, and completing
+  never closes or changes them. Actions on the audit's findings are listed
+  under **Actions**.
+- Tapping **Raise finding** twice, or retrying, returns the same finding.
+- There is no recurrence, no reopening after completion, no review/approval
+  step and no deadline tracking for the audit itself.
 - Recommendations are advice. Formal corrective work belongs in Findings →
   Actions.
 - The audit keeps the exact criteria version it was planned with.
