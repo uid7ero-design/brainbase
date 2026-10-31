@@ -362,14 +362,14 @@ describe('evaluateSlotBooking', () => {
     });
   });
 
-  it('reports when the grid was anchored by the query range rather than by the rules (24-hour windows)', () => {
+  it('a 24-hour window no longer takes its grid from the query range (anchorAtRangeEdge is always false)', () => {
     const allDay = hireContext({
       stepMinutes: 60,
       offeringRules: [0, 1, 2, 3, 4, 5, 6].map(d => rule(`o${d}`, { dayOfWeek: d, startTime: '00:00', endTime: '24:00' })),
       resources: [{ resource: { id: 'court-1', active: true }, rules: [0, 1, 2, 3, 4, 5, 6].map(d => rule(`c${d}`, { offeringId: null, resourceId: 'court-1', dayOfWeek: d, startTime: '00:00', endTime: '24:00' })), exceptions: [], holds: [] }],
     });
     const d = evaluateSlotBooking(allDay, { interval: win('10:00', '11:00'), resourceId: 'court-1', partySize: 1 });
-    expect(d).toMatchObject({ ok: true, anchorAtRangeEdge: true });
+    expect(d).toMatchObject({ ok: true, anchorAtRangeEdge: false });
     const normal = evaluateSlotBooking(hireContext(), { interval: win('10:00', '11:00'), resourceId: 'court-1', partySize: 1 });
     expect(normal).toMatchObject({ ok: true, anchorAtRangeEdge: false });
   });
