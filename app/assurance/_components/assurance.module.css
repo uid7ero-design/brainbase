@@ -787,10 +787,13 @@
     padding: 8px 14px;
     font-size: 0.8125rem;
   }
-  .runnerTools > a,
-  .runnerTools > span > button,
-  .runnerTools > div > button,
-  .runnerTools > button {
+  .runnerTools > a {
+    min-height: 44px;
+  }
+  /* Every Assurance control (shared app buttons default to 28–34px). */
+  .main button,
+  .main select,
+  .main input:not([type='checkbox']):not([type='radio']) {
     min-height: 44px;
   }
 }

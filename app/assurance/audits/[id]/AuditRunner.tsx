@@ -138,7 +138,7 @@ function CriterionRow({ index, criterion, response, auditId, editable, adHoc, ca
   return (
     <li className={styles.runnerItem} data-tone={o?.tone}>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ minWidth: 0, flex: '1 1 14rem' }}>
           <div className={styles.runnerLabel}>
             {index + 1}. {criterion.label}
             {criterion.required && !adHoc && <span className={styles.runnerRequired}> · required</span>}
