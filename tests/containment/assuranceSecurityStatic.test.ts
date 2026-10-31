@@ -29,7 +29,8 @@ const libFiles = walk('lib/assurance')
 const CLIENT_SAFE_LIB = ['lib/assurance/domain.ts', 'lib/assurance/input.ts', 'lib/assurance/errors.ts', 'lib/assurance/references.ts',
   'lib/assurance/help/registry.ts', 'lib/assurance/help/markdown.ts', 'lib/assurance/help/search.ts', 'lib/assurance/help/topics.ts',
   'lib/assurance/riskLevelRules.ts', 'lib/assurance/deadlineRules.ts', 'lib/assurance/contractorAssuranceRules.ts',
-  'lib/assurance/evidenceRules.ts', 'lib/assurance/findingRules.ts', 'lib/assurance/incidentRules.ts']
+  'lib/assurance/evidenceRules.ts', 'lib/assurance/findingRules.ts', 'lib/assurance/incidentRules.ts',
+  'lib/assurance/executionRules.ts']
 
 describe('API routes', () => {
   it('exist and every one is built from the authorizing factories', () => {
@@ -421,5 +422,80 @@ describe('incidents & investigations', () => {
     expect(inc).not.toMatch(/UPDATE assurance_(investigations|findings|actions|evidence|verifications|timeframes)\b/)
     expect(inv).not.toMatch(/UPDATE assurance_(incidents|findings|actions|evidence|verifications|timeframes)\b/)
     expect(inc + inv).not.toMatch(/INSERT INTO assurance_(findings|actions|timeframes)\b/)
+  })
+})
+
+describe('inspections & audits execution', () => {
+  const ins = stripComments(read('lib/assurance/inspections.ts'))
+  const aud = stripComments(read('lib/assurance/audits.ts'))
+  const links = stripComments(read('lib/assurance/executionLinks.ts'))
+  const fnd = stripComments(read('lib/assurance/findings.ts'))
+  const body = (src: string, fn: string) => {
+    const start = src.indexOf(`export async function ${fn}(`)
+    return src.slice(start, src.indexOf('\nexport ', start + 10))
+  }
+  it('every inspection / audit route uses the authorizing factory with the agreed operation', () => {
+    const expect_ = (route: string, op: string) => {
+      expect(stripComments(read(`app/api/assurance/${route}/route.ts`)), route).toMatch(new RegExp(`assurancePost(WithId)?\\('${op}'`))
+    }
+    for (const k of ['inspections', 'audits']) {
+      expect_(k, 'record')
+      expect_(`${k}/[id]/start`, 'record')
+      expect_(`${k}/[id]/responses`, 'record')
+      expect_(`${k}/[id]/complete`, 'record')
+      expect_(`${k}/[id]/cancel`, 'close')
+      expect_(`${k}/[id]/findings`, 'record')
+    }
+    expect_('inspections/[id]/inspector', 'record')
+    expect_('audits/[id]/auditor', 'record')
+  })
+  it('inspector / auditor changes lock, guard on the value the user saw, audit atomically and change nothing else', () => {
+    for (const [src, fn, col] of [[ins, 'assignInspector', 'inspector_user_id'], [aud, 'assignAuditor', 'auditor_user_id']] as const) {
+      const b = body(src, fn)
+      expect(b, fn).toMatch(/viewerCan\(viewer, 'record'\)/)
+      expect(b, fn).toMatch(/assertSameOrgUsers\(/)
+      expect(b.indexOf('FOR UPDATE'), fn).toBeGreaterThan(-1)
+      expect(b.indexOf('FOR UPDATE'), fn).toBeLessThan(b.indexOf('INSERT INTO audit_logs'))
+      expect(b, fn).toMatch(new RegExp(`${col} IS NOT DISTINCT FROM`))
+      expect(b, fn).toMatch(/status IN \('PLANNED', 'IN_PROGRESS'\)/)
+      expect(b, fn).not.toMatch(/SET status|template_version_id =|INSERT INTO assurance_/)
+    }
+  })
+  it('completion uses the shared readiness rule and a guarded status write; it never touches findings, actions or evidence', () => {
+    for (const [src, fn] of [[ins, 'completeInspection'], [aud, 'completeAudit']] as const) {
+      const b = body(src, fn)
+      expect(b, fn).toMatch(/executionReadiness\(/)
+      expect(b, fn).toMatch(/AND status = 'IN_PROGRESS'/)
+      expect(b, fn).not.toMatch(/assurance_(findings|actions|evidence|verifications|timeframes|requirement_)/)
+    }
+  })
+  it('register counts of linked findings, actions and evidence use the shared visibility predicates', () => {
+    for (const [src, fn] of [[ins, 'listInspections'], [aud, 'listAudits']] as const) {
+      const b = body(src, fn)
+      expect(b, fn).toMatch(/JOIN assurance_findings f[\s\S]*?\$\{findingVisibleSql\(viewer\)\}\)::int AS finding_count/)
+      expect(b, fn).toMatch(/openActionCountSql\(viewer, /)
+      expect(b, fn).toMatch(/\$\{evidenceVisibleSql\(viewer\)\}\)::int AS evidence_count/)
+    }
+    expect(links.match(/findingVisibleSql\(viewer\)/g)?.length).toBeGreaterThanOrEqual(4)
+    expect(links.match(/actionVisibleSql\(viewer\)/g)?.length).toBeGreaterThanOrEqual(4)
+  })
+  it('the Action view is read-only and reached only through Findings (no Inspection/Audit -> Action link)', () => {
+    expect(links).not.toMatch(/INSERT|UPDATE|DELETE/)
+    expect(links).toMatch(/JOIN assurance_action_findings laf ON laf\.organisation_id = f\.organisation_id AND laf\.finding_id = f\.id/)
+    expect(ins + aud).not.toMatch(/assurance_actions|assurance_action_findings/)
+  })
+  it('raise-finding retry protection is lock-serialised, scoped to the same user, and only for inspection / audit sources', () => {
+    const b = body(fnd, 'createFinding')
+    expect(b).toMatch(/const requestKey = input\.requestKey && \(input\.inspectionId \|\| input\.auditId\)/)
+    expect(b).toMatch(/after_state->>'request_key' = \$\{requestKey\}/)
+    expect(b).toMatch(/request_key: requestKey/)
+    const replay = fnd.slice(fnd.indexOf('async function findingByRequestKey('))
+    expect(replay.slice(0, replay.indexOf('\n}'))).toMatch(/l\.user_id = \$\{viewer\.userId\}/)
+  })
+  it('responses never create Findings; Findings only come from the explicit raise', () => {
+    for (const [src, fn] of [[ins, 'recordInspectionResponse'], [aud, 'recordAuditResponse'], [ins, 'completeInspection'], [aud, 'completeAudit']] as const) {
+      expect(body(src, fn), fn).not.toMatch(/INSERT INTO assurance_(findings|inspection_findings|audit_findings|actions)\b/)
+    }
+    expect(ins + aud).not.toMatch(/INSERT INTO assurance_findings\b/)
   })
 })

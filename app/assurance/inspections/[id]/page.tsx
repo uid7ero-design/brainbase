@@ -7,7 +7,9 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { assuranceLabel, formatAssuranceDateTime, isPast } from '@/lib/assurance/domain';
 import { resolvePageViewer } from '../../_components/pageAccess';
 import ActionPanel from '../../_components/ActionPanel';
-import { EvidenceSection, FindingsTable, LinkExistingFinding, raiseFindingFields } from '../../_components/shared';
+import {
+  CompletionReadiness, EvidenceSection, FindingsTable, LinkExistingFinding, LinkedActionsTable, evidenceFields, raiseFindingFields,
+} from '../../_components/shared';
 import { listOpenFindingOptions } from '@/lib/assurance/findings';
 import {
   Badge, Breadcrumbs, Card, DateCell, Dim, HistoryList, KeyValues, Notice, PageHeader, Prose, Section, assuranceStyles as styles, tableStyles } from '../../_components/ui';
@@ -31,7 +33,11 @@ export default async function InspectionDetailPage({ params }: { params: Promise
       ins.status !== 'CANCELLED' ? listOpenFindingOptions(viewer) : [],
     ])
     : [[], [], [], []];
-  const requiredMissing = detail.checklist.filter(i => i.required && !detail.responses.some(r => r.item_key === i.key)).length;
+  const open = ins.status === 'PLANNED' || ins.status === 'IN_PROGRESS';
+  const activeEvidence = detail.evidence.filter(e => !e.removed_at);
+  const evidenceByItem: Record<string, number> = {};
+  for (const e of activeEvidence) if (e.item_key) evidenceByItem[e.item_key] = (evidenceByItem[e.item_key] ?? 0) + 1;
+  const openActions = detail.actions.filter(a => a.status !== 'CLOSED' && a.status !== 'CANCELLED').length;
   const newerVersion = ins.template_version_number !== null && ins.latest_template_version_number !== null
     && ins.latest_template_version_number > ins.template_version_number;
 
@@ -48,17 +54,29 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         subtitle={`${assuranceLabel(ins.inspection_type)} inspection${ins.location_name ? ` · ${ins.location_name}` : ''}`}
       />
 
-      {canRecord && (ins.status === 'PLANNED' || ins.status === 'IN_PROGRESS') && (
+      {open && (
+        <Section title="What remains" id="readiness">
+          <CompletionReadiness readiness={detail.readiness} noun="inspection" findingCount={detail.findings.length}
+            openActionCount={openActions} evidenceCount={activeEvidence.length} />
+        </Section>
+      )}
+
+      {canRecord && open && (
         <Section title="Next step">
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {ins.status === 'PLANNED' && <ActionPanel label="Start inspection" endpoint={`/api/assurance/inspections/${ins.id}/start`} variant="primary" />}
             {ins.status === 'IN_PROGRESS' && (
               <ActionPanel label="Complete inspection" endpoint={`/api/assurance/inspections/${ins.id}/complete`} variant="primary"
-                description={requiredMissing > 0
-                  ? `${requiredMissing} required item(s) still need a response — completion will be refused until they are answered.`
-                  : 'Completing locks the responses. Findings are never created or closed automatically — raise them from failed items.'}
+                description={detail.readiness.ready
+                  ? 'Completing locks the responses. It does not create, close or change any finding, action or evidence.'
+                  : `${detail.readiness.blockers.join(' ')} Completion will be refused until this is resolved.`}
                 fields={[{ kind: 'textarea', name: 'summary', label: 'Summary', rows: 3 }]} submitLabel="Complete inspection" />
             )}
+            <ActionPanel label={ins.inspector_name ? 'Change inspector' : 'Assign inspector'} endpoint={`/api/assurance/inspections/${ins.id}/inspector`}
+              extraBody={{ expectedInspectorUserId: ins.inspector_user_id ?? null }}
+              description="The inspector is responsible for conducting this inspection. Changing the inspector changes nothing else."
+              fields={[{ kind: 'select', name: 'inspectorUserId', label: 'Inspector', options: users.map(u => ({ value: u.id, label: u.name })), defaultValue: ins.inspector_user_id ?? undefined, emptyLabel: 'Unassigned' }]}
+              submitLabel="Save inspector" />
             {canClose && (
               <ActionPanel label="Cancel inspection" endpoint={`/api/assurance/inspections/${ins.id}/cancel`} variant="danger"
                 description="Cancelling stops the inspection. Its responses and evidence can no longer be changed. The reason is kept in the history."
@@ -111,6 +129,9 @@ export default async function InspectionDetailPage({ params }: { params: Promise
             responses={detail.responses as unknown as RunnerResponse[]}
             findings={detail.findings as unknown as RunnerFinding[]}
             findingFields={raiseFindingFields({ risks, users, orgs })}
+            evidenceByItem={evidenceByItem}
+            canAddEvidence={canRecord && ins.status !== 'CANCELLED'}
+            evidenceFormFields={evidenceFields()}
           />
         </div>
       </Section>
@@ -122,7 +143,14 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         <FindingsTable rows={detail.findings} hiddenCount={detail.hiddenFindingCount} emptyText="No findings have been raised from this inspection." />
       </Section>
 
-      <Section title="Evidence" count={detail.evidence.filter(e => !e.removed_at).length} id="evidence">
+      <Section title="Actions" count={detail.actions.length} id="actions">
+        <LinkedActionsTable rows={detail.actions} emptyText="No actions have been raised from this inspection's findings." />
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+          Corrective work runs Inspection → Finding → Action. Actions are raised and closed on their finding; closing them does not change this inspection.
+        </p>
+      </Section>
+
+      <Section title="Evidence" count={activeEvidence.length} id="evidence">
         <EvidenceSection rows={detail.evidence} target="inspection" targetId={ins.id} canRecord={canRecord && ins.status !== 'CANCELLED'}
           items={detail.responses.map(r => ({ value: r.item_key, label: r.item_label }))} />
       </Section>

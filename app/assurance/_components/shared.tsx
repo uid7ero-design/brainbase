@@ -7,6 +7,7 @@ import {
 } from '@/lib/assurance/evidenceRules';
 import type { RiskLevelOption, NamedOption } from '@/lib/assurance/lookups';
 import type { OrgUserOption } from '@/lib/assurance/users';
+import type { ExecutionReadiness } from '@/lib/assurance/executionRules';
 import ActionPanel from './ActionPanel';
 import type { FormField } from './AssuranceForm';
 import { Badge, Card, DataTable, DateCell, Dim, RecordLink, Row, assuranceStyles as styles, enumOptions, tableStyles, td } from './ui';
@@ -139,6 +140,91 @@ export function FindingsTable({ rows, hiddenCount, emptyText }: {
       )}
       {hiddenCount > 0 && <Dim>{hiddenCount} further finding{hiddenCount === 1 ? ' is' : 's are'} linked to restricted records you cannot see.</Dim>}
     </div>
+  );
+}
+
+/**
+ * Actions that hang off a record's Findings (source → Finding → Action). The
+ * Action is always reached through its Finding; there is no shortcut link.
+ */
+export function LinkedActionsTable({ rows, emptyText }: {
+  rows: { id: string; action_reference: string; title: string; status: string; owner_name: string | null; finding_id: string; finding_reference: string }[];
+  emptyText: string;
+}) {
+  if (rows.length === 0) return <Card><Dim>{emptyText}</Dim></Card>;
+  return (
+    <DataTable headers={['Action', 'Status', 'Owner', 'From finding']} minWidth={560}>
+      {rows.map((a, i) => (
+        <Row key={a.id} last={i === rows.length - 1}>
+          <td style={td}><RecordLink href={`/assurance/actions/${a.id}`} reference={a.action_reference} title={a.title} /></td>
+          <td style={td}><Badge value={a.status} /></td>
+          <td style={td}>{a.owner_name ?? <Dim>Unassigned</Dim>}</td>
+          <td style={td}><Link href={`/assurance/findings/${a.finding_id}`} className={tableStyles.link}>{a.finding_reference}</Link></td>
+        </Row>
+      ))}
+    </DataTable>
+  );
+}
+
+/** Register cell: progress (answered / required) and readiness, derived from real statuses only. */
+export function ExecutionProgressCell({ readiness, status, noun }: { readiness: ExecutionReadiness; status: string; noun: 'inspection' | 'audit' }) {
+  if (status === 'CANCELLED') return <Dim>—</Dim>;
+  const word = noun === 'audit' ? 'assessed' : 'answered';
+  return (
+    <div style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+      {readiness.total === 0 && status === 'PLANNED' ? <Dim>Not started</Dim> : <>{readiness.answered}/{readiness.total} {word}</>}
+      {readiness.requiredTotal > 0 && <div className={tableStyles.meta}>{readiness.requiredAnswered}/{readiness.requiredTotal} required</div>}
+      {readiness.ready && <div><Badge value="READY" tone="success" label="Ready to complete" /></div>}
+      {readiness.incomplete && <div><Badge value="INCOMPLETE" tone="warning" label="Incomplete" /></div>}
+    </div>
+  );
+}
+
+/** Register cell: linked Findings / open Actions / evidence the viewer may see. */
+export function LinkedWorkCell({ findings, openActions, evidence }: { findings: number; openActions: number; evidence: number }) {
+  if (findings === 0 && openActions === 0 && evidence === 0) return <Dim>—</Dim>;
+  return (
+    <div style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+      {findings > 0 && <div>{findings} finding{findings === 1 ? '' : 's'}</div>}
+      {openActions > 0 && <div>{openActions} open action{openActions === 1 ? '' : 's'}</div>}
+      {evidence > 0 && <div className={tableStyles.meta}>{evidence} evidence</div>}
+    </div>
+  );
+}
+
+/**
+ * "What remains to be completed?" — the factual completion blockers (the
+ * same rule the server enforces), with Findings / open Actions shown as
+ * information only: they never block completion. Render it only while the
+ * record is planned or in progress.
+ */
+export function CompletionReadiness({ readiness, noun, findingCount, openActionCount, evidenceCount }: {
+  readiness: ExecutionReadiness; noun: 'inspection' | 'audit'; findingCount: number; openActionCount: number; evidenceCount: number;
+}) {
+  const itemWords = noun === 'audit' ? 'criteria' : 'items';
+  return (
+    <Card>
+      <div className={styles.readiness}>
+        <div className={styles.readinessHead}>
+          <span className={styles.readinessState} data-ready={readiness.ready || undefined}>
+            {readiness.ready ? 'Ready to complete' : 'Not ready to complete'}
+          </span>
+          <span className={styles.readinessProgress}>
+            {readiness.answered} of {readiness.total} {itemWords} answered
+            {readiness.requiredTotal > 0 && <> · {readiness.requiredAnswered} of {readiness.requiredTotal} required</>}
+          </span>
+        </div>
+        {!readiness.ready && readiness.blockers.length > 0 && (
+          <ul className={styles.readinessBlockers} aria-label="What prevents completion">
+            {readiness.blockers.map(b => <li key={b}>{b}</li>)}
+          </ul>
+        )}
+        <div className={styles.readinessInfo}>
+          {findingCount} finding{findingCount === 1 ? '' : 's'} · {openActionCount} open action{openActionCount === 1 ? '' : 's'} · {evidenceCount} evidence
+          <span className={styles.dim}> — shown for information; they do not block completion, and completing does not close them.</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
