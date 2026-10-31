@@ -6,6 +6,7 @@ export * from './time';
 export * from './persistence';
 export * from './configuration';
 export * from './retry';
+export * from './bookingOverlay';
 export * from './availabilityRules';
 export * from './availability';
 export * from './availabilityCalendar';
