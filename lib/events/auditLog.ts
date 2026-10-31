@@ -865,3 +865,17 @@ export async function logStripeConnectStatusRefreshed(params: {
     beforeState: params.before, afterState: params.after,
   });
 }
+
+// Eve organiser allow-list (lib/organisations/eveEnablement.ts) — the
+// organisation-level decision that lets (or stops) its published events
+// appearing on Eve. resource_type 'organisation', resource_id = the
+// organisation's own id. Only the boolean itself is recorded.
+export async function logOrganisationEveEnabledChanged(params: {
+  organisationId: string; userId: string; before: boolean; after: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'organisation.eve_enabled_changed',
+    resourceType: 'organisation', resourceId: params.organisationId,
+    beforeState: { eve_enabled: params.before }, afterState: { eve_enabled: params.after },
+  });
+}

@@ -251,6 +251,9 @@ export default function BrandingSettingsClient({
       <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '0 0 24px' }}>
         These settings control how your organisation appears on public event pages, tickets and buyer emails. Fields marked “Shown to buyers on Eve” are the only organiser details Eve shows its buyers.
       </p>
+      <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '-12px 0 24px' }}>
+        Whether your events appear on Eve at all is set separately, in <a href="/settings/eve" style={{ color: TEXT_SECONDARY }}>Eve settings</a>.
+      </p>
 
       <form onSubmit={handleSave}>
         <Section title="Brand">

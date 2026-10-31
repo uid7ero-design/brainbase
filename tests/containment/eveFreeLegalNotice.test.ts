@@ -41,7 +41,7 @@ const params = () => ({ organisationSlug: 'brainbase', eventSlug: `notice-${++n}
 
 beforeEach(() => {
   for (const f of Object.values(svc)) f.mockReset()
-  svc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-1', event: { id: 'e1', name: 'Gala' } })
+  svc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-1', event: { id: 'e1', name: 'Gala' } })
   svc.registerFreeOrder.mockResolvedValue({ ok: true, orderId: 'o1', quantity: 1, tickets: [], bookingToken: 'bt' })
   svc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
 })

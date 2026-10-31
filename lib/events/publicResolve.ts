@@ -2,6 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { normaliseEveOrganiserContact, normalisePublicOrganisationBranding, type EveOrganiserContact, type PublicOrganisationBranding } from '@/lib/organisations/branding';
+import { isEveEnabledSetting } from '@/lib/organisations/eveEnablement';
 
 export type PublicEvent = {
   id: string;
@@ -29,6 +30,10 @@ export type PublicResolveResult =
       // Eve organiser contact v1 (public email + website allowlist, or null).
       // Read only by the Eve gateway; BrainBase pages and routes ignore it.
       eveOrganiserContact: EveOrganiserContact | null;
+      // Eve organiser allow-list (settings.events.eveEnabled === true). Read
+      // only by the Eve gateway, which refuses the event when false; BrainBase
+      // pages and routes ignore it, so their behaviour is unchanged.
+      eveEnabled: boolean;
     }
   | { ok: false };
 
@@ -83,5 +88,7 @@ export async function resolvePublicEvent(
 
   const eveOrganiserContact = normaliseEveOrganiserContact(organisationSettings);
 
-  return { ok: true, organisationId, organisationName, event, branding, eveOrganiserContact };
+  const eveEnabled = isEveEnabledSetting(organisationSettings);
+
+  return { ok: true, organisationId, organisationName, event, branding, eveOrganiserContact, eveEnabled };
 }

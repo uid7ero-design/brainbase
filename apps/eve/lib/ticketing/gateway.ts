@@ -12,7 +12,8 @@ export type GatewayResult<T> =
   | { status: 'ok'; data: T }
   | { status: 'unavailable'; reason: 'not_connected' | 'upstream_unreachable' }
   | { status: 'unauthorised' }
-  | { status: 'forbidden' }
+  // code EVE_NOT_ENABLED: the caller's own organisation is not enabled on Eve.
+  | { status: 'forbidden'; code?: 'EVE_NOT_ENABLED' }
   | { status: 'not_found' }
   | { status: 'error'; httpStatus: number; message: string; body: Record<string, unknown> };
 
@@ -52,7 +53,7 @@ async function call<T>(path: string, opts: CallOptions = {}): Promise<GatewayRes
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (res.ok) return { status: 'ok', data: body as T };
   if (res.status === 401) return { status: 'unauthorised' };
-  if (res.status === 403) return { status: 'forbidden' };
+  if (res.status === 403) return body.error === 'EVE_NOT_ENABLED' ? { status: 'forbidden', code: 'EVE_NOT_ENABLED' } : { status: 'forbidden' };
   if (res.status === 404) return { status: 'not_found' };
   return { status: 'error', httpStatus: res.status, message: typeof body.error === 'string' ? body.error : 'Request failed.', body };
 }

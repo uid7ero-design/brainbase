@@ -119,12 +119,12 @@ export type PublicEventDetail = {
   organisationName: string;
 };
 
-// eveQuestionsEnabled and eveOrganiserContact sit beside `detail`, not inside
-// it: only the Eve event read uses them (whether Eve shows the questions; the
-// organiser contact Eve shows), and they are never part of the BrainBase
-// public body.
+// eveQuestionsEnabled, eveOrganiserContact and eveEnabled sit beside `detail`,
+// not inside it: only the Eve event read uses them (whether Eve shows the
+// questions; the organiser contact Eve shows; whether Eve offers the event at
+// all), and they are never part of the BrainBase public body.
 export type PublicEventDetailResult =
-  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean; eveOrganiserContact: EveOrganiserContact | null }
+  | { ok: true; detail: PublicEventDetail; eveQuestionsEnabled: boolean; eveOrganiserContact: EveOrganiserContact | null; eveEnabled: boolean }
   | { ok: false };
 
 // Shared by both the public API route and the public page's own
@@ -168,7 +168,7 @@ export async function getPublicEventDetail(
 ): Promise<PublicEventDetailResult> {
   const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return { ok: false };
-  const { organisationId, organisationName, event, branding, eveOrganiserContact } = resolved;
+  const { organisationId, organisationName, event, branding, eveOrganiserContact, eveEnabled } = resolved;
 
   // Phase 4: the sold-quantity subtraction now also excludes a pending
   // paid reservation whose expires_at has passed — mirroring exactly
@@ -299,5 +299,6 @@ export async function getPublicEventDetail(
     },
     eveQuestionsEnabled: event.eve_questions_enabled === true,
     eveOrganiserContact,
+    eveEnabled,
   };
 }
