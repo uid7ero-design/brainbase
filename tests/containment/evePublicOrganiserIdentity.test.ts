@@ -48,7 +48,7 @@ describe('Eve public ticketing responses never carry organisations.name', () => 
   const BOOKING_DETAIL = (b: ReturnType<typeof branding>) => ({ purchaser_name: 'Sam', event: { name: 'E' }, tickets: [], branding: b, organisationName: INTERNAL })
 
   async function all(b: ReturnType<typeof branding>) {
-    publicSvc.getPublicEventDetail.mockResolvedValue({ ok: true, detail: EVENT_DETAIL(b), eveQuestionsEnabled: false })
+    publicSvc.getPublicEventDetail.mockResolvedValue({ ok: true, eveEnabled: true, detail: EVENT_DETAIL(b), eveQuestionsEnabled: false })
     publicSvc.getPublicTicketDetail.mockResolvedValue({ ok: true, detail: TICKET_DETAIL(b) })
     publicSvc.getPublicBookingDetail.mockResolvedValue({ ok: true, detail: BOOKING_DETAIL(b) })
     publicSvc.generateTicketQrSvg.mockResolvedValue('<svg/>')
