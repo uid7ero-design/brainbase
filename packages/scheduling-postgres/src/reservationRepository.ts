@@ -33,8 +33,8 @@ import { isSelfService, newId as defaultNewId } from './support';
 // first and in TypeScript, independent of SQL.
 
 // Selected as text so no driver (pg Date parsing, Neon) can reinterpret a date or instant.
-const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-const RESERVATION_COLUMNS = `
+export const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+export const RESERVATION_COLUMNS = `
   r.id, r.organisation_id, r.schedule_id, r.preset_key, r.preset_version, r.offering_id, r.span_kind,
   r.occurrence_id, r.resource_id, r.series_id, r.customer_id, r.customer_name, r.customer_email,
   r.customer_email_normalised, r.customer_phone, r.timezone,
