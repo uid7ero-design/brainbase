@@ -282,10 +282,14 @@ describe('inspection: plan → conduct → respond → evidence → finding → 
     expect(rows).toHaveLength(1);
     const logs = (await auditLog(S.ins)).filter(a => a.action === 'assurance_inspection.response_recorded');
     expect(logs.length).toBe(n0 + 2);
-    // Serialised by the row lock: the stored value is the later save, and the
-    // later save's "before" is exactly the earlier save — nothing is lost.
-    expect(logs.at(-1)!.after_state!.value).toBe(rows[0].response_value);
-    expect(logs.at(-1)!.before_state!.value).toBe(logs.at(-2)!.after_state!.value);
+    // Serialised by the row lock. The two audit rows can share created_at
+    // (transaction start time), so order them by their before/after chain, not
+    // by timestamp: the later save's "before" is exactly the earlier save's
+    // value, and the stored value is the later save — nothing is lost.
+    const pair = logs.slice(-2);
+    const later = pair.find(l => pair.some(o => o !== l && l.before_state?.value === o.after_state!.value))!;
+    expect(later, 'one save must chain onto the other').toBeTruthy();
+    expect(later.after_state!.value).toBe(rows[0].response_value);
   });
 
   it('ready → two concurrent completions: exactly one wins; completion closes no Finding / Action / evidence', async () => {
@@ -422,7 +426,10 @@ describe('audit: plan → assess criteria → evidence → finding → complete'
       m.audits.completeAudit(mgrA, S.aud, {}),
     ]);
     expect([x.status, y.status].sort()).toEqual(['fulfilled', 'rejected']);
-    expect(await audRow(S.aud)).toMatchObject({ status: 'COMPLETED', summary: '[TEST] One gap.' });
+    // Either completer may win; only the winner's summary is stored.
+    const done = await audRow(S.aud);
+    expect(done.status).toBe('COMPLETED');
+    expect(done.summary).toBe(x.status === 'fulfilled' ? '[TEST] One gap.' : null);
     expect(await findingStatus(a.id)).toBe('OPEN');
     expect(await actionStatus(act.id)).toBe('OPEN');
   });
