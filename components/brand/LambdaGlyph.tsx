@@ -1,13 +1,10 @@
 import type { CSSProperties } from "react";
 
-/** BrainBase's flat-top lambda uses the Geist Light A contour without its
- * crossbar, matching the wordmark's actual Geist 300 face rather than a
- * separately stroked chevron. The font's cap height, advance and side bearings
- * are preserved, with the same trailing tracking as the surrounding letters.
- *
- * Outline derived from Geist. Copyright 2024 The Geist Project Authors
- * (https://github.com/vercel/geist-font), SIL Open Font License 1.1.
- * License: /Brand/geist-OFL.txt. Only the glyph outline is font-derived.
+/** Custom flat-top lambda calibrated to Geist 300: 710-unit cap height,
+ * 649-unit advance and a 68-unit stroke, matching its capital I stem.
+ * The broad horizontal crown stays visible at normal wordmark sizes.
+ * Both diagonal legs have the same perpendicular thickness as the crown.
+ * Spacing includes the wordmark's normal trailing tracking.
  */
 const UNITS_PER_EM = 1000;
 const SHAPE: CSSProperties = {
@@ -30,8 +27,7 @@ export function LambdaGlyph() {
       pointerEvents="none"
     >
       <path
-        transform="translate(0 710) scale(1 -1)"
-        d="M21.33 0 279.67 710H369.67L628 0H554.33L324.67 649.33L95 0Z"
+        d="M21.33 710 234 0H415L627.67 710H556.68L364.38 68H284.62L92.32 710Z"
         fill="var(--brand-brainbase-accent)"
       />
     </svg>
