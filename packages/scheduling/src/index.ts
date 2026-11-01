@@ -10,3 +10,7 @@ export * from './availabilityRules';
 export * from './availability';
 export * from './availabilityCalendar';
 export * from './availabilityPersistence';
+export * from './bookingErrors';
+export * from './occurrencePlanning';
+export * from './bookingEvaluation';
+export * from './seriesPlanning';

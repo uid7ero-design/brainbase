@@ -13,7 +13,7 @@ The Phase 2 outline (`scheduling-phase2-schema-outline.md` section 9) used these
 | 2A Schema | **2A Database foundation** | Built, CI green, rehearsed on a Preview branch. Not applied to Production |
 | 2B Repositories | folded into 2A | The SQL repositories and the concurrency/DST/exclusion proofs shipped with 2A |
 | 2D Module enablement | **2B First usable workflow** (this plan) | Not started |
-| 2C Read-only LD Tennis shadow | **Later phase 2C** | Separate review. Not part of 2B |
+| 2C Read-only LD Tennis shadow | **Renumbered 2G** (2026-10-31) | Phase 2C is now Bookings (see `scheduling-phase2c-booking-architecture.md`). The LD Tennis shadow keeps its scope and its separate review, under the name 2G |
 | (new) | **Later: 2D public booking, 2E payments, 2F standalone app** | Separate, independently reviewable phases |
 
 2B is the first phase in which anything reaches a user, so it is the first with a real rollout, and it is split into
