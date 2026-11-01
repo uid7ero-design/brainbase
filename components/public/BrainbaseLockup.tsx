@@ -28,9 +28,7 @@ export function BrainbaseLockup({
         : { "aria-hidden": true })}
     >
       <BrokenOrbitMark size={markSize} context="brainbase" />
-      {/* Purple flat-top lambda glyphs stand in for "A" — see LambdaGlyph's
-          own header comment for why a plain "Λ" character can't be used
-          (wrong apex shape, wrong colour, font-dependent baseline). */}
+      {/* Flat-top lambda outlines share the surrounding font's metrics. */}
       <span className={styles.wordmark} aria-hidden="true">
         BR<LambdaGlyph />INB<LambdaGlyph />SE
       </span>
