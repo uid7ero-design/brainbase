@@ -181,6 +181,10 @@ import path from 'path';
 // Assurance Incidents & Investigations addition: scripts/tests/assuranceIncidents
 // .integration.test.ts (see scripts/tests/verify-assurance-incidents.sh),
 // same explicit-file-argument isolation.
+//
+// Assurance Inspections & Audits addition: scripts/tests/assuranceInspectionsAudits
+// .integration.test.ts (see scripts/tests/verify-assurance-inspections-audits.sh),
+// same explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -215,6 +219,7 @@ export default defineConfig({
       'scripts/tests/assuranceEvidence.integration.test.ts',
       'scripts/tests/assuranceFindings.integration.test.ts',
       'scripts/tests/assuranceIncidents.integration.test.ts',
+      'scripts/tests/assuranceInspectionsAudits.integration.test.ts',
       'scripts/tests/dataHubNormalizationExecutor.integration.test.ts',
       'scripts/tests/dataHubNormalizeWorksheetRoute.integration.test.ts',
       'scripts/tests/dataHubDatasetProfileExecution.integration.test.ts',

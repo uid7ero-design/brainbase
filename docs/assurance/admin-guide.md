@@ -85,6 +85,29 @@ a user from another organisation, or an inactive user, is refused.
 Likewise, risk levels, locations, assets and external organisations must
 belong to the same organisation.
 
+## Inspections and audits
+
+- **Who does what.** Managers and above plan, start, assign the inspector or
+  auditor, record responses, add evidence, raise findings and complete.
+  Cancelling uses the close permission (manager and above). Viewers can read
+  registers and records but change nothing. All of this is enforced on the
+  server.
+- **Version binding.** Each inspection or audit is bound to the exact
+  template version it was planned with; publishing a new version or retiring
+  the template never changes existing records.
+- **No automatic findings.** A failed or non-compliant response is a fact; a
+  finding exists only when someone raises it. Completing never closes
+  findings or actions.
+- **Restricted records.** Inspections and audits are not themselves
+  restricted. Findings, actions and evidence that are also linked to a
+  restricted incident or investigation are hidden from people who cannot see
+  that record — including from register counts.
+- **Current limitations.** No recurring schedules, no reopening or
+  correction after completion, no second-person review or approval, and no
+  timeframes, extensions or escalations for the inspection or audit itself.
+  Cancellation keeps its reason in the history (there is no reason column),
+  for inspections and audits alike.
+
 ## Template management
 
 Inspection templates (checklists) and audit templates (criteria) are managed

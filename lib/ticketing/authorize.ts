@@ -2,6 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import { roleGte, type Role } from '@/lib/session';
 import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { isEveEnabledSetting } from '@/lib/organisations/eveEnablement';
 import { checkTicketingGate, TICKETING_SESSION_HEADER } from './gate';
 import { verifyTicketingSession } from './session';
 
@@ -23,6 +24,10 @@ export type TicketingAuthResult =
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const unauthorized = () => Response.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
 const forbidden = () => Response.json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
+// Distinct code so the Eve server can show "not enabled" rather than
+// "signed out". It describes only the caller's own organisation.
+export const EVE_NOT_ENABLED = 'EVE_NOT_ENABLED';
+const eveNotEnabled = () => Response.json({ error: EVE_NOT_ENABLED }, { status: 403, headers: NO_STORE });
 const unavailable = () =>
   Response.json({ error: 'Unable to verify access.' }, { status: 503, headers: NO_STORE });
 
@@ -36,7 +41,10 @@ const unavailable = () =>
 //   4. tenant relationship: non-super_admin must still belong to the token's
 //      organisation; super_admin may act in any organisation that passes 5
 //   5. organisation exists and is ACTIVE, and holds the 'events' capability
-//   6. current DB role meets the minimum
+//   6. organisation is enabled on Eve (settings.events.eveEnabled === true);
+//      otherwise 403 EVE_NOT_ENABLED, so a disabled organisation's existing
+//      sessions stop working on their next call
+//   7. current DB role meets the minimum
 export async function authorizeTicketingApiRequest(
   req: Request,
   minRole: Role,
@@ -70,7 +78,7 @@ export async function authorizeTicketingApiRequest(
     }
 
     org = (await sql`
-      SELECT id, status, slug, name FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
+      SELECT id, status, slug, name, settings FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
     `)[0];
   } catch {
     return { ok: false, response: unavailable() };
@@ -82,6 +90,7 @@ export async function authorizeTicketingApiRequest(
   } catch (err) {
     return { ok: false, response: err instanceof CapabilityDatabaseError ? unavailable() : forbidden() };
   }
+  if (!isEveEnabledSetting(org.settings)) return { ok: false, response: eveNotEnabled() };
 
   const role = String(user.role ?? '').toLowerCase() as Role;
   if (!roleGte(role, minRole)) return { ok: false, response: forbidden() };

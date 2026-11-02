@@ -341,8 +341,25 @@ Select **Plan inspection**:
   **Contractor / external organisation**.
 
 The Inspections register has views: **All**, **Due (7 days)**, **Planned**,
-**In progress** and **Completed**. **Templates** opens **Assurance →
-Templates**, showing inspection templates.
+**In progress**, **Incomplete** (in progress with required items still
+unanswered), **Findings raised**, **Ready to complete**, **Completed** and
+**Cancelled**. Each row shows the type and template version, the planned
+date, the inspector, what it applies to (location, asset, external
+organisation), **Progress** (items answered, required items answered, and
+whether it is ready to complete), the fails and observations recorded, and
+its **linked work**: findings, open actions and evidence. Findings, actions
+and evidence linked to restricted records you cannot see are not counted.
+**Templates** opens **Assurance → Templates**, showing inspection templates.
+
+### Inspector
+
+The **inspector** is the person responsible for conducting the inspection.
+Set it when planning, or use **Assign inspector** / **Change inspector** while
+the inspection is planned or in progress. If someone else changed the
+inspector after you opened the page, your change is refused; refresh and try
+again. Changing the inspector changes nothing else, and is recorded in the
+history. The inspector of a completed or cancelled inspection cannot be
+changed.
 
 ### Historical template versions
 
@@ -366,6 +383,23 @@ sections, the checklist shows the same section headings in the same order.
 
 The summary line shows how many items are answered and how many failed.
 
+### What remains
+
+While an inspection is planned or in progress, **What remains** at the top of
+the page answers "what is left to do?": how many items and required items are
+answered, and exactly what prevents completion (not started, required items
+unanswered, or — for ad hoc — no items yet). It also shows the findings, open
+actions and evidence on the inspection. These are for information: they do
+**not** block completion, and completing does not close them.
+
+### Evidence on an item
+
+Once an item has a response, **Add evidence** appears on that item. The
+evidence is linked to the inspection **and that item**, and the item shows how
+much evidence it has. You can also add evidence to the inspection as a whole
+in the **Evidence** section. Accepting or rejecting the evidence later (see
+**Evidence**) does not change the item's response or the inspection.
+
 ### Fail and Observation → explicit **Raise finding**
 
 A failed or observed item is **not** a finding by itself. For Fail and
@@ -379,6 +413,15 @@ The finding records exactly which inspection item it came from. Once a
 finding has been raised from an item, **that item's response is locked** and
 cannot be revised. You can raise further findings from the same item with
 **Raise another finding**.
+
+If you tap **Raise finding** twice, or retry after a poor connection, you get
+the same finding back, not a duplicate. Raising a finding never changes the
+inspection's status.
+
+Corrective **actions** are raised on the finding, never directly on the
+inspection. The inspection's **Actions** section lists the actions on its
+findings, with their status. Closing an action does not change the
+inspection.
 
 Findings can still be raised from a completed inspection, but not from a
 cancelled one.
@@ -401,6 +444,21 @@ a finding that already exists (for example a repeat defect found again). This
 links the finding to the inspection as a whole, not to a checklist item, so
 it does not lock any response. It is not available on a cancelled inspection.
 
+### What is not available yet
+
+These are current limitations, not hidden rules:
+
+- **No recurrence.** Each inspection is planned on its own; there is no
+  repeating schedule. Plan the next one when it is due.
+- **No reopening or correction after completion.** A completed inspection's
+  responses are final. If something was recorded wrongly, note it on a
+  finding or in the next inspection.
+- **No second-person review or approval** of a completed inspection.
+- **No deadline tracking for the inspection itself.** The planned date shows
+  as overdue on the register while the inspection is still planned, but no
+  timeframe, extension or escalation is created. Findings raised from it keep
+  their own due dates.
+
 ---
 
 ## Audits
@@ -421,8 +479,20 @@ Select **Plan audit**:
   **Contractor / external organisation**.
 
 The Audits register has views: **All**, **Due (14 days)**, **Planned**,
-**In progress** and **Completed**. **Templates** opens **Assurance →
-Templates**, showing audit templates.
+**In progress**, **Incomplete**, **Findings raised**, **Ready to complete**,
+**Completed** and **Cancelled**. Each row shows the type and template version,
+the standard, the auditor, the planned date, location and contractor,
+**Criteria** progress and readiness, the non-compliant and partial ratings,
+and its linked findings, open actions and evidence (restricted ones you cannot
+see are not counted). **Templates** opens **Assurance → Templates**, showing
+audit templates.
+
+### Auditor
+
+The **auditor** is responsible for conducting the audit. Use **Assign
+auditor** / **Change auditor** while the audit is planned or in progress. As
+for inspections, a change made by someone else first is not overwritten, the
+change is recorded in the history, and nothing else on the audit changes.
 
 ### Version binding
 
@@ -444,6 +514,14 @@ standard.
 
 The summary line tallies the ratings.
 
+**What remains** shows how many criteria and required criteria are assessed
+and exactly what prevents completion. Findings, open actions and evidence are
+shown for information only; they do not block completion.
+
+Once a criterion has a rating, **Add evidence** on that criterion links the
+evidence to the audit and that criterion. Accepting the evidence later does
+not change the rating.
+
 ### Raise finding
 
 For **Non-compliant**, **Partially compliant** and **Observation** ratings,
@@ -461,7 +539,9 @@ you can decide. Raising a finding locks that criterion's rating.
 issue already being managed. Corrective actions stay on that finding.
 
 There is **no direct audit-to-action shortcut**. Corrective work always goes
-Finding → Action → Evidence → Verification → Closure.
+Finding → Action → Evidence → Verification → Closure. The audit's **Actions**
+section lists the actions on its findings. A repeated tap on **Raise finding**
+returns the same finding, not a duplicate.
 
 ### Recommendations and completion
 
@@ -471,6 +551,11 @@ rating. It does not create or close findings or actions.
 
 **Cancel audit** requires a **Reason**. Evidence on a cancelled audit can no
 longer be changed.
+
+Completing an audit never closes its findings or actions. Audits have the
+same current limitations as inspections: no recurrence, no reopening or
+correction after completion, no second-person review or approval, and no
+deadline tracking for the audit itself.
 
 ---
 

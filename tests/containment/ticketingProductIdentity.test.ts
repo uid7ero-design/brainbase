@@ -50,7 +50,7 @@ const uniqueParams = () => ({ organisationSlug: 'acme', eventSlug: `gala-${++n}`
 
 beforeEach(() => {
   for (const f of Object.values(svc)) f.mockReset()
-  svc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-a', event: { id: 'e1', name: 'Gala' } })
+  svc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-a', event: { id: 'e1', name: 'Gala' } })
   svc.registerFreeOrder.mockResolvedValue({ ok: true, orderId: 'o1', quantity: 1, tickets: [{ attendee_name: 'Sam', ticket_token: 'tok' }], bookingToken: 'bk' })
   svc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
 })

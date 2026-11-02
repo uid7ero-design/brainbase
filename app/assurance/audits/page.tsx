@@ -6,20 +6,24 @@ import { viewerCan } from '@/lib/assurance/authorize';
 import { AUDIT_STATUSES, AUDIT_TYPES, assuranceLabel, isPast } from '@/lib/assurance/domain';
 import { firstParam } from '@/lib/assurance/input';
 import { resolvePageViewer } from '../_components/pageAccess';
+import { ExecutionProgressCell, LinkedWorkCell } from '../_components/shared';
 import {
   Badge, DataTable, DateCell, Dim, FilterBar, LinkButton, PageHeader, RecordLink, Row, enumOptions, td, assuranceStyles as styles, tableStyles } from '../_components/ui';
 
 export const dynamic = 'force-dynamic';
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
-type View = 'due' | 'planned' | 'in_progress' | 'completed';
-
-const VIEWS: { value: '' | View; label: string }[] = [
+// Views are derived from real statuses and the completion rule only.
+const VIEWS = [
   { value: '', label: 'All' },
   { value: 'due', label: 'Due (14 days)' },
   { value: 'planned', label: 'Planned' },
   { value: 'in_progress', label: 'In progress' },
+  { value: 'incomplete', label: 'Incomplete' },
+  { value: 'findings', label: 'Findings raised' },
+  { value: 'ready', label: 'Ready to complete' },
   { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export default async function AuditsPage({ searchParams }: { searchParams: SP }) {
@@ -29,7 +33,7 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
   const f = {
     q: firstParam(sp.q), status: firstParam(sp.status), auditType: firstParam(sp.type),
     source: firstParam(sp.source) as 'template' | 'adhoc' | undefined, auditorUserId: firstParam(sp.auditor),
-    locationId: firstParam(sp.location), externalOrganisationId: firstParam(sp.org), view: firstParam(sp.view) as View | undefined,
+    locationId: firstParam(sp.location), externalOrganisationId: firstParam(sp.org), view: firstParam(sp.view),
   };
   const [rows, users, locations, orgs] = await Promise.all([
     listAudits(viewer, f),
@@ -73,17 +77,16 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
         ]}
       />
       <DataTable
-        headers={['Audit', 'Type', 'Status', 'Standard', 'Auditor', 'Scheduled', 'Location / contractor', 'Result']}
-        minWidth={1100}
+        headers={['Audit', 'Status', 'Standard', 'Auditor', 'Planned', 'Location / contractor', 'Criteria', 'Result', 'Linked work']}
+        minWidth={1240}
         empty={rows.length === 0 ? (filtered ? 'No audits match these filters.' : 'No audits have been planned yet.') : undefined}
       >
         {rows.map((r, i) => (
           <Row key={r.id} last={i === rows.length - 1}>
             <td style={{ ...td, maxWidth: 300 }}>
               <RecordLink href={`/assurance/audits/${r.id}`} reference={r.audit_reference} title={r.title} />
-              <div className={tableStyles.meta}>{r.template_name ? `${r.template_name} · v${r.template_version_number}` : 'Ad hoc'}</div>
+              <div className={tableStyles.meta}>{assuranceLabel(r.audit_type)} · {r.template_name ? `${r.template_name} · v${r.template_version_number}` : 'Ad hoc'}</div>
             </td>
-            <td style={td}>{assuranceLabel(r.audit_type)}</td>
             <td style={td}><Badge value={r.status} /></td>
             <td style={{ ...td, maxWidth: 200 }}>{r.standard_reference ?? <Dim>—</Dim>}</td>
             <td style={td}>{r.auditor_name ?? <Dim>Unassigned</Dim>}</td>
@@ -92,16 +95,16 @@ export default async function AuditsPage({ searchParams }: { searchParams: SP })
               {r.location_name ?? <Dim>—</Dim>}
               {r.external_organisation_name && <div className={tableStyles.meta}>{r.external_organisation_name}</div>}
             </td>
+            <td style={td}><ExecutionProgressCell readiness={r.readiness} status={r.status} noun="audit" /></td>
             <td style={{ ...td, fontSize: 12, whiteSpace: 'nowrap' }}>
               {r.response_count === 0 ? <Dim>—</Dim> : (
                 <>
-                  {r.response_count} assessed
-                  {r.non_compliant_count > 0 && <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}> · {r.non_compliant_count} non-compliant</span>}
-                  {r.partial_count > 0 && <span style={{ color: 'var(--status-warning)' }}> · {r.partial_count} partial</span>}
-                  {r.finding_count > 0 && <div>{r.finding_count} finding{r.finding_count === 1 ? '' : 's'}</div>}
+                  {r.non_compliant_count > 0 ? <span style={{ color: 'var(--status-danger)', fontWeight: 600 }}>{r.non_compliant_count} non-compliant</span> : <span>No non-compliance</span>}
+                  {r.partial_count > 0 && <div style={{ color: 'var(--status-warning)' }}>{r.partial_count} partial</div>}
                 </>
               )}
             </td>
+            <td style={td}><LinkedWorkCell findings={r.finding_count} openActions={r.open_action_count} evidence={r.evidence_count} /></td>
           </Row>
         ))}
       </DataTable>

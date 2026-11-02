@@ -15,7 +15,7 @@
    consumer (HlnaMark) still correctly uses — HLNA is a different mark,
    deliberately untouched. */
 .brainBaseMarkOverride {
-  font-family: var(--bb-font-sans);
+  font-family: var(--font-geist-sans), var(--bb-font-sans);
   font-weight: 300;
   letter-spacing: 0.19em;
 }

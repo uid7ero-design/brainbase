@@ -8,6 +8,29 @@ Newest first.
 
 ---
 
+## Inspections & audits execution
+
+- The **Inspections** and **Audits** registers have views for **All**,
+  **Due**, **Planned**, **In progress**, **Incomplete**, **Findings raised**,
+  **Ready to complete**, **Completed** and **Cancelled**, and show progress
+  (answered and required items), readiness, and linked findings, open actions
+  and evidence. Linked records you are not allowed to see are not counted.
+- An inspection or audit shows **What remains**: exactly what prevents
+  completion. Findings, actions and evidence are shown but never block it.
+- The **inspector** / **auditor** can be assigned or changed while the
+  record is planned or in progress. The change is recorded in the history.
+- **Add evidence** is available on each answered checklist item and audit
+  criterion, and each item shows how much evidence it has.
+- An inspection or audit lists the **actions** raised on its findings.
+- Tapping **Raise finding** twice, or retrying it, no longer creates a
+  duplicate finding.
+- Larger touch targets for outcome and rating buttons on phones.
+- Unchanged: completion rules, version binding, no automatic findings, and
+  completion never closes findings or actions. Not yet available: recurrence,
+  reopening after completion, review/approval, deadlines for the inspection or
+  audit itself.
+
+
 ## Incidents & investigations
 
 - The **Incidents** register has views for **All**, **Open**, **Needs

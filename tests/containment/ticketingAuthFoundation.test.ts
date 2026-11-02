@@ -43,7 +43,7 @@ const sqlMock = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]
     return db.users.filter(u => u.id === values[2]).map(u => ({ ...u, session_live: live }))
   }
   if (q.includes('FROM organisations WHERE id')) return db.orgs.filter(o => o.id === values[0])
-  if (q.includes('FROM organisations o')) return db.orgs.filter(o => o.status === 'ACTIVE' && db.entitled.has(o.id as string))
+  if (q.includes('FROM organisations o')) return db.orgs.filter(o => o.status === 'ACTIVE' && db.entitled.has(o.id as string) && (o.settings as { events?: { eveEnabled?: unknown } } | undefined)?.events?.eveEnabled === true)
   return []
 })
 vi.mock('@/lib/db', () => ({
@@ -103,8 +103,8 @@ beforeEach(() => {
   db.sessions = new Map(); db.counters = new Map(); db.failSessionWrite = false; db.failTx = false; db.limiterDown = false
   db.entitled = new Set(['org-a', 'org-b'])
   db.orgs = [
-    { id: 'org-a', name: 'A', status: 'ACTIVE' },
-    { id: 'org-b', name: 'B', status: 'ACTIVE' },
+    { id: 'org-a', name: 'A', status: 'ACTIVE', settings: { events: { eveEnabled: true } } },
+    { id: 'org-b', name: 'B', status: 'ACTIVE', settings: { events: { eveEnabled: true } } },
     { id: 'org-c', name: 'C (no events)', status: 'ACTIVE' },
   ]
   db.users = [

@@ -2,6 +2,8 @@ import 'server-only';
 import sql from '@/lib/db';
 import { viewerCan, type AssuranceViewer } from './policy';
 import { findingVisibleSql, evidenceVisibleSql } from './access';
+import { listActionsViaFindings, openActionCountSql, type LinkedActionRow } from './executionLinks';
+import { executionReadiness, matchesExecutionView, parseExecutionView, type ExecutionReadiness } from './executionRules';
 import { auditInsert, listAssuranceHistory, type AssuranceHistoryEntry } from './audit';
 import { auditFromCte, type AssuranceTimestamp } from './sqlHelpers';
 import { assertSameOrgUsers } from './users';
@@ -30,7 +32,7 @@ import { AssuranceConflictError, AssuranceForbiddenError, AssuranceNotFoundError
 export type InspectionListFilters = {
   q?: string;
   status?: string;
-  view?: 'due' | 'planned' | 'in_progress' | 'completed' | 'all';
+  view?: string;
   inspectionType?: string;
   source?: 'template' | 'adhoc';
   locationId?: string;
@@ -39,23 +41,39 @@ export type InspectionListFilters = {
 export type InspectionListRow = {
   id: string; inspection_reference: string; title: string; inspection_type: InspectionType; status: InspectionStatus;
   scheduled_at: AssuranceTimestamp | null; started_at: AssuranceTimestamp | null; completed_at: AssuranceTimestamp | null;
-  inspector_name: string | null; location_name: string | null;
+  inspector_name: string | null; location_name: string | null; asset_name: string | null; external_organisation_name: string | null;
   template_name: string | null; template_version_number: number | null;
-  fail_count: number; observation_count: number; response_count: number; finding_count: number;
+  fail_count: number; observation_count: number; response_count: number;
+  /** Findings, open Actions and active evidence links the VIEWER may see (restricted ones are not counted). */
+  finding_count: number; open_action_count: number; evidence_count: number;
+  readiness: ExecutionReadiness;
 };
 
+/**
+ * The register. Counts of linked Findings / Actions / Evidence use the
+ * shared visibility predicates, so a restricted linked record never shows up
+ * even as a number. Readiness is derived from the bound template version with
+ * the same rule completion enforces (executionRules.ts).
+ */
 export async function listInspections(viewer: AssuranceViewer, filters: InspectionListFilters = {}): Promise<InspectionListRow[]> {
   const pattern = searchPattern(filters.q);
   const status = INSPECTION_STATUSES.includes(filters.status as InspectionStatus) ? filters.status! : null;
   const type = INSPECTION_TYPES.includes(filters.inspectionType as InspectionType) ? filters.inspectionType! : null;
-  const view = filters.view && ['due', 'planned', 'in_progress', 'completed'].includes(filters.view) ? filters.view : 'all';
+  const view = parseExecutionView(filters.view);
+  // Readiness views are a subset of IN_PROGRESS; narrow in SQL, refine below.
+  const sqlStatus = view === 'planned' || view === 'due' ? 'PLANNED'
+    : view === 'in_progress' || view === 'incomplete' || view === 'ready' ? 'IN_PROGRESS'
+      : view === 'completed' ? 'COMPLETED' : view === 'cancelled' ? 'CANCELLED' : null;
   const source = filters.source === 'template' || filters.source === 'adhoc' ? filters.source : null;
   const locationId = isUuid(filters.locationId) ? filters.locationId : null;
 
-  return (await sql`
+  const rows = (await sql`
     SELECT i.id, i.inspection_reference, i.title, i.inspection_type, i.status, i.scheduled_at, i.started_at, i.completed_at,
-           iu.name AS inspector_name, loc.name AS location_name,
-           t.name AS template_name, v.version_number AS template_version_number,
+           iu.name AS inspector_name, loc.name AS location_name, ast.name AS asset_name, xo.name AS external_organisation_name,
+           t.name AS template_name, v.version_number AS template_version_number, v.checklist AS template_checklist,
+           (i.template_version_id IS NULL) AS ad_hoc,
+           COALESCE((SELECT array_agg(r.item_key) FROM assurance_inspection_responses r
+             WHERE r.organisation_id = i.organisation_id AND r.inspection_id = i.id), '{}') AS answered_keys,
            (SELECT count(*) FROM assurance_inspection_responses r
              WHERE r.organisation_id = i.organisation_id AND r.inspection_id = i.id AND r.outcome = 'FAIL')::int AS fail_count,
            (SELECT count(*) FROM assurance_inspection_responses r
@@ -63,19 +81,25 @@ export async function listInspections(viewer: AssuranceViewer, filters: Inspecti
            (SELECT count(*) FROM assurance_inspection_responses r
              WHERE r.organisation_id = i.organisation_id AND r.inspection_id = i.id)::int AS response_count,
            (SELECT count(*) FROM assurance_inspection_findings xf
-             WHERE xf.organisation_id = i.organisation_id AND xf.inspection_id = i.id)::int AS finding_count
+             JOIN assurance_findings f ON f.organisation_id = xf.organisation_id AND f.id = xf.finding_id
+             WHERE xf.organisation_id = i.organisation_id AND xf.inspection_id = i.id AND ${findingVisibleSql(viewer)})::int AS finding_count,
+           ${openActionCountSql(viewer, 'inspection')} AS open_action_count,
+           (SELECT count(*) FROM assurance_evidence_inspections l
+             JOIN assurance_evidence e ON e.organisation_id = l.organisation_id AND e.id = l.evidence_id
+             WHERE l.organisation_id = i.organisation_id AND l.inspection_id = i.id AND l.removed_at IS NULL
+               AND ${evidenceVisibleSql(viewer)})::int AS evidence_count
     FROM assurance_inspections i
     LEFT JOIN users iu ON iu.id = i.inspector_user_id AND iu.organisation_id = i.organisation_id
     LEFT JOIN locations loc ON loc.organisation_id = i.organisation_id AND loc.id = i.location_id
+    LEFT JOIN assets ast ON ast.organisation_id = i.organisation_id AND ast.id = i.asset_id
+    LEFT JOIN external_organisations xo ON xo.organisation_id = i.organisation_id AND xo.id = i.external_organisation_id
     LEFT JOIN assurance_inspection_template_versions v ON v.organisation_id = i.organisation_id AND v.id = i.template_version_id
     LEFT JOIN assurance_inspection_templates t ON t.organisation_id = v.organisation_id AND t.id = v.template_id
     WHERE i.organisation_id = ${viewer.organisationId}
       AND (${status}::text IS NULL OR i.status = ${status})
+      AND (${sqlStatus}::text IS NULL OR i.status = ${sqlStatus})
       AND (${type}::text IS NULL OR i.inspection_type = ${type})
-      AND (${view}::text <> 'due' OR (i.status = 'PLANNED' AND i.scheduled_at IS NOT NULL AND i.scheduled_at < now() + interval '7 days'))
-      AND (${view}::text <> 'planned' OR i.status = 'PLANNED')
-      AND (${view}::text <> 'in_progress' OR i.status = 'IN_PROGRESS')
-      AND (${view}::text <> 'completed' OR i.status = 'COMPLETED')
+      AND (${view}::text <> 'due' OR (i.scheduled_at IS NOT NULL AND i.scheduled_at < now() + interval '7 days'))
       AND (${source}::text IS NULL OR (${source}::text = 'template') = (i.template_version_id IS NOT NULL))
       AND (${locationId}::uuid IS NULL OR i.location_id = ${locationId}::uuid)
       AND (${pattern}::text IS NULL OR i.inspection_reference ILIKE ${pattern} OR i.title ILIKE ${pattern})
@@ -83,7 +107,17 @@ export async function listInspections(viewer: AssuranceViewer, filters: Inspecti
       CASE i.status WHEN 'IN_PROGRESS' THEN 0 WHEN 'PLANNED' THEN 1 WHEN 'COMPLETED' THEN 2 ELSE 3 END,
       COALESCE(i.scheduled_at, i.started_at, i.created_at) DESC
     LIMIT 200
-  `) as InspectionListRow[];
+  `) as (Omit<InspectionListRow, 'readiness'> & { template_checklist: unknown; ad_hoc: boolean; answered_keys: string[] })[];
+
+  return rows
+    .map(({ template_checklist, ad_hoc, answered_keys, ...r }) => ({
+      ...r,
+      readiness: executionReadiness({
+        status: r.status, adHoc: ad_hoc,
+        items: parseChecklist(template_checklist).items, answeredKeys: answered_keys, noun: 'inspection',
+      }),
+    }))
+    .filter(r => matchesExecutionView(view, r));
 }
 
 export type InspectionResponseRow = {
@@ -111,9 +145,14 @@ export type InspectionDetail = {
     identified_at: AssuranceTimestamp; source_item_key: string | null;
   }[];
   hiddenFindingCount: number;
+  /** Actions raised from this inspection's visible Findings (Inspection → Finding → Action; no shortcut). */
+  actions: LinkedActionRow[];
   evidence: EvidenceLinkRow[];
+  readiness: ExecutionReadiness;
   history: AssuranceHistoryEntry[];
 };
+
+export type { LinkedActionRow };
 
 export async function getInspectionDetail(viewer: AssuranceViewer, id: string): Promise<InspectionDetail | null> {
   if (!isUuid(id)) return null;
@@ -142,7 +181,7 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
   const { template_checklist, ...inspection } = row;
   const parsed = parseChecklist(template_checklist);
 
-  const [responses, findings, hidden, evidence, history] = await Promise.all([
+  const [responses, findings, hidden, actions, evidence, history] = await Promise.all([
     sql`
       SELECT r.id, r.item_key, r.item_label, r.response_type, r.response_value, r.outcome, r.notes, r.responded_at,
              u.name AS responded_by_name
@@ -170,6 +209,7 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
       WHERE lx.organisation_id = ${org} AND lx.inspection_id = ${id}::uuid
         AND NOT ${findingVisibleSql(viewer)}
     `,
+    listActionsViaFindings(viewer, 'inspection', id),
     sql`
       SELECT l.id AS link_id, e.id AS evidence_id, e.evidence_reference, e.evidence_type, e.title,
              e.verification_status,
@@ -196,7 +236,12 @@ export async function getInspectionDetail(viewer: AssuranceViewer, id: string): 
     responses: responses as InspectionResponseRow[],
     findings: findings as InspectionDetail['findings'],
     hiddenFindingCount: ((hidden as { n: number }[])[0]?.n) ?? 0,
+    actions,
     evidence: evidence as EvidenceLinkRow[],
+    readiness: executionReadiness({
+      status: inspection.status, adHoc: !inspection.template_version_id, items: parsed.items,
+      answeredKeys: (responses as { item_key: string }[]).map(r => r.item_key), noun: 'inspection',
+    }),
     history,
   };
 }
@@ -454,14 +499,15 @@ export async function completeInspection(viewer: AssuranceViewer, id: string, ra
     WHERE organisation_id = ${viewer.organisationId} AND inspection_id = ${id}::uuid
   `) as { item_key: string }[];
   const answeredKeys = new Set(answered.map(r => r.item_key));
-  if (state.template_version_id) {
-    const missing = parseChecklist(state.checklist).items.filter(i => i.required && !answeredKeys.has(i.key));
-    if (missing.length > 0) {
-      throw new AssuranceConflictError(`${missing.length} required checklist item${missing.length === 1 ? ' has' : 's have'} no response yet.`);
-    }
-  } else if (answeredKeys.size === 0) {
-    throw new AssuranceConflictError('Record at least one item before completing an ad hoc inspection.');
-  }
+  // Same rule the register and detail page show (executionRules.ts).
+  // Responses are never deleted, so a blocker cannot reappear between this
+  // check and the guarded status write below. Findings, open Actions and
+  // evidence never block completion.
+  const readiness = executionReadiness({
+    status: state.status, adHoc: !state.template_version_id, items: parseChecklist(state.checklist).items,
+    answeredKeys, noun: 'inspection',
+  });
+  if (!readiness.ready) throw new AssuranceConflictError(readiness.blockers[0] ?? 'This inspection is not ready to complete.');
 
   const rows = (await sql`
     WITH upd AS (
@@ -478,6 +524,55 @@ export async function completeInspection(viewer: AssuranceViewer, id: string, ra
     SELECT id FROM upd
   `) as unknown[];
   if (rows.length === 0) throw new AssuranceConflictError('This inspection was changed by someone else. Refresh and try again.');
+}
+
+/**
+ * Assigns (or clears) the inspector of a planned or in-progress inspection.
+ * Lock + guarded write: with `expectedInspectorUserId` the change only
+ * applies if nobody changed the inspector first, so two people reassigning at
+ * once get a deterministic conflict. Changing the inspector changes nothing
+ * else (responses, findings, evidence are untouched).
+ */
+export async function assignInspector(viewer: AssuranceViewer, id: string, raw: Record<string, unknown>): Promise<{ id: string; inspector_user_id: string | null }> {
+  if (!viewerCan(viewer, 'record')) throw new AssuranceForbiddenError();
+  const inspectorUserId = optionalUserId(raw.inspectorUserId, 'Inspector');
+  const expected = raw.expectedInspectorUserId === undefined ? undefined : optionalUserId(raw.expectedInspectorUserId, 'Current inspector');
+  const state = await getInspectionState(viewer, id);
+  id = state.id;
+  if (state.status !== 'PLANNED' && state.status !== 'IN_PROGRESS') {
+    throw new AssuranceConflictError('The inspector of a completed or cancelled inspection cannot be changed.');
+  }
+  await assertSameOrgUsers(viewer.organisationId, [{ field: 'Inspector', userId: inspectorUserId }]);
+  const results = await sql.transaction([
+    sql`SELECT id FROM assurance_inspections WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid FOR UPDATE`,
+    sql`
+      WITH prev AS (
+        SELECT inspector_user_id FROM assurance_inspections
+        WHERE organisation_id = ${viewer.organisationId} AND id = ${id}::uuid
+      ), upd AS (
+        UPDATE assurance_inspections i
+        SET inspector_user_id = ${inspectorUserId}, updated_at = now()
+        WHERE i.organisation_id = ${viewer.organisationId} AND i.id = ${id}::uuid
+          AND i.status IN ('PLANNED', 'IN_PROGRESS')
+          AND (${expected === undefined}::boolean OR i.inspector_user_id IS NOT DISTINCT FROM ${expected ?? null}::text)
+          AND i.inspector_user_id IS DISTINCT FROM ${inspectorUserId}::text
+        RETURNING i.id, i.inspector_user_id
+      ), aud AS (
+        INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+        SELECT gen_random_uuid()::text, ${viewer.organisationId}, ${viewer.userId}, 'assurance_inspection.assigned',
+               'assurance_inspection', upd.id::text,
+               jsonb_build_object('inspector_user_id', (SELECT inspector_user_id FROM prev)),
+               jsonb_build_object('inspector_user_id', upd.inspector_user_id)
+        FROM upd
+      )
+      SELECT id, inspector_user_id FROM upd
+    `,
+  ]);
+  const rows = results[1] as { id: string; inspector_user_id: string | null }[];
+  if (!rows[0]) {
+    throw new AssuranceConflictError('The inspector was not changed: someone else changed it (or the inspection) first, or it is already that person. Refresh and try again.');
+  }
+  return rows[0];
 }
 
 /**

@@ -146,7 +146,7 @@ describe('public Eve event read: question definitions only when the event is opt
     { id: 'q2', label: 'How did you hear about this event?', help_text: null, field_type: 'SINGLE_SELECT', required: false, scope: 'ORDER', options: ['Radio'], sort_order: 1, data_category: 'STANDARD' },
   ]
   const read = async (eveQuestionsEnabled: boolean, questions = Qs) => {
-    getPublicEventDetail.mockResolvedValue({ ok: true, detail: { event: { name: 'E' }, ticket_types: [], questions, has_promotions: false, organisationName: 'Acme' }, eveQuestionsEnabled })
+    getPublicEventDetail.mockResolvedValue({ ok: true, eveEnabled: true, detail: { event: { name: 'E' }, ticket_types: [], questions, has_promotions: false, organisationName: 'Acme' }, eveQuestionsEnabled })
     return (await publicApi.handleTicketingPublicEvent(new Request('http://bb.test/x', { headers: GATE }), { organisationSlug: 'acme', eventSlug: 'e' })).json()
   }
 

@@ -43,6 +43,24 @@ type EventParams = { organisationSlug: string; eventSlug: string };
 
 const notAvailable = () => ticketingJson({ error: 'Event not available.' }, 404);
 
+// Eve organiser allow-list (lib/organisations/eveEnablement.ts). Eve offers
+// an event only when its organisation is explicitly enabled for Eve; an
+// Events-entitled organisation with a published event is NOT enough. Every
+// buyer-facing EVENT handler below — event read, quote, register, paid
+// checkout — refuses a not-enabled organisation with the same 404 as a
+// missing or unpublished event, so a caller cannot tell "not on Eve" from
+// "doesn't exist". Enforced here, server-side, never by hiding links.
+//
+// Deliberately NOT applied to the handlers that serve an EXISTING order —
+// checkout status (session_id), ticket (/t) and booking (/b): those are a
+// buyer's own artefacts, reached by an unguessable token they already hold,
+// and stay usable if the organisation is later disabled for Eve.
+async function resolveEveEvent(organisationSlug: string, eventSlug: string) {
+  const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
+  if (!resolved.ok || resolved.eveEnabled !== true) return { ok: false as const };
+  return resolved;
+}
+
 function eventPath({ organisationSlug, eventSlug }: EventParams, suffix = ''): string {
   return `/api/public/events/${encodeURIComponent(organisationSlug)}/${encodeURIComponent(eventSlug)}${suffix}`;
 }
@@ -97,7 +115,7 @@ export async function handleTicketingPublicEvent(req: Request, params: EventPara
   if (!gate.ok) return gate.response;
   if (!validEventParams(params)) return notAvailable();
   const result = await getPublicEventDetail(params.organisationSlug, params.eventSlug);
-  if (!result.ok) return notAvailable();
+  if (!result.ok || result.eveEnabled !== true) return notAvailable();
   // Registration questions (ADR 0013 §4): Eve shows an event's questions
   // only when the organiser opted that event in. Otherwise Eve gets none
   // (the services also refuse Eve answers for it), plus one boolean saying
@@ -128,6 +146,9 @@ export async function handleTicketingQuote(req: Request, params: EventParams): P
   if (!(await limit(LIMITS.publicQuote, [params.organisationSlug, params.eventSlug, ticketingClientIp(req)])).allowed) {
     return ticketingJson({ error: 'Too many requests. Please try again later.' }, 429);
   }
+  // Eve allow-list before delegating: the BrainBase quote route resolves the
+  // event itself but knows nothing about Eve enablement.
+  if (!(await resolveEveEvent(params.organisationSlug, params.eventSlug)).ok) return notAvailable();
   const body = await readBodyText(req);
   if (body === null) return ticketingJson({ error: 'Invalid request body.' }, 400);
   const res = await publicQuote(delegatedRequest(req, eventPath(params, '/quote'), { method: 'POST', body }), {
@@ -161,7 +182,7 @@ export async function handleTicketingRegister(req: Request, params: EventParams)
   const validated = validatePublicRegistrationInput(rawBody);
   if (typeof validated === 'string') return ticketingJson({ error: validated }, 400);
 
-  const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
+  const resolved = await resolveEveEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return notAvailable();
   const { organisationId, event } = resolved;
 
@@ -265,7 +286,7 @@ export async function handleTicketingCheckout(req: Request, params: EventParams)
   const validated = validatePublicRegistrationInput(rawBody);
   if (typeof validated === 'string') return ticketingJson({ error: validated }, 400);
 
-  const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
+  const resolved = await resolveEveEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return notAvailable();
   const { organisationId, event } = resolved;
 

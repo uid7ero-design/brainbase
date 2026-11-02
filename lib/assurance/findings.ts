@@ -348,7 +348,18 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
     auditId: optionalUuid(raw.auditId, 'Audit'),
     auditCriterionKey: optionalText(raw.auditCriterionKey, 'Audit criterion', 120),
     requirementAssignmentId: optionalUuid(raw.requirementAssignmentId, 'Requirement assignment'),
+    requestKey: optionalUuid(raw.requestKey, 'Request key'),
   };
+  // Retry protection for raising a Finding from an inspection item / audit
+  // criterion: the form sends one requestKey per attempt; a replay (double
+  // tap, retry after a lost response) returns the Finding already created
+  // instead of a duplicate. Only these sources take a FOR UPDATE lock on the
+  // source row, which is what makes the duplicate check race-safe.
+  const requestKey = input.requestKey && (input.inspectionId || input.auditId) ? input.requestKey : null;
+  if (requestKey) {
+    const replay = await findingByRequestKey(viewer, requestKey);
+    if (replay) return replay;
+  }
   const sourceCount = [input.incidentId, input.investigationId, input.inspectionId, input.auditId, input.requirementAssignmentId].filter(Boolean).length;
   if (sourceCount > 1) throw new AssuranceValidationError('Raise a finding from one source at a time; link further sources afterwards.');
   if (input.inspectionItemKey && !input.inspectionId) throw new AssuranceValidationError('A checklist item needs its inspection.');
@@ -435,6 +446,15 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
           : input.requirementAssignmentId
             ? sql`EXISTS (SELECT 1 FROM assurance_requirement_assignments s WHERE s.organisation_id = ${org} AND s.id = ${input.requirementAssignmentId}::uuid)`
             : sql`true`;
+  // Every write re-checks, after the source lock, that the source is still
+  // open and (with a requestKey) that no Finding was created for this key.
+  const proceed = requestKey
+    ? sql`(${sourceOpen} AND NOT EXISTS (
+        SELECT 1 FROM audit_logs dl
+        WHERE dl.organisation_id = ${org} AND dl.resource_type = 'assurance_finding'
+          AND dl.action = 'assurance_finding.created' AND dl.after_state->>'request_key' = ${requestKey}
+      ))`
+    : sourceOpen;
   return withFreshReference('finding', async reference => {
     const statements = [
       lock,
@@ -446,35 +466,35 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
         SELECT ${id}::uuid, ${org}, ${reference}, ${input.findingType}, ${input.title}, ${input.description},
                'OPEN', ${input.riskLevelId}::uuid, ${input.responsibleUserId}, ${input.responsibleExternalOrganisationId}::uuid,
                ${input.identifiedAt}::timestamptz, ${input.locationId}::uuid, ${input.assetId}::uuid, ${viewer.userId}
-        WHERE ${sourceOpen}
+        WHERE ${proceed}
         RETURNING id
       `,
     ];
     if (input.incidentId) statements.push(sql`
       INSERT INTO assurance_incident_findings (organisation_id, incident_id, finding_id, created_by)
-      SELECT ${org}, ${input.incidentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${input.incidentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${proceed}
     `);
     if (input.investigationId) statements.push(sql`
       INSERT INTO assurance_investigation_findings (organisation_id, investigation_id, finding_id, created_by)
-      SELECT ${org}, ${input.investigationId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${input.investigationId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${proceed}
     `);
     if (input.auditId) statements.push(sql`
       INSERT INTO assurance_audit_findings (organisation_id, audit_id, finding_id, criterion_key, created_by)
-      SELECT ${org}, ${input.auditId}::uuid, ${id}::uuid, ${input.auditCriterionKey}, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${input.auditId}::uuid, ${id}::uuid, ${input.auditCriterionKey}, ${viewer.userId} WHERE ${proceed}
     `);
     // Structured provenance (A0.1I): the checklist item / criterion is an FK
     // to the response row of THIS inspection / audit, fixed once linked.
     if (input.inspectionId) statements.push(sql`
       INSERT INTO assurance_inspection_findings (organisation_id, inspection_id, finding_id, item_key, created_by)
-      SELECT ${org}, ${input.inspectionId}::uuid, ${id}::uuid, ${input.inspectionItemKey}, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${input.inspectionId}::uuid, ${id}::uuid, ${input.inspectionItemKey}, ${viewer.userId} WHERE ${proceed}
     `);
     if (input.requirementAssignmentId) statements.push(sql`
       INSERT INTO assurance_requirement_assignment_findings (organisation_id, assignment_id, finding_id, created_by)
-      SELECT ${org}, ${input.requirementAssignmentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${input.requirementAssignmentId}::uuid, ${id}::uuid, ${viewer.userId} WHERE ${proceed}
     `);
     if (input.dueAt) statements.push(sql`
       INSERT INTO assurance_timeframes (organisation_id, finding_id, timeframe_type, original_due_at, current_due_at, created_by)
-      SELECT ${org}, ${id}::uuid, 'CLOSURE', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId} WHERE ${sourceOpen}
+      SELECT ${org}, ${id}::uuid, 'CLOSURE', ${input.dueAt}::timestamptz, ${input.dueAt}::timestamptz, ${viewer.userId} WHERE ${proceed}
     `);
     statements.push(sql`
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
@@ -485,8 +505,9 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
                inspection_id: input.inspectionId, inspection_item_key: input.inspectionItemKey,
                audit_id: input.auditId, audit_criterion_key: input.auditCriterionKey,
                requirement_assignment_id: input.requirementAssignmentId,
+               ...(requestKey ? { request_key: requestKey } : {}),
              })}::jsonb
-      WHERE ${sourceOpen}
+      WHERE ${proceed}
     `);
     let results;
     try {
@@ -495,10 +516,31 @@ export async function createFinding(viewer: AssuranceViewer, raw: Record<string,
       mapFindingDbError(err);
     }
     if ((results[1] as unknown[]).length === 0) {
+      // A concurrent request with the same key won the source lock first.
+      const replay = requestKey ? await findingByRequestKey(viewer, requestKey) : null;
+      if (replay) return replay;
       throw new AssuranceConflictError('The source record was closed while you were raising this finding. Nothing was saved.');
     }
     return { id, finding_reference: reference };
   });
+}
+
+/**
+ * The Finding this SAME user already created with a raise-finding requestKey,
+ * if any. Another user's key never replays (their request is refused by the
+ * duplicate guard instead), so a key can never reveal someone else's Finding.
+ */
+async function findingByRequestKey(viewer: AssuranceViewer, requestKey: string): Promise<{ id: string; finding_reference: string } | null> {
+  const rows = (await sql`
+    SELECT f.id, f.finding_reference
+    FROM audit_logs l
+    JOIN assurance_findings f ON f.organisation_id = l.organisation_id AND f.id::text = l.resource_id
+    WHERE l.organisation_id = ${viewer.organisationId} AND l.user_id = ${viewer.userId}
+      AND l.resource_type = 'assurance_finding'
+      AND l.action = 'assurance_finding.created' AND l.after_state->>'request_key' = ${requestKey}
+    LIMIT 1
+  `) as { id: string; finding_reference: string }[];
+  return rows[0] ?? null;
 }
 
 export { FINDING_TRANSITIONS };

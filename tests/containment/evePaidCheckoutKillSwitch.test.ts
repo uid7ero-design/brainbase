@@ -41,7 +41,7 @@ const schoolTest = () => ({ organisationSlug: 'school-test-organisation', eventS
 
 beforeEach(() => {
   for (const f of Object.values(svc)) f.mockReset()
-  svc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-connected', event: { id: 'e1' } })
+  svc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-connected', event: { id: 'e1' } })
   svc.registerFreeOrder.mockResolvedValue({ ok: true, orderId: 'o1', quantity: 1, tickets: [{ attendee_name: 'Sam', ticket_token: 'tok' }], bookingToken: 'bk' })
   svc.startPaidCheckout.mockResolvedValue({ ok: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1' })
   delete process.env.EVE_PAID_CHECKOUT_ENABLED
@@ -81,7 +81,7 @@ describe('Eve paid checkout is blocked before anything happens unless the flag i
   })
 
   it('a connected-Stripe organisation (LD Tennis shape) cannot start Eve paid checkout while the flag is unset', async () => {
-    svc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-connected', event: { id: 'e1', stripe_account_id: 'acct_connected', payments_enabled: true } })
+    svc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-connected', event: { id: 'e1', stripe_account_id: 'acct_connected', payments_enabled: true } })
     const res = await pub.handleTicketingCheckout(gated(), params())
     expect(res.status).toBe(503)
     expect(svc.startPaidCheckout).not.toHaveBeenCalled()
@@ -184,7 +184,7 @@ describe('global flag ON: only allow-listed organisations reach Eve paid checkou
     process.env.EVE_PAID_CHECKOUT_ENABLED = 'true'
     vi.stubEnv('VERCEL_ENV', 'preview')
     // LD Tennis shape: a connected, charges-enabled organisation — denied by the allow-list alone.
-    svc.resolvePublicEvent.mockResolvedValue({ ok: true, organisationId: 'org-connected', event: { id: 'e1', stripe_account_id: 'acct_connected', payments_enabled: true } })
+    svc.resolvePublicEvent.mockResolvedValue({ ok: true, eveEnabled: true, organisationId: 'org-connected', event: { id: 'e1', stripe_account_id: 'acct_connected', payments_enabled: true } })
   })
 
   it('EVE_PAID_CHECKOUT_ORGS=brainbase: Brainbase is allowed (201, EVE surface) and LD Tennis is denied (503, nothing touched)', async () => {
@@ -278,7 +278,7 @@ describe('public event read: server-derived paid_checkout_available (one boolean
 
   beforeEach(async () => {
     const { getPublicEventDetail } = await import('@/lib/events/publicEventDetail')
-    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: true, detail: DETAIL, eveQuestionsEnabled: false } as never)
+    vi.mocked(getPublicEventDetail).mockResolvedValue({ ok: true, eveEnabled: true, detail: DETAIL, eveQuestionsEnabled: false } as never)
     vi.stubEnv('VERCEL_ENV', 'preview')
   })
 
@@ -419,7 +419,7 @@ describe('scope: only the gated Eve checkout handler reads the flag', () => {
     expect(eventRead).toContain('paid_checkout_available: isEvePaidCheckoutAvailableFor(params.organisationSlug)')
     expect(checkout).not.toContain('isEvePaidCheckoutAvailableFor')
     expect(checkout.indexOf('isEvePaidCheckoutEnabled()')).toBeGreaterThan(checkout.indexOf('checkTicketingGate'))
-    for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolvePublicEvent(', 'startPaidCheckout(']) {
+    for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolveEveEvent(', 'startPaidCheckout(']) {
       expect(checkout.indexOf('isEvePaidCheckoutEnabled()'), later).toBeLessThan(checkout.indexOf(later))
     }
   })
@@ -445,7 +445,7 @@ describe('scope: only the gated Eve checkout handler reads the flag', () => {
     const checkout = flagSrc.slice(start, end)
     expect(flagSrc.replace(checkout, '').replace(availabilitySection(flagSrc), '').match(/isEvePaidCheckoutAllowedForOrg\(/g)).toBeNull()
     expect(checkout).toContain('isEvePaidCheckoutAllowedForOrg(organisationSlug)')
-    for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolvePublicEvent(', 'startPaidCheckout(']) {
+    for (const later of ['limit(LIMITS.paidCheckout', 'req.json()', 'resolveEveEvent(', 'startPaidCheckout(']) {
       expect(checkout.indexOf('isEvePaidCheckoutAllowedForOrg('), later).toBeLessThan(checkout.indexOf(later))
     }
   })
