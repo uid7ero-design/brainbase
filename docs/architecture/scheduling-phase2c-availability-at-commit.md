@@ -24,7 +24,7 @@ Established by the existing real-driver suite (`neonDriver.integration.test.ts`)
 - **Per-session settings do not stick** (`SET statement_timeout` applies to a connection the next request will not reuse). Function-level `SET lock_timeout` does work, and the existing functions use it.
 - The driver's query objects are **lazy thenables**: nothing is sent until `.then`/`await`. A host that wants a request in flight while it does something else must start it explicitly. (Found while writing the real-driver tests; the first version of the race tests did not race.)
 - `neon().transaction([...])` exists, but it is a **non-interactive batch**: the statements cannot depend on each other's results, so it cannot run "evaluate in TypeScript, then insert". It is not a way to make option A atomic.
-- A client-side deadline (AbortSignal) stops *waiting*; it does not cancel the server statement.
+- A client-side deadline (AbortSignal) stops *waiting*. **Corrected 2026-11-02 after a real-Neon run:** on Neon's HTTP endpoint an abort *during execution* also cancelled the statement (nothing was committed, twice out of two), so the earlier statement here that the server statement continues was wrong for that case. What a client can never know is the other case, a response lost *after* the commit (proved: the request commits, the client sees `fetch failed`). A client error therefore never means "absent": the idempotency key is the only safe way to resolve it, and the retry is correct whichever way the server went.
 
 Therefore the only atomic unit available is **one SQL statement** (a CTE, or a call to a database function).
 
@@ -104,7 +104,9 @@ What the 18 tests show:
 
 What the shim is and is not: `neonConfig.fetchFunction` is replaced so the genuine driver code serialises parameters, parses text results and maps errors, with each request served by its own pooled connection. It reproduces one-statement-per-request, no cross-request transaction, and genuine concurrency. It does **not** exercise Neon's proxy, pooling or cold starts. The opt-in live run (`SCHEDULING_NEON_DRIVER_URL`, a disposable branch, never Production) remains the final proof for 2C.3, and is not run in this stage.
 
-## 6. Known limitation: a grid anchored by the query range
+## 6. Known limitation: a grid anchored by the query range (RESOLVED on branch fix/scheduling-slot-grid-range-independence)
+
+> The grid now restarts at every local midnight of the offering's zone and hours are read one day past the range, so the grid no longer depends on the range and `anchorAtRangeEdge` is always false. The text below is the original analysis.
 
 The engine anchors the slot grid at the start of each continuous effective window, computed over the requested date range. For a window that is continuous across the whole range (a 24-hour rule, every day), the anchor is the start of the range, so the grid depends on the range the *caller* chose. The evaluator reads a canonical range (day before to day after the requested day), but the calendar reads a user-chosen range, so for a 24-hour window with a step that does not divide the day (or across a 23/25-hour day) the calendar and the commit could disagree about which starts exist.
 

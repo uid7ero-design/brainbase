@@ -46,15 +46,41 @@ describe('there is still no booking-writing route', () => {
 });
 
 describe('the shared schema is exactly the approved one', () => {
-  it('has no migration beyond 036 and no rollback beyond 097', () => {
+  it('has no migration beyond 037 and no rollback beyond 098', () => {
     const names = readdirSync(path.join(ROOT, 'packages/scheduling/sql'));
     const numbers = names.map(n => Number(n.slice(0, 3))).filter(Number.isFinite);
-    expect(Math.max(...numbers)).toBe(97);
-    expect(names.filter(n => /^0(3[7-9]|[4-8]\d)_/.test(n))).toEqual([]);
+    expect(Math.max(...numbers)).toBe(98);
+    expect(names.filter(n => /^0(3[8-9]|[4-8]\d)_/.test(n))).toEqual([]);
+    expect(names.filter(n => /^099_|^1\d\d_/.test(n))).toEqual([]);
   });
-  it('the Phase 2C availability-version prototype is a test fixture, not a migration', () => {
-    const names = readdirSync(path.join(ROOT, 'packages/scheduling/sql'));
-    expect(names.some(n => /availability_version/i.test(n))).toBe(false);
-    expect(read('packages/scheduling-postgres/tests/support/prototype038AvailabilityVersion.sql')).toMatch(/THIS IS NOT A MIGRATION/);
+  it('037 is additive: it creates its own table, functions and triggers and alters, drops or updates nothing that exists', () => {
+    const sql = read('packages/scheduling/sql/037_availability_versions.sql').replace(/--.*$/gm, '');
+    expect(sql).not.toMatch(/\bALTER\s+TABLE\b/i);
+    expect(sql).not.toMatch(/\bDROP\s+(TABLE|COLUMN|TRIGGER|CONSTRAINT)\b/i);
+    expect(sql).not.toMatch(/\bUPDATE\s+scheduling_(offerings|resources|reservations|occurrences|schedules)\b/i);
+    expect(sql).not.toMatch(/ld_tennis|ticketing|events?_|tennis/i);
+    // The only tables it creates or writes are its own, plus the registry row.
+    expect([...sql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(m => m[1])).toEqual(['scheduling_availability_versions']);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i).sort()).toEqual(['scheduling_availability_versions', 'scheduling_schema_migrations']);
+  });
+  it('every bump is an UPDATE of an existing row, so deleting an owner cannot recreate its version row', () => {
+    const sql = read('packages/scheduling/sql/037_availability_versions.sql').replace(/--.*$/gm, '');
+    const bump = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION scheduling_bump_availability_version_of'), sql.indexOf('CREATE OR REPLACE FUNCTION scheduling_bump_availability_version()'));
+    expect(bump).toMatch(/UPDATE scheduling_availability_versions/);
+    expect(bump).not.toMatch(/INSERT/);
+  });
+  it('the rollback is independent and removes everything 037 adds', () => {
+    const sql = read('packages/scheduling/sql/098_availability_versions_rollback.sql').replace(/--.*$/gm, '');
+    expect(sql).toMatch(/DROP TABLE IF EXISTS scheduling_availability_versions/);
+    expect((sql.match(/DROP TRIGGER IF EXISTS/g) ?? []).length).toBe(7);
+    expect((sql.match(/DROP FUNCTION IF EXISTS/g) ?? []).length).toBe(5);
+    expect(sql).toMatch(/DELETE FROM scheduling_schema_migrations WHERE version = '2c\.3\.1'/);
+  });
+  it('the old prototype fixture is gone and no booking code reads the version table yet', () => {
+    expect(() => read('packages/scheduling-postgres/tests/support/prototype038AvailabilityVersion.sql')).toThrow();
+    for (const dir of ['app', 'lib', 'packages/scheduling/src', 'packages/scheduling-postgres/src']) {
+      const offenders = walk(dir).filter(f => /\.(ts|tsx)$/.test(f)).filter(f => /scheduling_availability_versions/.test(read(f)));
+      expect(offenders, dir).toEqual([]);
+    }
   });
 });
