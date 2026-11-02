@@ -60,7 +60,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
     // in schedulingPhase2b2bContainment.test.ts).
     // Phase 2B.3b (deliberate, reviewed change): the availability API adds availability-exceptions and availability-rules (pinned route by
     // route in schedulingPhase2b2bContainment.test.ts).
-    expect(apiRoutes).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'offerings', 'resources', 'schedules', 'status']);
+    // Phase 2C.2 (deliberate, reviewed change): calendar-overlay, the READ-ONLY overlay of committed bookings (pinned in schedulingPhase2b2bContainment.test.ts and schedulingPhase2c2Containment.test.ts).
+    expect(apiRoutes).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'calendar-overlay', 'offerings', 'resources', 'schedules', 'status']);
     expect(existsSync(path.join(ROOT, 'app/dashboard/scheduling'))).toBe(false);
     expect(existsSync(path.join(ROOT, 'app/book'))).toBe(false); // Phase 2B.2c: app/scheduling (the configuration dashboard) now exists
   });
@@ -115,6 +116,9 @@ describe('Phase 1 does not enable the module anywhere', () => {
         if (rel(full) === 'scripts/tests/schedulingCalendarApi2b3d.integration.test.ts') continue;
         if (rel(full) === 'scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts') continue;
         if (rel(full) === 'scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts') continue;
+        // Phase 2C.2 (deliberate, reviewed change): the disposable-Postgres proof of the READ-ONLY booking overlay API. It names scheduling_* tables to seed and compare fixtures and applies the STAGED
+        // migrations 034-036 to its DISPOSABLE database (SCHEDULING_TEST_DATABASE_URL only); it creates no scheduling_* table itself.
+        if (rel(full) === 'scripts/tests/schedulingBookingOverlay2c2.integration.test.ts') continue;
         // Scheduling browser harness (deliberate, reviewed change): it applies the committed Scheduling SQL to a DISPOSABLE Docker
         // database and seeds one scheduling_settings row per fixture organisation (the application never creates settings). Its
         // network guard refuses every non-loopback request and every non-fixture SQL connection; it creates no scheduling_* table itself.

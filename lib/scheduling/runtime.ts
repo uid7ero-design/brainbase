@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
-import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, type SqlExecutor } from '@scheduling/postgres';
+import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, type SqlExecutor } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 
@@ -30,6 +30,8 @@ export interface SchedulingRuntime {
   persistence: SchedulingPersistence;
   /** Phase 2B.3b: availability rules and exceptions. Needs migration 034; until it is applied its calls throw AvailabilityNotReadyError. */
   availability: SchedulingAvailabilityRepository;
+  /** Phase 2C.2: READ-ONLY range reads of occurrences, reservations (viewer-reduced) and holds, and the booking overlay. Single SELECTs; writes nothing. */
+  bookingReads: PostgresBookingReadRepository;
   settings: SchedulingSettings;
   timezone: ResolvedTimezone;
 }
@@ -75,6 +77,7 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
   const executor = createSchedulingExecutor(options.signal, options.recorder);
   const persistence = createPostgresScheduling({ sql: executor, clock: systemClock });
   const availability = new PostgresAvailabilityRepository({ sql: executor });
+  const bookingReads = new PostgresBookingReadRepository({ sql: executor });
   // The organisation's zone and its settings row are independent reads, so they are asked together (one round trip, not two). The settings read only needs the
   // organisation and the caller's permission, and the stored settings never carry a zone (the host owns it), so it is made with a tenant built on the platform
   // fallback zone; the tenant handed to the handler is built on the resolved zone below. Failure order is unchanged: an unusable zone is reported before a
@@ -86,5 +89,5 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
   ]);
   const tenant = staffTenantContext({ ...identity, timezone: timezone.value });
   if (!settings) throw new SchedulingConfigurationError('missing_settings');
-  return { tenant, persistence, availability, settings, timezone };
+  return { tenant, persistence, availability, bookingReads, settings, timezone };
 }

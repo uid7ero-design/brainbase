@@ -55,6 +55,7 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   // Phase 2B.3d (deliberate, reviewed change): the READ-ONLY availability calendar, one route per offering and one per resource. GET only.
   'app/api/scheduling/offerings/[offeringId]/calendar/route.ts': [['GET', 'scheduling.view', 'offeringCalendar']],
   'app/api/scheduling/resources/[resourceId]/calendar/route.ts': [['GET', 'scheduling.view', 'resourceCalendar']],
+  'app/api/scheduling/calendar-overlay/route.ts': [['GET', 'scheduling.view', 'bookingOverlay']],
 };
 
 const routeFiles = () => walk(path.join(ROOT, 'app/api/scheduling'), /^route\.ts$/).map(rel).sort();

@@ -20,7 +20,7 @@ Order is by when a stage needs the piece, not by number.
 | 038 | Reschedule linkage | 2C.5 / 2C.7 | none |
 | 039 | Atomic reschedule function | 2C.7 appointments | 038 |
 | 040 | Series-skip guard | 2C.6 top-up writes | none |
-| 041 | Range-read indexes | 2C.2/2C.4, only if the plan check shows a need | none |
+| 041 | Range-read indexes | 2C.4 (the first screen over a window); measured in 2C.2 | none |
 
 Not migrations: the statement timeout (an owner-run `ALTER ROLE`, see the architecture document), occurrence generation (the slot unique key already gives idempotent inserts), series tables (exist), holds and capacity (exist), manager override columns (**overrides are not authorised for the first release**, so no override-reason column is proposed).
 
@@ -82,9 +82,17 @@ The check and the insert race with a concurrent skip (the cancel commits between
 
 **Open question for approval.** Is "system actors cannot re-enrol a skipped date, staff can" the right rule? The alternative (nobody can, a skipped date is final) is simpler but blocks a manager from undoing a mistaken skip except by creating the reservation as a one-off without a series link.
 
-## 6. 041 Range-read indexes (conditional)
+## 6. 041 Range-read indexes (recommended: the 2C.2 evidence says yes)
 
-The 2C.2 reads filter by `organisation_id` and a time range. The existing indexes are checked by `EXPLAIN` in `bookingReads.integration.test.ts` (the test prints the plan and fails on a sequential scan once the tables are large enough to prefer an index). If a plan check fails, 041 adds the narrowest index that fixes it (for example `(organisation_id, starts_at)` on reservations and occurrences, partial on `status <> 'cancelled'` where the read excludes cancelled). Its result is recorded in the 2C.2 PR; nothing is proposed beyond what the evidence needs.
+The 2C.2 reads ask "what overlaps this window": `starts_at < to AND ends_at > from`. The existing indexes lead with `starts_at`, and `starts_at < to` selects **all of history**. At 8,120 occurrences and 4,000 reservations (window near "now", history behind it) `EXPLAIN` chooses a sequential scan on both; with `(organisation_id, ends_at)` indexes it chooses a bitmap index scan (`bookingReads.integration.test.ts`, which creates the indexes in a disposable database only; details in `scheduling-phase2c2-booking-reads.md`). Holds are already served by the exclusion constraint's GiST index.
+
+**Shape.** Two additive indexes, nothing else: `scheduling_occurrences (organisation_id, ends_at)` and `scheduling_reservations (organisation_id, ends_at)`. No table, column, trigger or constraint changes. Created `CONCURRENTLY` in the owner hand-off (so a booking is never blocked while they build), so the migration cannot run inside a transaction block; the staged file says so and the Neon console runs each statement separately.
+
+**Risk.** Write amplification of one more index entry per reservation/occurrence insert, negligible next to the per-row timezone check (below). **Rollback (102):** `DROP INDEX CONCURRENTLY` both.
+
+**Priority.** Not needed at Production's current size; needed before a calendar reads a window against a year of history. It is independent of 037 and can ship with the first stage that has a screen (2C.4).
+
+**A related cost to measure at 2C.3.** `scheduling_is_timezone()`, the CHECK on every `timezone` column, reads `pg_timezone_names` per row (about 12 ms per inserted row on PostgreSQL 17 in a container). It is a small fixed cost on every booking write and makes bulk loads slow. Not a correctness issue; a cached or constant-list check would remove it. Not proposed as a migration until the 2C.3 write path is measured on Neon.
 
 ## 7. What is deliberately not here
 
