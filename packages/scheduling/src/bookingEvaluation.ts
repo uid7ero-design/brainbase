@@ -1,8 +1,8 @@
 import { bookingRefusal, type BookingRefusal, type BookingRefusalCode } from './bookingErrors';
 import { addLocalDays } from './availabilityRules';
-import { computeAvailability, expandOwnerAvailability, type AvailabilityInput, type FreeSlot, type ResourceAvailabilityInput } from './availability';
+import { computeAvailability, type AvailabilityInput, type FreeSlot, type ResourceAvailabilityInput } from './availability';
 import { getPreset } from './presets';
-import { offsetMinutesAt, resolveLocalTime } from './time';
+import { offsetMinutesAt } from './time';
 import type { InstantWindow, LocalDate, PresetKey, Resource } from './types';
 import { isLocalDate } from './validation';
 
@@ -13,9 +13,9 @@ import { isLocalDate } from './validation';
 // double booking and overbooking; a host runs this immediately before the write and then lets the database have the final word. The gap between the two (a rule edit
 // or closure landing after this runs) is bounded and is the subject of docs/architecture/scheduling-phase2c-availability-at-commit.md.
 //
-// THE QUERY RANGE. The engine anchors the slot grid at the start of each continuous effective window, and the window is read over a date range, so for a window
-// that is continuous across the whole range (a 24-hour rule) the anchor is the start of the range. The evaluator therefore reads a canonical range, derived from
-// the requested local date alone (the day before to the day after), never from a caller's view. `anchorAtRangeEdge` reports when that matters.
+// THE QUERY RANGE. The engine's slot grid no longer depends on the range it is asked over (it restarts at every local midnight of the offering's zone inside a continuous
+// window, and reads one day past the range so a window continuing across the last midnight is seen to continue), so the evaluator and any calendar agree whatever range
+// either used. The evaluator still reads a small range derived from the requested local date alone.
 
 export const COMMIT_RANGE_DAYS_BEFORE = 1;
 export const COMMIT_RANGE_DAYS_AFTER = 1;
@@ -45,8 +45,8 @@ export type SlotBookingDecision =
       /** The resource chosen (the named one, or the first free in resource_id order). Null only when the preset needs none. */
       resourceId: string | null;
       slot: FreeSlot;
-      /** The slot grid was anchored by the query range, not by the rules (see anchoredAtRangeEdge); surfaced so a host can log it. */
-      anchorAtRangeEdge: boolean;
+      /** Always false since the grid became range-independent; kept so a host that logs it keeps working. */
+      anchorAtRangeEdge: false;
     }
   | { ok: false; refusal: BookingRefusal };
 
@@ -63,18 +63,6 @@ function containedInAny(intervals: readonly InstantWindow[], target: InstantWind
   const s = Date.parse(target.startsAt);
   const e = Date.parse(target.endsAt);
   return intervals.some(i => Date.parse(i.startsAt) <= s && e <= Date.parse(i.endsAt));
-}
-
-/**
- * True when the offering's effective window around the request begins exactly at the start of the canonical range, i.e. the slot grid was anchored by the range
- * rather than by the rules (a window continuous across the whole range, such as a 24-hour rule). The grid is then only as stable as the range is canonical.
- */
-function anchoredAtRangeEdge(context: SlotBookingContext, interval: InstantWindow, fromDate: LocalDate, toDate: LocalDate): boolean {
-  const offering = expandOwnerAvailability({ rules: context.offeringRules, exceptions: context.offeringExceptions }, fromDate, toDate, context.timezone);
-  const s = Date.parse(interval.startsAt);
-  const around = offering.intervals.find(i => Date.parse(i.startsAt) <= s && s < Date.parse(i.endsAt));
-  if (!around) return false;
-  return Date.parse(around.startsAt) === Date.parse(resolveLocalTime(fromDate, '00:00', context.timezone).instant);
 }
 
 /** Resource policy for a slot preset. Exclusive presets (appointments from v2, facility hire) need a resource; the others are refused here. */
@@ -131,7 +119,7 @@ export function evaluateSlotBooking(context: SlotBookingContext, request: SlotBo
     return refuse(computed.reason === 'timezone_changed' ? 'timezone_changed' : 'invalid_request', computed.problems[0] ?? 'the availability inputs are invalid');
   }
   const match = computed.slots.find(s => s.startsAt === request.interval.startsAt && s.endsAt === request.interval.endsAt);
-  if (match) return { ok: true, resourceId: match.resourceId, slot: match, anchorAtRangeEdge: anchoredAtRangeEdge(context, request.interval, fromDate, toDate) };
+  if (match) return { ok: true, resourceId: match.resourceId, slot: match, anchorAtRangeEdge: false };
 
   // Why not: re-ask with every hold removed, so "taken" is told apart from "outside hours" and "off the grid".
   const unheld = computeAvailability({ ...base, resources: fitting.map(r => ({ ...r, holds: [] })), notBefore: null });
