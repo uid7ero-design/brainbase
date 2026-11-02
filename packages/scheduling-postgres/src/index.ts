@@ -16,3 +16,4 @@ export function createPostgresScheduling(options: { sql: SqlExecutor; clock: Clo
     reservations: new PostgresReservationRepository(options),
   };
 }
+export { PostgresBookingReadRepository, type BookingReadRepositoryOptions, type ReducedReservation } from './bookingReadRepository';
