@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import {
   evaluateSlotBooking,
   type AvailabilityExceptionInput,
@@ -23,7 +21,7 @@ import { FixedClock, closePool, ensureSchema, getPool, hasDatabase, resetData, r
 //
 // PART A (needs nothing new) CHARACTERISES the gap with deterministic interleavings, no timing luck: what the database enforces today and what it does not.
 // PART B proves the proposed remedy, option C of the design document: a per-owner availability version that every availability change bumps, and a single booking
-// statement that locks the owners and requires the version it read. Its SQL is a PROTOTYPE (tests/support/prototype038AvailabilityVersion.sql), applied here to a
+// statement that locks the owners and requires the version it read. Its SQL is migration 037 (packages/scheduling/sql/037_availability_versions.sql, not applied to any real database), applied here to a
 // disposable database only. FAILING FIRST: with SCHEDULING_SKIP_PROTOTYPE=1 part B must be RED (the version column does not exist); the recorded red and green runs are in
 // docs/architecture/scheduling-phase2c-availability-at-commit.md.
 
@@ -109,9 +107,9 @@ suite('availability at commit (Phase 2C.0) on real PostgreSQL', () => {
     reservations = new PostgresReservationRepository({ sql: fromPgLike(getPool()), clock });
     // The red run (SKIP_PROTOTYPE=1) must start from a database WITHOUT the prototype, even one a previous green run left behind.
     if (SKIP_PROTOTYPE) {
-      await runScript('DROP TABLE IF EXISTS scheduling_availability_versions CASCADE; DROP FUNCTION IF EXISTS scheduling_bump_availability_version() CASCADE; DROP FUNCTION IF EXISTS scheduling_resource_active_bump() CASCADE; DROP FUNCTION IF EXISTS scheduling_version_row_for_owner() CASCADE; DROP FUNCTION IF EXISTS scheduling_bump_one(text, text, text) CASCADE;');
+      await runScript(sqlFile('098_availability_versions_rollback.sql'));
     } else {
-      await runScript(readFileSync(path.join(__dirname, 'support/prototype038AvailabilityVersion.sql'), 'utf8'));
+      await runScript(sqlFile('037_availability_versions.sql'));
     }
   });
   afterAll(async () => {
