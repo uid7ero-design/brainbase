@@ -266,15 +266,28 @@ function containedIn(within: readonly Ms[], s: number, e: number): boolean {
  * A step that divides the distance from the old anchor to the new one keeps the same start times; otherwise they shift. The calendar and any booking built on it
  * must show the start times this function returns, never recompute them.
  */
-export function generateSlots(anchors: readonly InstantWindow[], within: readonly InstantWindow[], slot: SlotRequest, resourceId: string | null): FreeSlot[] {
+export function generateSlots(
+  anchors: readonly InstantWindow[],
+  within: readonly InstantWindow[],
+  slot: SlotRequest,
+  resourceId: string | null,
+  restartAt: readonly number[] = [],
+): FreeSlot[] {
   const inside = normaliseMs(within.map(fromWindow));
   const out: FreeSlot[] = [];
   const duration = slot.durationMinutes * MINUTE;
   const step = slot.stepMinutes * MINUTE;
+  const restarts = [...restartAt].sort((x, y) => x - y);
   for (const a of normaliseMs(anchors.map(fromWindow))) {
-    for (let s = a.s; s + duration <= a.e; s += step) {
-      if (containedIn(inside, s, s + duration)) out.push({ startsAt: toIso(s), endsAt: toIso(s + duration), resourceId });
-    }
+    // The grid restarts at each instant in `restartAt` that falls strictly inside the window (local midnights, supplied by computeAvailability), so a window that is
+    // continuous across midnight does not take its grid from wherever the query range happened to begin. A START stays inside its own segment; its END may run on.
+    const segmentStarts = [a.s, ...restarts.filter(r => r > a.s && r < a.e)];
+    segmentStarts.forEach((from, i) => {
+      const until = i + 1 < segmentStarts.length ? segmentStarts[i + 1] : Number.POSITIVE_INFINITY;
+      for (let s = from; s < until && s + duration <= a.e; s += step) {
+        if (containedIn(inside, s, s + duration)) out.push({ startsAt: toIso(s), endsAt: toIso(s + duration), resourceId });
+      }
+    });
   }
   return out;
 }
@@ -416,10 +429,21 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
   if (input.offering.archivedAt !== null) return emptyOk(timezone, ['offering_archived']);
   if (hasUnsupportedRuleKind(input.offeringRules)) return emptyOk(timezone, [UNSUPPORTED_RULE_KIND_REASON]);
 
-  const offering = expandOwnerAvailability({ rules: input.offeringRules, exceptions: input.offeringExceptions }, fromDate, toDate, timezone);
+  // Hours are expanded ONE DAY PAST the requested range and then clipped back, so a window that is continuous across the last midnight is seen to continue: a start late on
+  // the last day is offered, or not, by the rules and never by where the caller's range happened to end. Only starts on the requested dates are returned.
+  const extendedTo = addLocalDays(toDate, 1);
+  const endMs = Date.parse(resolveLocalTime(extendedTo, '00:00', timezone).instant);
+  const clipToRange = (windows: InstantWindow[]): InstantWindow[] =>
+    windows.filter(w => Date.parse(w.startsAt) < endMs).map(w => (Date.parse(w.endsAt) > endMs ? { startsAt: w.startsAt, endsAt: toIso(endMs) } : w));
+  const offeringExtended = expandOwnerAvailability({ rules: input.offeringRules, exceptions: input.offeringExceptions }, fromDate, extendedTo, timezone);
+  const offering = { intervals: clipToRange(offeringExtended.intervals), adjustments: offeringExtended.adjustments.filter(a => a.date <= toDate) };
   const ownedBy = (kind: 'offering' | 'resource', id: string) => (a: AvailabilityAdjustment): OwnedAdjustment => ({ ...a, owner: { kind, id } });
   const adjustments: OwnedAdjustment[] = offering.adjustments.map(ownedBy('offering', input.offering.id));
   if (offering.intervals.length === 0) return emptyOk(timezone, ['no_offering_availability'], [], adjustments);
+
+  // Local midnights of the OFFERING's zone, one day either side of the range: where the slot grid restarts inside a window that is continuous across midnight.
+  const restartInstants: number[] = [];
+  for (let date = fromDate; date <= addLocalDays(toDate, 1); date = addLocalDays(date, 1)) restartInstants.push(Date.parse(resolveLocalTime(date, '00:00', timezone).instant));
 
   const notBefore = input.notBefore ? Date.parse(input.notBefore) : Number.NEGATIVE_INFINITY;
   const reasons: string[] = [];
@@ -428,7 +452,7 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
 
   if (input.resources.length === 0) {
     free.push({ resourceId: null, timezone, intervals: offering.intervals });
-    slots.push(...generateSlots(offering.intervals, offering.intervals, input.slot, null));
+    slots.push(...generateSlots(offeringExtended.intervals, offeringExtended.intervals, input.slot, null, restartInstants));
   } else {
     for (const r of [...input.resources].sort((a, b) => (a.resource.id < b.resource.id ? -1 : a.resource.id > b.resource.id ? 1 : 0))) {
       if (!r.resource.active) {
@@ -446,19 +470,21 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
       // any two zones differ by less than a day) and let the intersection clip; adjustments are kept for dates inside the requested range.
       const own =
         resourceZone === timezone
-          ? expandOwnerAvailability(r, fromDate, toDate, timezone)
-          : expandOwnerAvailability(r, addLocalDays(fromDate, -2), addLocalDays(toDate, 2), resourceZone);
+          ? expandOwnerAvailability(r, fromDate, extendedTo, timezone)
+          : expandOwnerAvailability(r, addLocalDays(fromDate, -2), addLocalDays(toDate, 3), resourceZone);
       adjustments.push(...own.adjustments.filter(a => a.date >= fromDate && a.date <= toDate).map(ownedBy('resource', r.resource.id)));
-      if (own.intervals.length === 0) reasons.push(`resource_no_availability:${r.resource.id}`);
-      const both = intersectIntervals(offering.intervals, own.intervals);
+      // The diagnostic is about the REQUESTED range, exactly as before the look-ahead day was added: hours that exist only on the day after the range do not count.
+      const reasonEnd = resourceZone === timezone ? endMs : Date.parse(resolveLocalTime(addLocalDays(toDate, 3), '00:00', resourceZone).instant);
+      if (!own.intervals.some(i => Date.parse(i.startsAt) < reasonEnd)) reasons.push(`resource_no_availability:${r.resource.id}`);
+      const both = intersectIntervals(offeringExtended.intervals, own.intervals);
       const open = subtractHolds(both, r.holds, r.resource.id);
-      free.push({ resourceId: r.resource.id, timezone: resourceZone, intervals: open });
-      slots.push(...generateSlots(offering.intervals, open, input.slot, r.resource.id));
+      free.push({ resourceId: r.resource.id, timezone: resourceZone, intervals: clipToRange(open) });
+      slots.push(...generateSlots(offeringExtended.intervals, open, input.slot, r.resource.id, restartInstants));
     }
   }
 
   const kept = slots
-    .filter(s => Date.parse(s.startsAt) >= notBefore)
+    .filter(s => Date.parse(s.startsAt) >= notBefore && Date.parse(s.startsAt) < endMs)
     .sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : (a.resourceId ?? '') < (b.resourceId ?? '') ? -1 : (a.resourceId ?? '') > (b.resourceId ?? '') ? 1 : 0));
   return { ok: true, timezone, free, slots: kept, adjustments, reasons };
 }

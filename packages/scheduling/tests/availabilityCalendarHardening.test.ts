@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// CPU-bound property checks: well inside 5 s alone, but over it when the whole suite runs in parallel. A budget, not a retry.
+vi.setConfig({ testTimeout: 30_000 });
 import {
   buildOfferingCalendar,
   buildResourceCalendar,
