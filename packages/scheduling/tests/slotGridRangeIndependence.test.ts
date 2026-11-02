@@ -140,3 +140,22 @@ describe('the commit-time evaluator and the calendar agree for a 24-hour rule', 
     }
   });
 });
+
+describe('the look-ahead day does not change what the calendar reports for the requested range', () => {
+  it('a resource whose only hours are the day AFTER the range still reports resource_no_availability (as before)', () => {
+    // Offering open every day; the court is open on Thursdays only. Range = Wednesday 2026-01-14.
+    const r = run({
+      offeringRules: allWeek((id, d) => offeringRule(id, d, '09:00', '17:00')),
+      resources: [res('court-1', [resourceRule('court-1', 'c4', 4, '09:00', '17:00')])],
+      slot: { durationMinutes: 60, stepMinutes: 60 },
+    });
+    expect(r.reasons).toContain('resource_no_availability:court-1');
+    expect(r.slots).toEqual([]);
+    expect(r.free.find(f => f.resourceId === 'court-1')?.intervals).toEqual([]);
+  });
+  it('a resource pinned to another zone keeps its earlier reach: hours two days out count, hours three days out do not', () => {
+    const mk = (day: number) => run({ offeringRules: allWeek((id, d) => offeringRule(id, d, '09:00', '17:00')), resources: [res('court-1', [resourceRule('court-1', 'c', day, '09:00', '17:00')], { timezone: PER })] });
+    expect(mk(6).reasons).toContain('resource_no_availability:court-1'); // Saturday, three days after Wednesday
+    expect(mk(4).reasons).not.toContain('resource_no_availability:court-1'); // Thursday, as before this change
+  });
+});

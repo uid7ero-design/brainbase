@@ -473,7 +473,9 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityCompu
           ? expandOwnerAvailability(r, fromDate, extendedTo, timezone)
           : expandOwnerAvailability(r, addLocalDays(fromDate, -2), addLocalDays(toDate, 3), resourceZone);
       adjustments.push(...own.adjustments.filter(a => a.date >= fromDate && a.date <= toDate).map(ownedBy('resource', r.resource.id)));
-      if (own.intervals.length === 0) reasons.push(`resource_no_availability:${r.resource.id}`);
+      // The diagnostic is about the REQUESTED range, exactly as before the look-ahead day was added: hours that exist only on the day after the range do not count.
+      const reasonEnd = resourceZone === timezone ? endMs : Date.parse(resolveLocalTime(addLocalDays(toDate, 3), '00:00', resourceZone).instant);
+      if (!own.intervals.some(i => Date.parse(i.startsAt) < reasonEnd)) reasons.push(`resource_no_availability:${r.resource.id}`);
       const both = intersectIntervals(offeringExtended.intervals, own.intervals);
       const open = subtractHolds(both, r.holds, r.resource.id);
       free.push({ resourceId: r.resource.id, timezone: resourceZone, intervals: clipToRange(open) });
