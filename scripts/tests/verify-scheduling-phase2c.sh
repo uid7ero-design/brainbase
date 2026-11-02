@@ -3,6 +3,7 @@
 #
 # Starts a FRESH postgres container (never touches Production, Neon or any running database), builds a BrainBase-shaped host, applies the shared schema in order
 # (010, 030-036 and the host scripts), then runs the Phase 2C suites:
+#   packages/scheduling-postgres/tests/availabilityVersions.integration.test.ts   Migration 037: rows, backfill, every bump source, isolation, rollback
 #   packages/scheduling-postgres/tests/availabilityAtCommit.integration.test.ts   Phase 2C.0: what is and is not atomic when availability is checked and a booking written
 #   packages/scheduling-postgres/tests/bookingReads.integration.test.ts           Phase 2C.2: tenant-scoped range reads, viewer-reduced shape, read-only proof (a READ ONLY connection)
 #   scripts/tests/schedulingBookingOverlay2c2.integration.test.ts                  Phase 2C.2: the guarded overlay API (permissions, redaction, bounds)
@@ -73,6 +74,7 @@ run() { # one file per run: two files in one run execute in parallel and race on
     echo "== (skipped: $f is not on this branch)"
   fi
 }
+run packages/scheduling-postgres/tests/availabilityVersions.integration.test.ts
 run packages/scheduling-postgres/tests/availabilityAtCommit.integration.test.ts
 run packages/scheduling-postgres/tests/bookingReads.integration.test.ts
 run scripts/tests/schedulingBookingOverlay2c2.integration.test.ts

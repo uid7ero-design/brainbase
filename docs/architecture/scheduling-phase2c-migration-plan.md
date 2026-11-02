@@ -26,6 +26,8 @@ Not migrations: the statement timeout (an owner-run `ALTER ROLE`, see the archit
 
 ## 2. 037 Availability versions
 
+**Status (2026-11-02): written and rehearsed, NOT applied to any real database.** File `packages/scheduling/sql/037_availability_versions.sql`, rollback `098_availability_versions_rollback.sql`, registry version `2c.3.1`. Hardened from the prototype: composite foreign keys (database-enforced tenant isolation, cascade with the owner), a forward-by-one guard trigger, bumps that only UPDATE (never resurrect a deleted owner's row), rows created for every owner including those with no rules. Evidence: PG16 and PG17 (15 migration tests, 18 booking-at-commit tests), failing-first run (14 failed without it), and 12 tests through the real Neon HTTP driver on a disposable branch.
+
 **Purpose.** Make "the availability the engine used is the availability in force at commit" a database guarantee for a single-statement booking. See the availability-at-commit document, sections 4 and 5.
 
 **Shape.**
