@@ -40,6 +40,9 @@ describe('Dashboard counts on real disposable PostgreSQL', () => {
        ('a3','org-a','line-c',now()),('a4','org-a','line-r',NULL),('a5','org-a','line-o',now()),
        ('a6','org-b','line-f',now()),('bad-a','org-b','line-1',now()),('bad-b','org-a','bad-line',now());`);
     expect(await readOrganiserOverview('org-a', ['selected','foreign'])).toEqual({ orderCount: 2, paidOrderCount: 1, ticketCount: 3, checkedInCount: 1 });
+    expect(await readOrganiserOverview('org-b', ['selected','foreign'])).toEqual({ orderCount: 1, paidOrderCount: 1, ticketCount: 1, checkedInCount: 1 });
+    expect((await readWorkspaceEvents('org-a')).map(e => e.id).sort()).toEqual(['other','selected']);
+    expect((await readWorkspaceEvents('org-b')).map(e => e.id)).toEqual(['foreign']);
   });
   it('returns genuine zeroes for an empty selection', async () => {
     expect(await readOrganiserOverview('org-a', [])).toEqual({ orderCount: 0, paidOrderCount: 0, ticketCount: 0, checkedInCount: 0 });

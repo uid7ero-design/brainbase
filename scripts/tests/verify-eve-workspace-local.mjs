@@ -12,9 +12,11 @@ const app = resolve(process.argv[2] || 'apps/eve');
 const cli = createRequire(join(app, 'package.json')).resolve('next/dist/bin/next');
 const calls = [];
 let mode = 'ok';
-const identity = { user: { id: 'fixture-user', name: 'Fixture organiser', role: 'viewer' }, organisationId: 'fixture-org', organisation: { name: 'Fixture organiser', slug: 'fixture' } };
+const identity = { user: { id: 'fixture-user', name: 'Fixture owner', role: 'super_admin' }, organisationId: 'fixture-org', organisation: { name: 'Fixture organiser A', slug: 'fixture-a' } };
+const identityB = { ...identity, organisationId: 'fixture-org-b', organisation: { name: 'Fixture organiser B', slug: 'fixture-b' } };
 const event = { id: 'fixture-event', name: 'Local fixture event', slug: 'fixture-event', status: 'DRAFT', venue: null, starts_at: '2027-01-01T10:00:00Z', ends_at: '2027-01-01T12:00:00Z', timezone: 'Australia/Adelaide', session_count: 0, ticket_type_count: 0 };
 const overview = { eventCount: 1, publishedCount: 0, orderCount: 0, paidOrderCount: 0, ticketCount: 0, checkedInCount: 0, truncated: false };
+const sessions = new Map([['local-fixture-token', identity]]);
 const api = createServer(async (req, res) => {
   calls.push(req.url);
   const url = new URL(req.url, 'http://localhost');
@@ -22,10 +24,22 @@ const api = createServer(async (req, res) => {
   assert.equal(req.headers['x-ticketing-api-key'], 'local-performance-fixture-only');
   await new Promise(r => setTimeout(r, 60));
   if (url.pathname.endsWith('/auth/login')) return send({ token: 'local-fixture-token', expiresAt: Date.now() + 300000, user: identity.user, organisationId: identity.organisationId });
-  assert.equal(req.headers['x-ticketing-session'], 'local-fixture-token');
+  const token = req.headers['x-ticketing-session'];
+  const selected = sessions.get(token);
+  if (!selected) return send({ error: 'Unauthorized' }, 401);
+  const isB = selected.organisationId === identityB.organisationId;
+  if (url.pathname.endsWith('/auth/organisation') && req.method === 'POST') {
+    let text = ''; for await (const part of req) text += part;
+    const organisationId = JSON.parse(text).organisationId;
+    assert([identity.organisationId, identityB.organisationId].includes(organisationId));
+    const nextToken = 'local-fixture-token-' + (sessions.size + 1);
+    sessions.delete(token);
+    sessions.set(nextToken, organisationId === identityB.organisationId ? identityB : identity);
+    return send({ token: nextToken, expiresAt: Date.now() + 300000, organisationId });
+  }
   if (mode === 'revoked') return send({ error: 'Unauthorized' }, 401);
   if (mode === 'disabled') return send({ error: 'EVE_NOT_ENABLED' }, 403);
-  if (url.pathname.endsWith('/auth/session')) return send({ ...identity, events: [event], ...(url.searchParams.get('include') === 'overview' ? { overview } : {}) });
+  if (url.pathname.endsWith('/auth/session')) return send({ ...selected, events: [{ ...event, ...(isB ? { id: 'fixture-event-b', name: 'Local fixture event B' } : {}) }], ...(url.searchParams.get('include') === 'overview' ? { overview: isB ? { ...overview, orderCount: 7, paidOrderCount: 3, ticketCount: 9, checkedInCount: 2 } : overview } : {}) });
   if (url.pathname.endsWith('/orders')) return send({ orders: [] });
   if (url.pathname.endsWith('/attendees')) return send({ attendees: [] });
   return send({ error: 'Unexpected fixture request' }, 404);
@@ -81,14 +95,32 @@ try {
     assert(!html.includes('local-fixture-token'), 'The opaque session must not enter HTML');
     receipts.push({ path, upstream_requests: used.length, local_fixture_ms: Math.round(performance.now() - time) });
   }
+  const switched = await fetch(base + '/api/auth/organisation', { method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: JSON.stringify({ organisationId: identityB.organisationId }) });
+  assert.equal(switched.status, 200);
+  const cookieB = switched.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(cookieB, cookie, 'Switch must replace the opaque session');
+  const orgBReceipts = [];
+  for (const [path, count] of [['/organiser', 1], ['/organiser/events', 1], ['/organiser/orders', 2], ['/organiser/attendees', 2], ['/organiser/check-in', 1]]) {
+    const start = calls.length;
+    const result = await fetch(base + path, { headers: { cookie: cookieB }, redirect: 'manual' });
+    assert.equal(result.status, 200);
+    const html = await result.text();
+    assert(html.includes('Fixture organiser B'));
+    assert(!html.includes('Fixture organiser A'), 'Previous organisation identity leaked');
+    if (path === '/organiser') assert.match(html, /data-testid="kpi-orders"[^>]*>7</);
+    assert.equal(calls.length - start, count);
+    orgBReceipts.push({ path, upstream_requests: count });
+  }
+  const previous = await fetch(base + '/organiser', { headers: { cookie }, redirect: 'manual' });
+  await expectRedirect(previous, /reason=session/);
   for (const state of ['revoked', 'disabled']) {
     mode = state;
     const start = calls.length;
-    const result = await fetch(base + '/organiser/events', { headers: { cookie }, redirect: 'manual' });
+    const result = await fetch(base + '/organiser/events', { headers: { cookie: cookieB }, redirect: 'manual' });
     await expectRedirect(result, state === 'disabled' ? /reason=not-enabled/ : /reason=session/);
     assert.equal(calls.length - start, 1);
   }
-  console.log(JSON.stringify({ fixture_only: true, next: createRequire(join(app, 'package.json'))('next/package.json').version, unsigned_redirect: true, revoked_redirect: true, disabled_redirect: true, routes: receipts }, null, 2));
+  console.log(JSON.stringify({ fixture_only: true, next: createRequire(join(app, 'package.json'))('next/package.json').version, unsigned_redirect: true, revoked_redirect: true, disabled_redirect: true, switch_replaces_cookie_and_figures: true, previous_session_refused: true, routes: receipts, second_organisation: orgBReceipts }, null, 2));
 } finally {
   if (child.exitCode === null) {
     const stopped = once(child, 'exit');

@@ -78,3 +78,21 @@ The switcher's former additional browser request is separate from those page-dat
 ### Release boundary
 
 Local candidate only. No push, merge, public deployment, region change, database migration or data write in this optimisation pass. Releasing the full improvement changes **both Eve and the shared Brainbase ticketing backend**. Backend-first deployment is preferred, though the frontend supports the older backend during rollout. Production speed and authenticated browser acceptance must be measured after an approved release; the local fixture timings do not establish them.
+
+## Authorised release gates — 3 November 2026
+
+The owner authorised release tonight or tomorrow after gates 1–4 pass, with post-live smoke under two organisations. Independent read-only agent audit found no security defect and confirmed all four gates after the following evidence additions:
+
+1. Real PostgreSQL fixture now asserts **both** A and B totals and event lists against the same mixed data, including invalid cross-tenant references.
+2. Either parallel database read failing independently returns 503 and prevents further permission/data processing. Revoked sessions and all earlier denial cases remain covered.
+3. Production-built local HTTP harness switches A→B through the real Eve relay, verifies a replacement cookie, checks B's identity on all five requested pages and B's different dashboard total, then verifies the previous session is refused. It is controlled fixture evidence, not the post-live browser test.
+4. No schema or migration files are changed. No production database operation is required: no migrate/reset/drop, no table deletion and no migration backup requirement triggered. Test DDL/truncation occurs only in disposable localhost PostgreSQL.
+
+Rebased candidate onto current main **e490f4ba439fcf021185d0eb32ee5c51d87c2635**, retaining the newer LD Tennis client changes. Pre-release production aliases were both READY at that commit:
+
+- Eve project `prj_wrOFEl9HxxbVLlXN9VBHA5ExIoa8`: rollback deployment `dpl_GKwhR47DM38L23fJGnP7Mk5YCW4C`.
+- Brainbase project `prj_6WnZrDXumaQzpfR63awLy2CWTxJE`: rollback deployment `dpl_2uap9DxovugxKrqwDKJAoyJE4yiU`.
+
+Rollback: use the authenticated Vercel project rollback operation to those existing artifacts, verify both custom-domain aliases and signed-out/authenticated smoke. No database reversal is needed. Target approximately 2–5 minutes to switch traffic plus verification within 10 minutes; these are planning estimates, not a guaranteed RTO. Re-read active aliases immediately before merge and update these targets if an unrelated release advanced them.
+
+Merge only the final verified PR head after required CI and both preview builds pass. Post-live verification must distinguish browser navigation/RSC requests (Network panel) from hidden Eve→Brainbase requests (server telemetry). Browser Network alone cannot establish 52→1 server-call reduction. Do not widen another organisation's Eve enablement solely to manufacture the smoke test.
