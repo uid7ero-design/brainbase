@@ -96,6 +96,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Its contents are pinned file-by-file in schedulingPhase2aContainment.test.ts; the shared DDL
         // lives in packages/scheduling/sql (outside these directories) and is pinned there as well.
         if (rel(full) === 'scripts/scheduling') continue;
+        // Explicitly authorised LD rollout: settings/entitlements only, pinned by Phase 2B containment.
+        if (rel(full) === 'scripts/enable-ld-tennis-business-workspace.sql') continue;
         // Phase 2B.0 (deliberate, reviewed change): the disposable-Postgres proof of the host files names scheduling_*
         // objects by necessity. It reaches only SCHEDULING_TEST_DATABASE_URL (pinned in schedulingPhase2b0Containment.test.ts).
         if (rel(full) === 'scripts/tests/schedulingHost2b0.integration.test.ts') continue;

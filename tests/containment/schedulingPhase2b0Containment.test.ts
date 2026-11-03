@@ -39,9 +39,9 @@ describe('120: the capability is registered for nobody', () => {
     expect(sql).not.toMatch(/\b(UPDATE|DELETE\s+FROM|DROP|TRUNCATE|ALTER\s+TABLE|CREATE\s+TABLE)\b/i);
   });
 
-  it('no script anywhere except the manual internal-test-organisation file grants any organisation the capability', () => {
+  it('only the manual internal-test and explicitly authorised LD rollout scripts grant the capability', () => {
     const offenders = walk(path.join(ROOT, 'scripts'), /\.(sql|ts|mjs|js|cjs|sh)$/)
-      .filter(f => !rel(f).startsWith('scripts/scheduling/manual/') && !rel(f).startsWith('scripts/tests/'))
+      .filter(f => !rel(f).startsWith('scripts/scheduling/manual/') && !rel(f).startsWith('scripts/tests/') && rel(f) !== 'scripts/enable-ld-tennis-business-workspace.sql')
       .filter(f => {
         const t = noSqlComments(readFileSync(f, 'utf8'));
         return /organisation_modules/.test(t) && /'scheduling'/.test(t);
@@ -50,6 +50,28 @@ describe('120: the capability is registered for nobody', () => {
     // 120 names organisation_modules only to check the table exists; 191 only to refuse while a row exists. Neither inserts.
     expect(offenders.sort()).toEqual(['scripts/scheduling/120_brainbase_capability.sql', 'scripts/scheduling/191_brainbase_capability_rollback.sql']);
     for (const f of offenders) expect(noSqlComments(read(f)), f).not.toMatch(/INSERT INTO organisation_modules|UPDATE organisation_modules/i);
+  });
+
+  it('the authorised LD rollout pins one tenant, prerequisites, preserved settings and audit', () => {
+    const rollout = noSqlComments(read('scripts/enable-ld-tennis-business-workspace.sql'));
+    expect(rollout).toContain("SELECT id INTO STRICT target FROM organisations WHERE slug = 'ld-tennis' AND status = 'ACTIVE'");
+    expect(rollout).toContain("target <> '8ecd003b-583f-4616-a830-8dbf8aa51d2c'");
+    expect(rollout).toContain("WHERE id=target FOR UPDATE");
+    expect(rollout).toContain("WHERE key IN ('scheduling','crm','invoicing','purchasing','budgeting')");
+    expect(rollout).toContain("Scheduling integrity migrations missing");
+    expect(rollout).toContain("Scheduling integrity triggers missing");
+    expect(rollout).toContain("Booking capacity prerequisite missing");
+    expect(rollout).toContain("WHERE id=target AND timezone IS NULL");
+    expect(rollout).toContain("VALUES(target,'AUD') ON CONFLICT(organisation_id) DO NOTHING");
+    expect(rollout).toContain("ON CONFLICT(organisation_id,module_key) DO UPDATE SET enabled=true,updated_at=now()");
+    expect(rollout).toContain("WHERE organisation_modules.enabled IS DISTINCT FROM true");
+    expect(rollout).toContain("IF before_snapshot IS DISTINCT FROM after_snapshot THEN");
+    expect(rollout).toContain("'ld_tennis.business_workspace_enabled'");
+    expect([...rollout.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_settings','organisation_modules','audit_logs']);
+    expect([...rollout.matchAll(/UPDATE (\w+) SET/g)].map(m => m[1])).toEqual(['organisations']);
+    expect(rollout).not.toMatch(/\b(CREATE|DROP|ALTER|TRUNCATE|DELETE|GRANT|REVOKE)\b/i);
+    expect(rollout).not.toMatch(/organisation_user_access|password|users/);
+    expect(rollout).toMatch(/BEGIN;[\s\S]*COMMIT;/);
   });
 
   it('the rollback deletes only the scheduling registry row and its marker, and refuses while an entitlement exists', () => {
