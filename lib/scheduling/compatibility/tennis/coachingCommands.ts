@@ -1,5 +1,6 @@
 import { isLocalDate, type TenantContext } from '@scheduling/core';
 import type { MigrationReadExecutor } from './migrationSnapshot';
+import { validateCoachingBookingInput, type CoachingBookingInput, type CoachingBooking } from './coachingBookings';
 
 export interface FillResult { created: { id: string; date: string }[]; fullDates: string[]; pausedDates: string[]; alreadyPresent: number }
 export interface PauseResult { pauseId: string; cancelled: string[]; protected: string[] }
@@ -7,6 +8,7 @@ export interface MarkerResult { paidMarker: boolean; version: number }
 export interface ResumeResult { removedPause: Record<string, unknown>; refill: FillResult }
 export interface WeeklyResult { seriesId: string; refill: FillResult }
 export interface StopResult { seriesId: string; cancelled: string[]; protected: string[] }
+export interface WeeklyEnrolmentResult extends WeeklyResult { booking: CoachingBooking }
 const id = (value: string) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
 function actor(tenant: TenantContext): string {
   if (tenant.actor.kind !== 'staff' || !tenant.organisationId || !tenant.can('scheduling.reserve')) throw Error('Coaching permission denied');
@@ -21,6 +23,14 @@ function range(seriesId: string, from: string, until: string, maxDays: number) {
  * from its exact request receipt, never by repeating the write. */
 export class CoachingCommands {
   constructor(private readonly sql: MigrationReadExecutor) {}
+  async enrolWeekly(tenant: TenantContext, supplied: CoachingBookingInput, until: string): Promise<WeeklyEnrolmentResult> {
+    const user = actor(tenant); const input = validateCoachingBookingInput(supplied);
+    if (!isLocalDate(until)) throw Error('Invalid coaching range');
+    const { idempotencyKey: key, ...details } = input;
+    return this.run(tenant, key, { kind: 'enrol-weekly', ...details, until },
+      'SELECT scheduling_coaching_enrol_weekly($1,$2,$3,$4,$5,$6,$7::date,$8,$9) AS result',
+      [tenant.organisationId, input.occurrenceId, input.name, input.email, input.phone, input.notes, until, key, user]);
+  }
   private async run<T>(tenant: TenantContext, key: string, body: Record<string, unknown>, statement: string, parameters: unknown[]): Promise<T> {
     actor(tenant);
     if (!/^[A-Za-z0-9_-]{16,80}$/.test(key)) throw Error('Invalid coaching command key');

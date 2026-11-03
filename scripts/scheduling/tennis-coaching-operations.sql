@@ -300,4 +300,34 @@ BEGIN
     WHERE organisation_id=org AND id=booking_id RETURNING * INTO booking;
   RETURN jsonb_build_object('ok',true,'replayed',false,'booking',scheduling_coaching_booking_json(booking));
 END $$;
+-- Initial weekly enrolment must not be two HTTP writes: the first booking,
+-- explicit lineage, future places and command receipt commit together.
+CREATE OR REPLACE FUNCTION scheduling_coaching_enrol_weekly(org text,occurrence_id text,customer text,email text,phone text,notes text,until_day date,key text,actor text) RETURNS jsonb
+LANGUAGE plpgsql SET lock_timeout='5s' SET statement_timeout='30s' AS $$
+DECLARE body jsonb; result jsonb; weekly jsonb; booking scheduling_reservations%ROWTYPE; occ scheduling_occurrences%ROWTYPE; offer scheduling_offerings%ROWTYPE;
+BEGIN
+  IF customer IS NULL OR btrim(customer)='' OR length(customer)>200 OR length(email)>320 OR length(phone)>80 OR length(notes)>4000
+    OR actor IS NULL OR btrim(actor)='' OR until_day IS NULL THEN RAISE EXCEPTION 'Invalid weekly enrolment' USING ERRCODE='STVAL'; END IF;
+  body:=jsonb_build_object('kind','enrol-weekly','occurrenceId',occurrence_id,'name',customer,'email',email,'phone',phone,'notes',notes,'until',until_day);
+  result:=scheduling_coaching_replay(org,key,body); IF result IS NOT NULL THEN RETURN result; END IF;
+  PERFORM 1 FROM scheduling_occurrences o JOIN scheduling_offerings f ON f.organisation_id=o.organisation_id AND f.id=o.offering_id
+    JOIN scheduling_schedules s ON s.organisation_id=f.organisation_id AND s.id=f.schedule_id
+    WHERE o.organisation_id=org AND o.id=occurrence_id AND o.status='scheduled' AND o.starts_at>now()
+      AND f.archived_at IS NULL AND s.archived_at IS NULL AND s.preset_key='classes_coaching' FOR SHARE OF s,f,o;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Coaching occurrence unavailable' USING ERRCODE='STCLS'; END IF;
+  SELECT * INTO occ FROM scheduling_occurrences WHERE organisation_id=org AND id=occurrence_id;
+  SELECT * INTO offer FROM scheduling_offerings WHERE organisation_id=org AND id=occ.offering_id;
+  IF until_day<occ.local_date OR until_day-occ.local_date>70 THEN RAISE EXCEPTION 'Invalid weekly enrolment horizon' USING ERRCODE='STVAL'; END IF;
+  INSERT INTO scheduling_reservations(id,organisation_id,schedule_id,preset_key,preset_version,offering_id,span_kind,occurrence_id,
+    customer_name,customer_email,customer_email_normalised,customer_phone,timezone,local_start_date,local_start_time,local_end_date,local_end_time,
+    starts_at,ends_at,party_size,status,price_cents,currency,notes,idempotency_key,created_by)
+  SELECT gen_random_uuid()::text,org,s.id,s.preset_key,s.preset_version,offer.id,'occurrence',occ.id,
+    customer,email,lower(btrim(email)),phone,occ.timezone,occ.local_date,occ.local_start_time,(occ.ends_at AT TIME ZONE occ.timezone)::date,(occ.ends_at AT TIME ZONE occ.timezone)::time,
+    occ.starts_at,occ.ends_at,1,'confirmed',offer.price_cents,offer.currency,notes,key,actor
+    FROM scheduling_schedules s WHERE s.organisation_id=org AND s.id=offer.schedule_id RETURNING * INTO booking;
+  weekly:=scheduling_coaching_start_weekly(org,booking.id,occ.local_date,until_day,encode(sha256(convert_to('enrol-weekly:'||key,'UTF8')),'hex'),actor);
+  result:=weekly||jsonb_build_object('booking',scheduling_coaching_booking_json(booking));
+  INSERT INTO scheduling_coaching_commands(organisation_id,command_key,request,result,actor_id) VALUES(org,key,body,result,actor);
+  RETURN result;
+END $$;
 COMMIT;

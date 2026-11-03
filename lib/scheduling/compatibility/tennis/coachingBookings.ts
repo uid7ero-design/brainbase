@@ -23,9 +23,9 @@ const columns = 'id,occurrence_id,customer_name,customer_email,customer_phone,no
 function staff(tenant: TenantContext, permission: 'scheduling.reserve' | 'scheduling.attendance') {
   if (!tenant.organisationId || tenant.actor.kind !== 'staff' || !tenant.can(permission)) throw new Error('Coaching permission denied');
 }
-function input(value: CoachingBookingInput): CoachingBookingInput {
-  if (!value || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value.occurrenceId)
-    || !/^[A-Za-z0-9_-]{16,80}$/.test(value.idempotencyKey)
+export function validateCoachingBookingInput(value: CoachingBookingInput): CoachingBookingInput {
+  if (!value || typeof value.occurrenceId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value.occurrenceId)
+    || typeof value.idempotencyKey !== 'string' || !/^[A-Za-z0-9_-]{16,80}$/.test(value.idempotencyKey)
     || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 200
     || (value.email !== null && (typeof value.email !== 'string' || value.email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email.trim())))
     || (value.phone !== null && (typeof value.phone !== 'string' || value.phone.length > 80))
@@ -51,7 +51,7 @@ export class CoachingBookings {
 
   async enrol(tenant: TenantContext, supplied: CoachingBookingInput): Promise<BookingResult> {
     staff(tenant, 'scheduling.reserve');
-    const body = input(supplied);
+    const body = validateCoachingBookingInput(supplied);
     const replay = await this.recover(tenant, body.idempotencyKey);
     if (replay) return sameRequest(replay, body) ? { ok: true, booking: replay, replayed: true } : { ok: false, code: 'KEY_CONFLICT' };
     try {

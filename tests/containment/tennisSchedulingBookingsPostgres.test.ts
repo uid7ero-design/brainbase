@@ -36,6 +36,44 @@ describe.skipIf(!url)('Canonical coaching booking operations on actual Schedulin
       INSERT INTO scheduling_occurrences(id,organisation_id,offering_id,local_date,local_start_time,timezone,starts_at,ends_at,capacity)
       VALUES('next','synthetic','offering','2099-11-10','16:00','Australia/Adelaide','2099-11-10T05:30Z','2099-11-10T06:30Z',2);`);
   }
+  it('atomically enrols a new weekly player and recovers a lost response without duplicating the first place or lineage', async () => {
+    await seedSeries();
+    let writes = 0;
+    const unreliable = new CoachingCommands({ async query<T>(text: string, values: readonly unknown[]) {
+      const result = await sql.query<T>(text, values);
+      if (text.includes('scheduling_coaching_enrol_weekly')) { writes++; throw Error('lost weekly response'); }
+      return result;
+    } });
+    const first = await unreliable.enrolWeekly(tenant, body(), '2099-11-10');
+    expect(writes).toBe(1);
+    expect(first.refill.created).toHaveLength(1);
+    expect(first.refill.alreadyPresent).toBe(1);
+    expect(await commands.enrolWeekly(tenant, body(), '2099-11-10')).toEqual(first);
+    expect((await pool.query('SELECT count(*) FROM scheduling_reservations')).rows[0].count).toBe('2');
+    expect((await pool.query('SELECT series_id FROM scheduling_coaching_series_links')).rows).toEqual([{ series_id: first.seriesId }]);
+    await expect(commands.enrolWeekly(tenant, { ...body(), name: 'Different player' }, '2099-11-10')).rejects.toMatchObject({ code: 'STKEY' });
+  });
+  it('rolls back the initial weekly booking, links and future places if the terminal receipt cannot persist', async () => {
+    await seedSeries();
+    await pool.query(`CREATE FUNCTION reject_weekly_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.request->>'kind'='enrol-weekly' THEN RAISE EXCEPTION 'synthetic receipt failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER reject_weekly_receipt BEFORE INSERT ON scheduling_coaching_commands FOR EACH ROW EXECUTE FUNCTION reject_weekly_receipt();`);
+    try {
+      await expect(commands.enrolWeekly(tenant, body(), '2099-11-10')).rejects.toThrow('synthetic receipt failure');
+      expect((await pool.query('SELECT count(*) FROM scheduling_reservations')).rows[0].count).toBe('0');
+      expect((await pool.query('SELECT count(*) FROM scheduling_coaching_series_links')).rows[0].count).toBe('0');
+      expect((await pool.query('SELECT count(*) FROM scheduling_coaching_commands')).rows[0].count).toBe('0');
+      expect((await pool.query("SELECT id FROM scheduling_series WHERE id<>'g'")).rows).toEqual([]);
+    } finally { await pool.query('DROP TRIGGER reject_weekly_receipt ON scheduling_coaching_commands; DROP FUNCTION reject_weekly_receipt()'); }
+  });
+  it('serialises weekly final-place competitors without orphan lineage or a partial enrolment', async () => {
+    await seedSeries(); await pool.query("UPDATE scheduling_occurrences SET capacity=1 WHERE id='occurrence'");
+    const results = await Promise.allSettled(Array.from({ length: 5 }, (_, n) => commands.enrolWeekly(tenant, body(String(n)), '2099-11-10')));
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(r => r.status === 'rejected')).toHaveLength(4);
+    expect((await pool.query('SELECT count(*) FROM scheduling_reservations')).rows[0].count).toBe('2');
+    expect((await pool.query('SELECT count(*) FROM scheduling_coaching_series_links')).rows[0].count).toBe('1');
+  });
   it('writes one canonical booking with immutable price/time snapshots and no legacy tables', async () => {
     const result = await service.enrol(tenant, body()); expect(result.ok).toBe(true);
     const saved = (await pool.query('SELECT price_cents,currency,local_start_time::text,party_size FROM scheduling_reservations')).rows[0];
