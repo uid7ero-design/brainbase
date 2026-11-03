@@ -42,7 +42,21 @@ describe('Phase 2A wires nothing into the application', () => {
         return /scheduling_[a-z_]+|010_shared_schema|110_brainbase_host/.test(text);
       })
       .map(rel);
-    expect(offenders).toEqual([]);
+    // Tennis integration rehearsal: these exact injected-executor services are
+    // still unreachable from application entry points. No general SQL exemption.
+    expect(offenders.sort()).toEqual([
+      'lib/scheduling/compatibility/tennis/coachingBookings.ts',
+      'lib/scheduling/compatibility/tennis/coachingHistory.ts',
+      'lib/scheduling/compatibility/tennis/migrationSnapshot.ts',
+    ]);
+    for (const f of sources) {
+      const name = rel(f); const text = readFileSync(f, 'utf8');
+      if (name.startsWith('lib/scheduling/compatibility/tennis/')) {
+        expect(text, name).not.toMatch(/from\s+['"](?:@\/lib\/db|pg|@neondatabase\/serverless)['"]/);
+      } else {
+        expect(text, name).not.toMatch(/(?:from\s*|import\s*\(|require\s*\()\s*['"][^'"]*compatibility\/tennis\/(?:coachingBookings|coachingHistory|migrationSnapshot)/);
+      }
+    }
   });
 
   it('no scheduling route, page or navigation entry exists', () => {
@@ -79,6 +93,8 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
       '191_brainbase_capability_rollback.sql',
       '192_brainbase_crm_link_rollback.sql',
       'manual',
+      // Staged Tennis source barrier/history only; no writer activation. Rehearsed on disposable Postgres.
+      'tennis-history-cutover.sql',
     ]);
   });
 
