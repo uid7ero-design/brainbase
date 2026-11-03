@@ -63,21 +63,7 @@ export async function GET(req: NextRequest) {
     // that might refetch, prefetch, or cache this endpoint later.
     return NextResponse.json({ sessions })
   } catch {
-    // bookings table may not exist yet — fall back to count-free query
-    try {
-      const sessions = await sql`
-        SELECT id, name, day_of_week, start_time, duration_minutes,
-               max_capacity, session_type, resource_id, recurring, created_at, archived_at
-        FROM sessions
-        WHERE organisation_id = ${session.organisationId}
-          AND (${includeArchived} OR archived_at IS NULL)
-        ORDER BY day_of_week, start_time
-      `
-      return NextResponse.json({ sessions: sessions.map(s => ({ ...s, enrolled_count: 0 })) })
-    } catch (err2) {
-      console.error('[dashboard/sessions GET]', err2)
-      return NextResponse.json({ error: 'Failed to fetch sessions' }, { status: 500 })
-    }
+    return NextResponse.json({ error: 'Saved sessions and enrolment counts could not be loaded.' }, { status: 503 })
   }
 }
 

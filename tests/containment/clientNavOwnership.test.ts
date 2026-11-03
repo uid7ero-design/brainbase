@@ -102,6 +102,7 @@ describe('TopNav — LD-Tennis-specific nav items are gated on dashboardVariant,
     expect(tennis?.gate).toEqual({ variant: 'ld-tennis' })
     const children = tennis?.kind === 'group' ? tennis.children : []
     expect(children.map(c => [c.label, c.href])).toEqual([
+      ['Business workspace', '/business/tennis'],
       ['Leads', '/dashboard/leads'],
       ['Squad', '/dashboard/contacts'],
       ['Sessions', '/dashboard/sessions'],

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Regression coverage for the LD Tennis production bug: a session archived
 // and restored ("Restored — Already up to date — nothing to repair.") left
@@ -22,6 +22,11 @@ vi.mock('@/lib/tennisRecurrence', () => ({
 }))
 
 const { reconcileFutureInstances } = await import('@/lib/tennisSchedule')
+beforeEach(() => {
+  // All suites in this file describe the same historical reproduction date.
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 7, 19, 12));
+});
+afterEach(() => vi.useRealTimers());
 
 // Matches the actual production repro: "today" is Wed 2026-08-19, the
 // session runs Sundays, and the missing dates were Sun 2026-08-23 and

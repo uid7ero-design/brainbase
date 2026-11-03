@@ -154,6 +154,7 @@ export const WORK_ITEMS: readonly NavEntry[] = [
     // routing uses (lib/dashboard/clientDashboard.ts); not a capability.
     gate: { variant: 'ld-tennis' },
     children: [
+        { kind: 'link', id: 'tennis-business', label: 'Business workspace', href: '/business/tennis', match: ['/business/tennis'], gate: { anyCapability: ['scheduling', 'crm', 'invoicing', 'purchasing', 'budgeting'] } },
       { kind: 'link', id: 'tennis-leads', label: 'Leads', href: '/dashboard/leads', match: ['/dashboard/leads'] },
       { kind: 'link', id: 'tennis-squad', label: 'Squad', href: '/dashboard/contacts', match: ['/dashboard/contacts'] },
       { kind: 'link', id: 'tennis-sessions', label: 'Sessions', href: '/dashboard/sessions', match: ['/dashboard/sessions'] },

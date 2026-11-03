@@ -65,13 +65,14 @@ describe('GET /api/dashboard/session-types', () => {
     expect(queryArgs).not.toContain('org-a')
   })
 
-  it('degrades to an empty list (not an error) if session_types does not exist yet (migration not applied)', async () => {
+  it('does not present an unreadable session types source as an empty list', async () => {
     requireRoleMock.mockResolvedValue(viewer)
     sqlMock.mockRejectedValueOnce(new Error('relation "session_types" does not exist'))
     const res = await GET(asNextRequest('http://localhost/api/dashboard/session-types'))
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(503)
     const data = await res.json()
-    expect(data.types).toEqual([])
+    expect(data.types).toBeUndefined()
+    expect(data.error).toBe('Saved session types could not be loaded.')
   })
 })
 

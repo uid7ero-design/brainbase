@@ -14,12 +14,14 @@ import { chromium } from '@playwright/test';
 import { verifyRemainingWorkflows } from './helpers/hrLocalWorkflows.mjs';
 import { verifyHrSetup } from './helpers/hrLocalSetup.mjs';
 import { verifyCrmRecovery } from './helpers/crmRecoveryLocal.mjs';
+import { setupTennisBusiness, verifyTennisBusiness } from './helpers/tennisBusinessLocal.mjs';
 import { verifyOrganisationUsers } from './helpers/organisationUsersLocal.mjs';
 
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
 const name = `hr-full-local-${randomUUID().slice(0, 8)}`;
 const crmOnly=process.argv.includes('--crm');
+const tennisOnly=process.argv.includes('--tennis-business');
 const productionMode = process.argv.includes('--production');
 const contextOptions = productionMode ? { ignoreHTTPSErrors: true } : {};
 const nextDirectory = path.resolve(root, '.next');
@@ -67,7 +69,7 @@ try {
   exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env });
   const q = (text, values) => pool.query(text, values);
   for (const file of ['create-organisation-user-administration.sql','create-hr-teams.sql', 'create-hr-people.sql', 'add-hr-teams-archive.sql', 'create-hr-administrators.sql', 'add-hr-people-tenant-unique.sql', 'create-hr-lifecycle-workflows.sql', 'create-hr-employee-documents.sql', 'create-hr-employee-document-assurance.sql', 'create-hr-restricted-cases.sql']) await q(readFileSync(`scripts/${file}`, 'utf8'));
-  if(crmOnly){for(const match of readFileSync('scripts/crm-migrate.mjs','utf8').matchAll(/sql\.query\(`([\s\S]*?)`\)/g))await q(match[1]);await q(readFileSync('scripts/add-crm-contact-classification.sql','utf8'));}
+  if(crmOnly || tennisOnly){for(const match of readFileSync('scripts/crm-migrate.mjs','utf8').matchAll(/sql\.query\(`([\s\S]*?)`\)/g))await q(match[1]);await q(readFileSync('scripts/add-crm-contact-classification.sql','utf8'));}
   const hash = await bcrypt.hash(password, 10);
   for (const org of ['local-hr', 'local-other']) await q('INSERT INTO organisations(id,name,slug,updated_at) VALUES($1,$1,$1,now())', [org]);
   for (const user of ['local-admin', 'local-employee', 'local-manager']) await q(`INSERT INTO users(id,organisation_id,username,name,password_hash,updated_at) VALUES($1,'local-hr',$1,$1,$2,now())`, [user, hash]);
@@ -76,6 +78,7 @@ try {
   await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES('local-hr','people',true,now())");
   await q("INSERT INTO hr_administrators(organisation_id,user_id) VALUES('local-hr','local-admin')");
   await q("INSERT INTO hr_people(organisation_id,linked_user_id,first_name,last_name) VALUES('local-hr','local-employee','Local','Employee'),('local-other',NULL,'Foreign','Fixture')");
+  if(tennisOnly) await setupTennisBusiness(q);
   let sqlCalls = 0;
   const objects = new Map();
   let storageCalls = 0;
@@ -242,7 +245,8 @@ try {
     await sleep(1000);
   }
   console.log('Real login issued its session cookie. Checking actual HR routes.');
-  if(crmOnly){await verifyCrmRecovery({origin,context,page,q,browser,contextOptions,password});}
+  if(tennisOnly){await verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password});}
+  else if(crmOnly){await verifyCrmRecovery({origin,context,page,q,browser,contextOptions,password});}
   else {
   await verifyOrganisationUsers({origin,context,page,q,emails,browser,contextOptions});
   const session = (await context.cookies()).find(cookie => cookie.name === 'session');

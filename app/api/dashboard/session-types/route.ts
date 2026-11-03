@@ -31,10 +31,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ types })
   } catch (err) {
     console.error('[dashboard/session-types GET]', err)
-    // session_types may not exist yet (migration not applied) — degrade to
-    // an empty list so the UI falls back to its hardcoded type map rather
-    // than breaking the Create/Edit Session form entirely.
-    return NextResponse.json({ types: [] })
+    return NextResponse.json({ error: 'Saved session types could not be loaded.' }, { status: 503 })
   }
 }
 

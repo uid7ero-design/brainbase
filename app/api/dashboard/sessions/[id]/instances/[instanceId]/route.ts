@@ -124,7 +124,7 @@ export async function GET(
       `
       bookings = rows
     } catch {
-      // bookings table not yet created — return empty list
+      return NextResponse.json({ error: 'Saved bookings could not be loaded.' }, { status: 503 })
     }
 
     return NextResponse.json({ instance: instances[0], bookings })
