@@ -1,16 +1,14 @@
 import Link from 'next/link';
 import { OrganiserShell } from '@/components/organiser/OrganiserShell';
 import { Unavailable } from '@/components/ui/primitives';
-import { requireOrganiser } from '@/lib/organiserAuth';
 import { identityOf } from '@/lib/identity';
-import { loadEvents } from '@/lib/organiserData';
+import { loadWorkspace } from '@/lib/organiserData';
 import { formatDateTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 export default async function OrganiserEventsPage() {
-  const { token, session } = await requireOrganiser();
-  const events = await loadEvents(token);
+  const { session, events } = await loadWorkspace();
   return (
     <OrganiserShell title="Events" identity={identityOf(session)}>
       {events.length === 0 ? (

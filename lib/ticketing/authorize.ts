@@ -58,7 +58,9 @@ export async function authorizeTicketingApiRequest(
   let user: Record<string, unknown> | undefined;
   let org: Record<string, unknown> | undefined;
   try {
-    user = (await sql`
+    // Both reads use verified token identifiers and are independent. Keep
+    // their results request-local; never cache authorisation between calls.
+    const [users, orgs] = await Promise.all([sql`
       SELECT id, organisation_id, role, status, name,
         EXISTS (
           SELECT 1 FROM ticketing_sessions s
@@ -66,7 +68,11 @@ export async function authorizeTicketingApiRequest(
             AND s.revoked_at IS NULL AND s.expires_at > NOW()
         ) AS session_live
       FROM users WHERE id = ${claims.userId} LIMIT 1
-    `)[0];
+    `, sql`
+      SELECT id, status, slug, name, settings FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
+    `]);
+    user = users[0];
+    org = orgs[0];
     if (!user) return { ok: false, response: unauthorized() };
     // A revoked, expired, unknown or mismatched session is dead whatever the token says.
     if (user.session_live !== true) return { ok: false, response: unauthorized() };
@@ -76,10 +82,6 @@ export async function authorizeTicketingApiRequest(
     if (role !== 'super_admin' && user.organisation_id !== claims.organisationId) {
       return { ok: false, response: unauthorized() };
     }
-
-    org = (await sql`
-      SELECT id, status, slug, name, settings FROM organisations WHERE id = ${claims.organisationId} LIMIT 1
-    `)[0];
   } catch {
     return { ok: false, response: unavailable() };
   }
