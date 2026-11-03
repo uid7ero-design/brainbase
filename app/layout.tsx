@@ -321,7 +321,9 @@ export default async function RootLayout({
           </SessionProvider>
         </ThemeProvider>
 
-        <ClarityLoader />
+        {/* Marketing analytics never run inside a signed-in session, even on
+            an allowlisted public path (see ClarityLoader's header). */}
+        <ClarityLoader authenticated={!!session} />
       </body>
     </html>
   );

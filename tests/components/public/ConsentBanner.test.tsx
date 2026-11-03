@@ -22,6 +22,7 @@ function region() {
 describe('Analytics consent prompt', () => {
   beforeEach(() => {
     nav.pathname = '/';
+    localStorage.clear();
   });
 
   it.each(['light', 'dark'] as const)('has no axe violations (%s)', async theme => {
@@ -72,5 +73,60 @@ describe('Analytics consent prompt', () => {
     const spy = vi.fn();
     decline.addEventListener('click', spy);
     await expectKeyboardActivation(user, decline, spy, 'Enter');
+  });
+});
+
+// Real-clients bundle: the consent prompt appeared over private workspaces
+// because eligibility was path-only and the signed-in header's logo links
+// to "/". A signed-in session now never shows the prompt or starts Clarity,
+// on any path, and never touches the stored choice.
+describe('Analytics inside a signed-in session', () => {
+  beforeEach(() => {
+    nav.pathname = '/';
+    localStorage.clear();
+    delete (window as { clarity?: unknown }).clarity;
+  });
+
+  it.each(['/', '/pricing', '/demo', '/admin/founder', '/clients/org-1', '/dashboard'])(
+    'shows no prompt and loads no Clarity on %s when authenticated',
+    path => {
+      nav.pathname = path;
+      renderBrainbase(<ClarityLoader authenticated />);
+      expect(region()).toBeNull();
+      expect(screen.queryByTestId('microsoft-clarity')).toBeNull();
+    },
+  );
+
+  it('previously granted consent is neither used nor changed while signed in, and a running Clarity is stopped', () => {
+    localStorage.setItem('bb-analytics-consent', 'granted');
+    const clarity = vi.fn();
+    (window as { clarity?: unknown }).clarity = clarity;
+    renderBrainbase(<ClarityLoader authenticated />);
+    expect(screen.queryByTestId('microsoft-clarity')).toBeNull();
+    expect(region()).toBeNull();
+    expect(localStorage.getItem('bb-analytics-consent')).toBe('granted');
+    expect(clarity).toHaveBeenCalledWith('consent', false);
+    expect(clarity).toHaveBeenCalledWith('stop');
+    expect(clarity).not.toHaveBeenCalledWith('start');
+  });
+
+  it('never writes a consent value on its own', () => {
+    renderBrainbase(<ClarityLoader authenticated />);
+    expect(localStorage.getItem('bb-analytics-consent')).toBeNull();
+  });
+
+  it('signed-out public pages keep the explicit Allow/Decline prompt (unchanged)', () => {
+    renderBrainbase(<ClarityLoader authenticated={false} />);
+    expect(screen.getByRole('button', { name: 'Allow analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
+    expect(screen.queryByTestId('microsoft-clarity')).toBeNull();
+    expect(localStorage.getItem('bb-analytics-consent')).toBeNull();
+  });
+
+  it('signed-out with stored consent still loads Clarity on a public page (unchanged)', () => {
+    localStorage.setItem('bb-analytics-consent', 'granted');
+    renderBrainbase(<ClarityLoader />);
+    expect(screen.getByTestId('microsoft-clarity')).toBeInTheDocument();
+    expect(region()).toBeNull();
   });
 });

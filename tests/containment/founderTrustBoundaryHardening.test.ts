@@ -80,17 +80,19 @@ describe('Live Activity can never be populated by the external founder-state bac
 
 // ── 3. Locally generated real sessionEvents remain fully supported ─────────
 
-describe('Locally generated real sessionEvents are unaffected', () => {
-  it('addSessionEvent (the local event logger) is untouched and still used by every action handler', () => {
-    expect(founderSource).toContain('const addSessionEvent = (event: string, type: FeedType, client: string | null, clientId?: number) => {')
-    const calls = (founderExecutable.match(/addSessionEvent\(/g) ?? []).length
-    // 4 action handlers (follow-up, advance-stage, log-demo, mark-reviewed)
-    // each still log a real local event on success.
-    expect(calls).toBe(4)
+describe('Live Activity only ever shows locally generated events', () => {
+  // Real-clients review corrections: the only local events were logged by
+  // the legacy founder-action handlers (follow-up, log-demo,
+  // mark-reviewed), which this page no longer calls. Live Activity keeps its
+  // state and honest empty state; nothing — local or external — writes
+  // fabricated entries into it.
+  it('no handler writes sessionEvents, and the logger left with the legacy handlers', () => {
+    expect(founderExecutable).not.toContain('addSessionEvent')
+    expect(founderExecutable).not.toContain('setSessionEvents')
   })
 
-  it('setSessionEvents/sessionEvents state itself is untouched', () => {
-    expect(founderSource).toContain('const [sessionEvents,   setSessionEvents]   = useState<SessionEvent[]>([]);')
+  it('sessionEvents state still exists and is the only ActivityFeed input', () => {
+    expect(founderSource).toContain('const [sessionEvents] = useState<SessionEvent[]>([]);')
   })
 
   it('ActivityFeed still renders real sessionEvents with an honest empty state when there are none (no regression from the prior Phase B round)', () => {
@@ -163,16 +165,26 @@ describe('Real MRR remains wired end to end', () => {
 // ── Requirement 3 — audit of every remaining external founder-* reference ──
 
 describe('Audit: remaining founder-clients/founder-action references are intentional, not accidental', () => {
-  it('founder-clients: exactly one fetch remains, feeding the real ClientPipeline data path (intentionally retained per explicit instruction)', () => {
+  it('founder-clients: exactly one fetch remains, feeding the authoritative client overview (real-clients bundle: no longer an external-backend proxy)', () => {
     const matches = founderExecutable.match(/fetch\('\/api\/admin\/founder-clients'\)/g) ?? []
     expect(matches.length).toBe(1)
   })
 
-  it('founder-action/*: exactly 5 explicit, user-triggered write actions remain (add-lead, follow-up-client, advance-client-stage, log-demo, mark-analysis-reviewed) — intentionally retained, out of this hardening\'s scope', () => {
-    const names = ['add-lead', 'follow-up-client', 'advance-client-stage', 'log-demo', 'mark-analysis-reviewed']
-    for (const n of names) {
-      expect(founderExecutable).toContain(`/api/admin/founder-action/${n}`)
+  it('founder-action/*: the page calls none of the legacy external write routes; the routes themselves are kept pending an approval decision', () => {
+    // Real-clients review corrections: Add lead / Book demo / Proposal now
+    // open the existing HLNA CRM/Commercial screens; the mini-queue opens
+    // Command Centre. The API routes are not deleted without approval.
+    expect(founderExecutable).not.toContain('/api/admin/founder-action/')
+    for (const n of ['add-lead', 'follow-up-client', 'log-demo', 'mark-analysis-reviewed', 'advance-client-stage']) {
+      expect(fs.existsSync(path.resolve(__dirname, `../../app/api/admin/founder-action/${n}/route.ts`))).toBe(true)
     }
+  })
+
+  it('HLNA CRM/Commercial navigation reuses the audited impersonation flow with the server-resolved HQ id — no query-string organisation', () => {
+    expect(founderExecutable).toContain("fetch('/api/admin/impersonate', { method: 'DELETE' })")
+    expect(founderExecutable).toContain('body: JSON.stringify({ orgId: hq.id })')
+    expect(founderExecutable).toContain('const hq = clientOverview?.hlnaOrganisation;')
+    expect(founderExecutable).not.toMatch(/[?&](orgId|organisationId|org)=/)
   })
 
   it('founder-intelligence and founder-state have zero remaining executable references', () => {
