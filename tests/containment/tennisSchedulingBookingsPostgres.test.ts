@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import type { TenantContext } from '@scheduling/core';
 import { CoachingBookings, type CoachingBookingInput } from '@/lib/scheduling/compatibility/tennis/coachingBookings';
 import { CoachingCommands } from '@/lib/scheduling/compatibility/tennis/coachingCommands';
+import { CoachingClasses } from '@/lib/scheduling/compatibility/tennis/coachingClasses';
 
 const url = process.env.TENNIS_COACHING_TEST_URL;
 if (url && (!['127.0.0.1', 'localhost'].includes(new URL(url).hostname) || new URL(url).pathname !== '/tennis_coaching_proof')) throw new Error('Disposable loopback database required');
@@ -12,6 +13,7 @@ describe.skipIf(!url)('Canonical coaching booking operations on actual Schedulin
   const sql = { async query<T>(text: string, values: readonly unknown[]) { return (await pool.query(text, [...values])).rows as T[]; } };
   const service = new CoachingBookings(sql);
   const commands = new CoachingCommands(sql);
+  const classes = new CoachingClasses(sql);
   const tenant: TenantContext = { organisationId: 'synthetic', timezone: 'Australia/Adelaide', actor: { kind: 'staff', userId: 'synthetic-staff' }, can: () => true };
   const body = (suffix = '1'): CoachingBookingInput => ({ occurrenceId: 'occurrence', idempotencyKey: `synthetic-booking-${suffix}`, name: `Synthetic ${suffix}`, email: `synthetic${suffix}@example.invalid`, phone: null, notes: 'Synthetic only' });
   beforeAll(async () => {
@@ -36,6 +38,57 @@ describe.skipIf(!url)('Canonical coaching booking operations on actual Schedulin
       INSERT INTO scheduling_occurrences(id,organisation_id,offering_id,local_date,local_start_time,timezone,starts_at,ends_at,capacity)
       VALUES('next','synthetic','offering','2099-11-10','16:00','Australia/Adelaide','2099-11-10T05:30Z','2099-11-10T06:30Z',2);`);
   }
+  async function recurringClass() {
+    await pool.query(`UPDATE scheduling_offerings SET duration_minutes=60,capacity=2,start_time='16:00',recurrence_kind='weekly',
+      recurrence_day_of_week=2,recurrence_start_date='2099-11-03',recurrence_end_mode='ongoing' WHERE id='offering'`);
+  }
+  it('keeps the HTTP command unavailable before a receipted cutover is installed', async () => {
+    await recurringClass();
+    await expect(classes.generateLive(tenant,'offering','2099-11-03','generate-before-cutover')).rejects.toMatchObject({code:'STOFF'});
+    expect((await pool.query('SELECT count(*) FROM scheduling_occurrences')).rows[0].count).toBe('1');
+  });
+  it('generates the inclusive Tennis horizon once and recovers a lost generation response', async () => {
+    await recurringClass(); let writes=0;
+    const unreliable = new CoachingClasses({ async query<T>(text: string, values: readonly unknown[]) {
+      const result=await sql.query<T>(text,values);
+      if (text.includes('SELECT scheduling_coaching_generate_classes')) { writes++; throw Error('lost generation response'); }
+      return result;
+    } });
+    const first=await unreliable.generate(tenant,'offering','2099-11-03','generate-horizon-first');
+    expect(writes).toBe(1); expect(first.created).toHaveLength(10);
+    expect(first.created.at(-1)?.date).toBe('2100-01-12');
+    expect(await classes.generate(tenant,'offering','2099-11-03','generate-horizon-first')).toEqual(first);
+    expect(await classes.savedGeneration(tenant,'offering','generate-horizon-first')).toEqual(first);
+    expect(await classes.savedGeneration({...tenant,organisationId:'foreign'},'offering','generate-horizon-first')).toBeNull();
+    expect(await classes.savedGeneration(tenant,'other-offering','generate-horizon-first')).toBeNull();
+    const again=await classes.generate(tenant,'offering','2099-11-03','generate-horizon-again');
+    expect(again.created).toEqual([]); expect(again.skipped).toHaveLength(11);
+    expect((await pool.query('SELECT count(*) FROM scheduling_occurrences')).rows[0].count).toBe('11');
+  });
+  it('rejects configuration changed after planning without leaving partial dates', async () => {
+    await recurringClass();
+    const stale = new CoachingClasses({ async query<T>(text: string, values: readonly unknown[]) {
+      if (text.includes('SELECT scheduling_coaching_generate_classes')) await pool.query("UPDATE scheduling_offerings SET capacity=3 WHERE id='offering'");
+      return sql.query<T>(text, values);
+    } });
+    await expect(stale.generate(tenant,'offering','2099-11-03','generate-stale-class')).rejects.toMatchObject({ code:'STCHG' });
+    expect((await pool.query('SELECT count(*) FROM scheduling_occurrences')).rows[0].count).toBe('1');
+  });
+  it('does not revive cancelled classes and denies tenant or manage-permission bypasses', async () => {
+    await recurringClass(); await pool.query("UPDATE scheduling_occurrences SET status='cancelled' WHERE id='occurrence'");
+    const result=await classes.generate(tenant,'offering','2099-11-03','generate-cancelled-class');
+    expect(result.skipped).toContainEqual({date:'2099-11-03',startTime:'16:00',reason:'cancelled_stays_cancelled'});
+    await expect(classes.generate({...tenant,can:()=>false},'offering','2099-11-03','generate-denied-class')).rejects.toThrow('permission denied');
+    await expect(classes.generate({...tenant,organisationId:'foreign'},'offering','2099-11-03','generate-foreign-class')).rejects.toMatchObject({code:'STCLS'});
+  });
+  it('keeps local class times stable through daylight saving and reports a nonexistent local time', async () => {
+    await recurringClass();
+    await pool.query("UPDATE scheduling_offerings SET recurrence_day_of_week=0,recurrence_start_date='2026-09-27',start_time='02:30' WHERE id='offering'");
+    const result=await classes.generate(tenant,'offering','2026-09-27','generate-dst-gap-class');
+    expect(result.skipped).toContainEqual({date:'2026-10-04',startTime:'02:30',reason:'nonexistent_local_time'});
+    const rows=(await pool.query("SELECT local_date::text,to_char(starts_at AT TIME ZONE 'UTC','HH24:MI') utc FROM scheduling_occurrences WHERE local_date IN ('2026-09-27','2026-10-11') ORDER BY local_date")).rows;
+    expect(rows).toEqual([{local_date:'2026-09-27',utc:'17:00'},{local_date:'2026-10-11',utc:'16:00'}]);
+  });
   it('atomically enrols a new weekly player and recovers a lost response without duplicating the first place or lineage', async () => {
     await seedSeries();
     let writes = 0;

@@ -7,6 +7,7 @@ import type { OfferingView, ScheduleView, StatusView } from '@/lib/scheduling/da
 import { RESOURCE_KIND_LABELS, describeCancellation, formatDuration, formatMoney, presetName, recurrenceSummary, wordingFor } from '@/lib/scheduling/dashboard/wording';
 import { offeringFieldPlan } from '@/lib/scheduling/dashboard/forms';
 import { AssignDialog } from './AssignDialog';
+import { ClassDatesAction } from './ClassDatesAction';
 import { ConfirmDialog } from './ConfirmDialog';
 import { OfferingDialog } from './OfferingDialog';
 import { DataList, EmptyBlock, LoadError, type Column } from './parts';
@@ -151,6 +152,7 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                         </Button>
                         {canEdit && (
                           <>
+                            {schedule.id === 'tennis-coaching' && schedule.presetKey === 'classes_coaching' && o.recurrence.kind === 'weekly' && <ClassDatesAction offeringId={o.id} name={o.name} onGenerated={reload} />}
                             <Button size="sm" onClick={() => setMode({ kind: 'editOffering', offering: o })} aria-label={`Edit ${o.name}`}>Edit</Button>
                             <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'archiveOffering', offering: o })} aria-label={`Archive ${o.name}`}>Archive</Button>
                           </>

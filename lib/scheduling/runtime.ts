@@ -4,6 +4,7 @@ import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersi
 import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, type SqlExecutor } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
+import { CoachingClasses, type GenerationResult } from './compatibility/tennis/coachingClasses';
 
 // Phase 2B.1 — the BrainBase runtime for Scheduling: the one place that joins the app's Neon driver, the shared
 // @scheduling/postgres repositories, the session's organisation and the organisation's configuration.
@@ -26,6 +27,8 @@ import { SchedulingConfigurationError, resolveOrganisationTimezone, type Resolve
 export { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 
 export interface SchedulingRuntime {
+  /** Lazy, tenant-bound commands; no schema is installed or activated here. */
+  coaching?: { generateClasses(offeringId: string, key: string): Promise<GenerationResult>; savedGeneration(offeringId: string, key: string): Promise<GenerationResult | null> };
   tenant: TenantContext;
   persistence: SchedulingPersistence;
   /** Phase 2B.3b: availability rules and exceptions. Needs migration 034; until it is applied its calls throw AvailabilityNotReadyError. */
@@ -89,5 +92,10 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
   ]);
   const tenant = staffTenantContext({ ...identity, timezone: timezone.value });
   if (!settings) throw new SchedulingConfigurationError('missing_settings');
-  return { tenant, persistence, availability, bookingReads, settings, timezone };
+  const classes = new CoachingClasses(executor);
+  const coaching = {
+    generateClasses: (offeringId: string, key: string) => classes.generateLive(tenant, offeringId, systemClock.today(tenant.timezone), key),
+    savedGeneration: (offeringId: string, key: string) => classes.savedGeneration(tenant, offeringId, key),
+  };
+  return { tenant, persistence, availability, bookingReads, settings, timezone, coaching };
 }

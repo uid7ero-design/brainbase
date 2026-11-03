@@ -28,6 +28,7 @@ const rel = (f: string) => path.relative(ROOT, f).split(path.sep).join('/');
 type Perm = 'scheduling.view' | 'scheduling.manage';
 /** route file -> [METHOD, permission, handler] for each exported method ('' = an inline foundation handler). */
 const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
+  'app/api/scheduling/offerings/[offeringId]/generate-classes/route.ts': [['POST', 'scheduling.manage', 'generateCoachingClasses'], ['GET', 'scheduling.manage', 'savedClassGeneration']],
   'app/api/scheduling/audit/route.ts': [['GET', 'scheduling.view', '']],
   'app/api/scheduling/status/route.ts': [['GET', 'scheduling.view', '']],
   'app/api/scheduling/schedules/route.ts': [['GET', 'scheduling.view', 'listSchedules'], ['POST', 'scheduling.manage', 'createSchedule']],

@@ -330,4 +330,44 @@ BEGIN
   INSERT INTO scheduling_coaching_commands(organisation_id,command_key,request,result,actor_id) VALUES(org,key,body,result,actor);
   RETURN result;
 END $$;
+CREATE OR REPLACE FUNCTION scheduling_coaching_generate_classes(org text,class_id text,from_day date,expected text,plan jsonb,skipped jsonb,key text,actor text) RETURNS jsonb
+LANGUAGE plpgsql SET lock_timeout='5s' SET statement_timeout='30s' AS $$
+DECLARE body jsonb; result jsonb; offer scheduling_offerings%ROWTYPE; schedule scheduling_schedules%ROWTYPE; item jsonb;
+  current_token text; new_id text; created jsonb:='[]'; existing int:=0; day date; start_instant timestamptz; end_instant timestamptz;
+BEGIN
+  IF from_day IS NULL OR jsonb_typeof(plan) IS DISTINCT FROM 'array' OR jsonb_typeof(skipped) IS DISTINCT FROM 'array'
+    OR jsonb_array_length(plan)>100 OR jsonb_array_length(skipped)>100 OR actor IS NULL OR btrim(actor)=''
+    THEN RAISE EXCEPTION 'Invalid class generation' USING ERRCODE='STVAL'; END IF;
+  body:=jsonb_build_object('kind','generate-classes','offeringId',class_id,'from',from_day);
+  result:=scheduling_coaching_replay(org,key,body); IF result IS NOT NULL THEN RETURN result; END IF;
+  SELECT s.* INTO schedule FROM scheduling_schedules s JOIN scheduling_offerings f ON f.organisation_id=s.organisation_id AND f.schedule_id=s.id
+    WHERE f.organisation_id=org AND f.id=class_id AND s.preset_key='classes_coaching' AND s.archived_at IS NULL FOR SHARE OF s;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Coaching class unavailable' USING ERRCODE='STCLS'; END IF;
+  SELECT * INTO offer FROM scheduling_offerings WHERE organisation_id=org AND id=class_id FOR SHARE;
+  current_token:=encode(sha256(convert_to(jsonb_build_array(to_jsonb(offer),schedule.timezone,schedule.archived_at)::text,'UTF8')),'hex');
+  IF current_token IS DISTINCT FROM expected OR offer.archived_at IS NOT NULL THEN RAISE EXCEPTION 'Class configuration changed' USING ERRCODE='STCHG'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('coaching-generate:'||org||':'||class_id,0));
+  FOR item IN SELECT value FROM jsonb_array_elements(plan) ORDER BY value->>'date' LOOP
+    day:=(item->>'date')::date; start_instant:=(item->>'startsAt')::timestamptz; end_instant:=(item->>'endsAt')::timestamptz;
+    IF day IS NULL OR day<from_day OR day>from_day+70 OR offer.recurrence_kind<>'weekly'
+      OR extract(dow FROM day)::int<>offer.recurrence_day_of_week OR (offer.recurrence_start_date IS NOT NULL AND day<offer.recurrence_start_date)
+      OR (offer.recurrence_end_mode='on_date' AND day>offer.recurrence_end_date)
+      OR (offer.recurrence_end_mode='after_occurrences' AND day>=offer.recurrence_start_date+offer.recurrence_end_count*7)
+      OR item->>'offeringId' IS DISTINCT FROM offer.id OR item->>'timezone' IS DISTINCT FROM schedule.timezone
+      OR item->>'resourceId' IS NOT NULL OR (item->>'capacity')::int IS DISTINCT FROM offer.capacity
+      OR (item->>'startTime')::time IS DISTINCT FROM offer.start_time
+      OR (start_instant AT TIME ZONE schedule.timezone)::date IS DISTINCT FROM day
+      OR (start_instant AT TIME ZONE schedule.timezone)::time IS DISTINCT FROM offer.start_time
+      OR end_instant IS DISTINCT FROM start_instant+make_interval(mins=>offer.duration_minutes)
+      THEN RAISE EXCEPTION 'Class plan does not match current configuration' USING ERRCODE='STVAL'; END IF;
+    new_id:=NULL;
+    INSERT INTO scheduling_occurrences(id,organisation_id,offering_id,local_date,local_start_time,timezone,starts_at,ends_at,capacity)
+      VALUES(gen_random_uuid()::text,org,offer.id,day,offer.start_time,schedule.timezone,start_instant,end_instant,offer.capacity)
+      ON CONFLICT(organisation_id,offering_id,local_date,local_start_time) DO NOTHING RETURNING id INTO new_id;
+    IF new_id IS NULL THEN existing:=existing+1; ELSE created:=created||jsonb_build_object('id',new_id,'date',day); END IF;
+  END LOOP;
+  result:=jsonb_build_object('created',created,'existing',existing,'skipped',skipped);
+  INSERT INTO scheduling_coaching_commands(organisation_id,command_key,request,result,actor_id) VALUES(org,key,body,result,actor);
+  RETURN result;
+END $$;
 COMMIT;
