@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { AuthFooter, AuthShell, authStyles as styles } from '@/components/public/auth/AuthShell';
 
 export default function SignupPage() {
-  const router = useRouter();
   const [form, setForm] = useState({
     name: '',
     username: '',
@@ -54,7 +52,14 @@ export default function SignupPage() {
         setError(data.error ?? 'Signup failed.');
         return;
       }
-      router.push('/trial');
+      // Hard navigation, not router.push: the session cookie was set by a
+      // route handler, which (unlike a Server Action) does not re-render the
+      // root layout. A client-side push would keep the layout's signed-out
+      // state — including ClarityLoader's authenticated={false} — so the
+      // public analytics prompt could appear inside the new workspace.
+      // A full load re-resolves the session everywhere (same pattern as
+      // SessionProvider's logout and OrgSwitcher/Client Events switching).
+      window.location.assign('/trial');
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {

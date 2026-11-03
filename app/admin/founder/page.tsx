@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
@@ -8,22 +8,28 @@ import { formatEventTime } from '@/lib/founder/formatEventTime';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 import {
   Button,
-  Dialog,
   Field,
-  FormActions,
   FormError,
   Metric,
   MetricStrip,
-  SlidePanel,
+  buttonProps,
   fieldControlClassName,
   moduleNavItemProps,
   type ButtonVariant,
 } from '@/components/ui/app';
 import styles from '@/components/founder/FounderOs.module.css';
+import { formatCents, formatDecimalDollars } from '@/lib/founder/exactMoney';
+import type {
+  BillingCustomer,
+  ContractedServices,
+  FounderClientOverview,
+  HlnaWorkspace,
+  MoneyByCurrency,
+  SourceKey,
+} from '@/lib/founder/clientOverviewTypes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Stage     = 'lead' | 'contacted' | 'demo' | 'trial' | 'proposal' | 'paid' | 'lost';
 type Severity  = 'critical' | 'high' | 'medium' | 'low';
 type FeedType  = 'sales' | 'product' | 'system' | 'client';
 type Section   = 'overview' | 'clients' | 'revenue' | 'tasks' | 'system' | 'instagram';
@@ -39,79 +45,10 @@ type QueueItem = {
 // hardening cut the fetch entirely; nothing in this file reads that
 // backend's response anymore.
 
-type LinkedOrg = {
-  id: string;
-  name: string;
-  slug: string;
-  status?: string | null;
-  created_at?: string | null;
-};
-
-type LinkedUser = {
-  id: string;
-  name: string;
-  email?: string | null;
-  username?: string | null;
-};
-
-type FounderClientRaw = {
-  id?: number | string;
-  organisation_name?: string;
-  contact_name?: string;
-  stage?: string;
-  estimated_value?: number | null;
-  last_contacted_at?: string | null;
-  next_action?: string | null;
-  next_action_due_at?: string | null;
-  probability?: number | null;
-  status?: string | null;
-  organisation_id?: string | null;
-  primary_contact_id?: string | null;
-  linked_organisation?: LinkedOrg | null;
-  linked_primary_user?: LinkedUser | null;
-};
-
 function toSeverity(s?: string): Severity {
   if (s === 'critical' || s === 'high' || s === 'medium' || s === 'low') return s;
   return 'medium';
 }
-function toStage(s?: string | null): Stage {
-  const valid: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid', 'lost'];
-  return valid.includes(s as Stage) ? (s as Stage) : 'lead';
-}
-function daysAgoFrom(dateStr?: string | null): number {
-  if (!dateStr) return 0;
-  const ms = Date.now() - new Date(dateStr).getTime();
-  return Math.max(0, Math.floor(ms / 86400000));
-}
-function mapRawClient(raw: FounderClientRaw, idx: number): Client {
-  return {
-    id:      typeof raw.id === 'number' ? raw.id : idx + 1,
-    org:     raw.organisation_name ?? `Client ${idx + 1}`,
-    contact: raw.contact_name ?? '—',
-    email:   '',
-    value:   raw.estimated_value ?? 0,
-    stage:   toStage(raw.stage),
-    action:  raw.next_action ?? '—',
-    daysAgo: daysAgoFrom(raw.last_contacted_at),
-    notes:   '',
-    usage:   { uploads: 0, analyses: 0, lastActive: '—', topModule: '—' },
-    uploads:  [],
-    insights: [],
-    organisation_id:      raw.organisation_id    ?? null,
-    primary_contact_id:   raw.primary_contact_id ?? null,
-    linked_organisation:  raw.linked_organisation  ?? null,
-    linked_primary_user:  raw.linked_primary_user  ?? null,
-  };
-}
-
-type ClientOverride = {
-  daysAgo?: number;
-  action?: string;
-  followedUp?: boolean;
-  stage?: Stage;
-  highlighted?: boolean;
-};
 type SessionEvent = { ts: string; event: string; type: FeedType; client: string | null };
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -127,26 +64,13 @@ type SessionEvent = { ts: string; event: string; type: FeedType; client: string 
 // real-vs-unavailable per tile from real `metrics` data (MRR only; the
 // other five have no authoritative source anywhere in the schema).
 const SNAPSHOT_TILE_META: Array<{ label: string; real: boolean }> = [
-  { label: 'MRR',             real: true  },
+  { label: 'Contracted MRR',  real: true  },
   { label: 'Active clients',  real: false },
   { label: 'Active trials',   real: false },
   { label: 'Demos this week', real: false },
   { label: 'Follow-ups due',  real: false },
   { label: 'Failed analyses', real: false },
 ];
-
-type Client = {
-  id: number; org: string; contact: string; email: string; value: number;
-  stage: Stage; action: string; daysAgo: number;
-  notes: string;
-  usage: { uploads: number; analyses: number; lastActive: string; topModule: string };
-  uploads: string[];
-  insights: string[];
-  organisation_id?: string | null;
-  primary_contact_id?: string | null;
-  linked_organisation?: LinkedOrg | null;
-  linked_primary_user?: LinkedUser | null;
-};
 
 // PIPELINE (7 fake council clients), TASKS, MRR_POINTS, SERVICES, USAGE,
 // DEMOS, ACTIVITY, RECOMMENDATIONS, and SIGNALS were removed here — none had
@@ -202,11 +126,6 @@ function tint(color: string, pct: number): string {
 
 const SEV_COLOR: Record<Severity, string> = { critical: T.red, high: HIGH, medium: T.yellow, low: T.inactive };
 const FEED_C:    Record<FeedType, string> = { sales: T.green, product: T.sub, system: T.yellow, client: T.cyan };
-// CRM pipeline stage hues — a genuine data encoding (mirrored in
-// app/admin/orgs/AdminClient.tsx), not chrome. Used on the stage dot, the
-// funnel bars and a light tint only; stage label text stays in
-// --text-primary so it reads in both themes.
-const STAGE_FG:  Record<Stage, string>   = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
 // PRIO_C (task-priority color map) removed with FounderTasks' fake TASKS —
 // no longer referenced anywhere.
 
@@ -239,16 +158,6 @@ function Empty({ title, text }: { title: string; text?: string }) {
 // Dot (status indicator) removed with the fake "Demo status" bar and
 // SERVICES list — no longer referenced anywhere.
 
-function StagePill({ s }: { s: Stage }) {
-  const hue = STAGE_FG[s];
-  return (
-    <span className={styles.stagePill} style={{ background: tint(hue, 14), borderColor: tint(hue, 45) }}>
-      <span className={styles.dot} style={{ background: hue }} aria-hidden="true" />
-      {s.toUpperCase()}
-    </span>
-  );
-}
-
 /** Secondary metadata (times, counts, money): app sans, tabular figures. */
 function Meta({ children, size, color }: { children: React.ReactNode; size?: number; color?: string }) {
   return <span className={styles.num} style={{ fontSize: size ?? 11, color: color ?? T.sub }}>{children}</span>;
@@ -275,8 +184,6 @@ function Btn({ label, onClick, variant = 'secondary', small, ariaLabel }: { labe
   );
 }
 
-function ageColor(d: number) { return d < 2 ? T.dim : d < 4 ? T.yellow : T.red; }
-function ageLabel(d: number) { return d === 0 ? 'today' : d === 1 ? '1d ago' : `${d}d ago`; }
 
 // ─── SVG area chart ───────────────────────────────────────────────────────────
 
@@ -285,27 +192,6 @@ function ageLabel(d: number) { return d === 0 ? 'today' : d === 1 ? '1d ago' : `
 
 // LatBar (fake per-service latency bar) removed with SystemHealth's fake
 // SERVICES list — no longer referenced anywhere.
-
-function StageFunnel({ clients }: { clients: Client[] }) {
-  const counts: Partial<Record<Stage, number>> = {};
-  clients.forEach(c => { counts[c.stage] = (counts[c.stage] ?? 0) + 1; });
-  const stages: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid'];
-  const mx = Math.max(...stages.map(s => counts[s] ?? 0), 1);
-  const summary = stages.map(s => `${s} ${counts[s] ?? 0}`).join(', ');
-  return (
-    <div className={styles.funnel} role="img" aria-label={`Accounts by stage: ${summary}`}>
-      {stages.map(s => {
-        const n = counts[s] ?? 0;
-        return (
-          <div key={s} className={styles.funnelStep}>
-            <div className={styles.funnelBar} style={{ height: Math.max(n === 0 ? 2 : (n/mx)*20, 2), background: n === 0 ? T.borderB : tint(STAGE_FG[s], 35), borderColor: n === 0 ? 'transparent' : STAGE_FG[s] }} />
-            <span className={styles.funnelLabel}>{s.slice(0,3).toUpperCase()}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ─── Section tabs ─────────────────────────────────────────────────────────────
 
@@ -336,14 +222,12 @@ function SectionTabs({ section, setSection }: { section: Section; setSection: (s
 
 // ─── Attention Queue ──────────────────────────────────────────────────────────
 
-function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
-  items: QueueItem[];
-  onAction: (msg: string) => void;
-  onFollowUp?: (clientId: number | string, org: string) => void;
-  onMarkReviewed?: (analysisId: string | undefined, org: string, clientId?: number) => void;
-}) {
+// Items are real ops alerts for the current workspace. The action opens
+// Command Centre, which already owns alert actions
+// (/api/ops/alerts/[id]/action) — the old button only showed a toast and a
+// local "Done" mark without changing anything.
+function AttentionQueue({ items }: { items: QueueItem[] }) {
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
-  const [actioned,  setActioned]  = useState<Set<number>>(new Set());
 
   const visible = items.filter(q => !dismissed.has(q.id));
   if (visible.length === 0) return (
@@ -371,29 +255,17 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
 
       <div className={styles.stack}>
         {visible.map(q => {
-          const done = actioned.has(q.id);
           const sc   = SEV_COLOR[q.severity];
           return (
-            <div key={q.id} className={styles.queueItem} style={{ borderLeftColor: sc, background: done ? T.greenA : undefined }}>
+            <div key={q.id} className={styles.queueItem} style={{ borderLeftColor: sc }}>
               <div className={styles.queueHead}>
                 <Chip color={sc}>{q.severity}</Chip>
                 <Chip color={FEED_C[q.type]}>{q.type}</Chip>
-                <span className={styles.queueTitle} style={{ color: done ? T.sub : T.text }}>{q.title}</span>
+                <span className={styles.queueTitle} style={{ color: T.text }}>{q.title}</span>
                 {q.due && <Meta size={11} color={T.dim}>{q.due}</Meta>}
-                {done ? (
-                  <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✓ Done</span>
-                ) : (
-                  <Btn small label={`→ ${q.cta}`} variant={q.severity === 'critical' ? 'danger' : 'secondary'} onClick={() => {
-                    setActioned(p => new Set([...p, q.id]));
-                    if (q.analysis_id !== undefined && onMarkReviewed) {
-                      onMarkReviewed(q.analysis_id, q.title, typeof q.client_id === 'number' ? q.client_id : undefined);
-                    } else if (q.client_id !== undefined && onFollowUp) {
-                      onFollowUp(q.client_id, q.title);
-                    } else {
-                      onAction(`${q.cta}: ${q.title}`);
-                    }
-                  }} />
-                )}
+                <Link href="/command" {...buttonProps(q.severity === 'critical' ? 'danger' : 'secondary', 'sm')} style={{ flexShrink: 0 }}>
+                  → {q.cta}
+                </Link>
                 <button type="button" className={styles.iconButton} aria-label={`Dismiss ${q.title}`} onClick={() => setDismissed(p => new Set([...p, q.id]))}>
                   <span aria-hidden="true">×</span>
                 </button>
@@ -542,7 +414,7 @@ function RealFounderOperations() {
           <div className={styles.stateText}>{loadError ? 'Unavailable.' : 'Loading…'}</div>
         ) : (
           <MetricStrip>
-            <Metric label="Active MRR"               value={`$${Math.round(metrics.activeMrr).toLocaleString()}`} />
+            <Metric label="Contracted MRR"           value={`$${Math.round(metrics.activeMrr).toLocaleString()}`} />
             <Metric label="Active managed services"  value={String(metrics.activeManagedServices)} />
             <Metric label="In implementation"        value={String(metrics.onboardingInProgress)} />
             <Metric label="Open requests"            value={String(metrics.openRequests)} />
@@ -594,84 +466,6 @@ function HlnaBriefing() {
 // calls onFollowUp directly, which is the same effect for pointer and
 // keyboard users (the click used to bubble to that wrapper).
 
-function ClientPipeline({ onSelect, onFollowUp, overrides, clients, loading }: {
-  onSelect: (c: Client) => void;
-  onFollowUp: (clientId: number, org: string) => void;
-  overrides: Record<number, ClientOverride>;
-  clients: Client[];
-  loading: boolean;
-}) {
-  const pipelineVal = clients.filter(c => c.stage !== 'lost').reduce((a, c) => a + c.value, 0);
-  const colTpl = 'minmax(0, 2fr) minmax(0, 1fr) 0.6fr 0.8fr minmax(0, 2fr) 0.65fr 92px';
-
-  if (!loading && clients.length === 0) return (
-    <Card>
-      <Lbl s="Client pipeline" spaced />
-      <Empty title="Not connected" text="No authoritative sales-pipeline source is wired up yet." />
-    </Card>
-  );
-
-  return (
-    <Card>
-      <div style={{ marginBottom: 10 }}>
-        <div className={styles.cardHeaderGroup} style={{ marginBottom: 8 }}>
-          <Lbl s="Client pipeline" />
-          <Meta size={11} color={T.dim}>{clients.length} accounts · ${pipelineVal.toLocaleString()} open</Meta>
-        </div>
-        <StageFunnel clients={clients} />
-      </div>
-
-      <div className={styles.scrollX}>
-        <div className={`${styles.pipelineGrid} ${styles.pipelineHead}`} style={{ gridTemplateColumns: colTpl }}>
-          {['Organisation', 'Contact', 'Value', 'Stage', 'Next action', 'Activity', ''].map(h => (
-            <span key={h} className={styles.pipelineHeadCell}>{h}</span>
-          ))}
-        </div>
-
-        {clients.map(base => {
-          const ov       = overrides[base.id] ?? {};
-          const effDays  = ov.daysAgo  ?? base.daysAgo;
-          const effStage = ov.stage    ?? base.stage;
-          const effAct   = ov.action   ?? base.action;
-          const stale    = !ov.followedUp && effDays >= 4;
-          const merged: Client = { ...base, daysAgo: effDays, stage: effStage, action: effAct };
-          return (
-            <div key={base.id}
-              className={`${styles.pipelineGrid} ${styles.pipelineRow}`}
-              data-highlighted={ov.highlighted ? 'true' : undefined}
-              style={{
-                gridTemplateColumns: colTpl,
-                borderLeftColor: stale ? T.red : ov.highlighted ? T.green : 'transparent',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                <button type="button" className={styles.pipelineOpen} onClick={() => onSelect(merged)}>{base.org}</button>
-                {base.linked_organisation && (
-                  <span style={{ position: 'relative', zIndex: 1, display: 'inline-flex' }}>
-                    <Chip color={T.cyan} title={`Linked: ${base.linked_organisation.name}`}>LINKED</Chip>
-                  </span>
-                )}
-              </div>
-              <span className={styles.ellipsis} style={{ fontSize: 12, color: T.sub }}>{base.contact}</span>
-              <Meta size={12} color={T.text}>${(base.value/1000).toFixed(1)}k</Meta>
-              <StagePill s={effStage} />
-              <span className={styles.ellipsis} style={{ fontSize: 12, color: ov.followedUp ? T.green : T.sub }}>{effAct}</span>
-              <Meta size={11} color={ov.followedUp ? T.green : ageColor(effDays)}>{ov.followedUp ? 'just now' : ageLabel(effDays)}</Meta>
-              <div className={styles.pipelineAction}>
-                {ov.followedUp ? (
-                  <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✓ Sent</span>
-                ) : (
-                  <Btn small label="Follow up" ariaLabel={`Follow up ${base.org}`} variant={stale ? 'danger' : 'secondary'} onClick={() => onFollowUp(base.id, base.org)} />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
 // ─── Revenue intel ────────────────────────────────────────────────────────────
 // Phase B: the MRR trend chart, "Top opportunity" line, and all five stat
 // rows were fabricated (no historical revenue table, no deal/trial/churn
@@ -695,10 +489,10 @@ function RevenueIntel({ metrics, loading }: { metrics: AttnMetrics | null; loadi
       <div className={styles.revenueGrid}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-            <Lbl s="Active MRR" />
+            <Lbl s="Contracted MRR" />
             <Meta size={20} color={mrr != null ? T.text : T.dim}>{mrrDisplay}</Meta>
           </div>
-          <Empty title="Historical MRR trend not available" text="No revenue history is tracked yet — this shows current active recurring revenue only." />
+          <Empty title="Historical MRR trend not available" text="No revenue history is tracked yet. This is the monthly value recorded on active managed services — a contracted figure, not invoiced or received revenue." />
           <div className={styles.sourceNote}>
             <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: T.dim }}>Source </span>
             <Code size={11} color={T.sub}>managed_services · active subscriptions</Code>
@@ -706,7 +500,7 @@ function RevenueIntel({ metrics, loading }: { metrics: AttnMetrics | null; loadi
         </div>
         <div className={styles.stackTight}>
           <div className={styles.statRow}>
-            <span style={{ fontSize: 12, color: T.sub }}>ARR run rate</span>
+            <span style={{ fontSize: 12, color: T.sub }}>Contracted ARR run rate</span>
             <span style={{ fontWeight: 600 }}><Meta size={12} color={arr != null ? T.text : T.dim}>{arrDisplay}</Meta></span>
           </div>
           {REVENUE_UNAVAILABLE_STATS.map(l => (
@@ -786,6 +580,390 @@ function ImplementationSummary({ metrics, loading, nextActions }: {
           )}
         </>
       )}
+    </Card>
+  );
+}
+
+// ─── Clients & business flow ─────────────────────────────────────────────────
+// Authoritative client view from GET /api/admin/founder-clients (see
+// lib/founder/clientOverview.ts). Three relationships are shown separately
+// and never merged: registered BrainBase organisations, HLNA Labs CRM
+// prospects, and HLNA Labs Commercial billing customers. Every source can
+// independently be "unavailable" (could not be read) — that is never shown
+// as an empty list or a zero. Money stays in labelled buckets: contracted
+// service value and CRM pipeline estimates are never added to invoiced or
+// received amounts.
+
+const SOURCE_LABEL: Record<SourceKey, string> = {
+  organisations: 'Organisations',
+  capabilities: 'Enabled capabilities',
+  implementations: 'Implementations',
+  managedServices: 'Managed services',
+  onboarding: 'Web Systems onboarding',
+  requests: 'Client requests',
+  hlnaCrm: 'HLNA CRM',
+  webLeads: 'Web Systems enquiries',
+  hlnaCommercial: 'HLNA Commercial ledger',
+};
+
+const RELATIONSHIP_LABEL: Record<BillingCustomer['relationship'], string> = {
+  paying: 'Payment allocated',
+  invoiced: 'Invoiced, nothing allocated',
+  no_issued_invoices: 'No issued invoices',
+  unreadable: 'Amounts unreadable',
+};
+
+type MoneyKey = 'invoicedCents' | 'allocatedReceivedCents' | 'outstandingCents';
+
+// Exact: amounts are decimal strings formatted with BigInt (lib/founder/
+// exactMoney), one figure per currency, never added across currencies.
+function moneyLine(list: MoneyByCurrency[], key: MoneyKey): string {
+  if (list.length === 0) return 'None recorded';
+  return list.map(m => formatCents(m[key], m.currency)).join(' · ');
+}
+
+// One exact figure per currency, each on its own line and allowed to break
+// anywhere: amounts can be far wider than a metric tile (e.g. above 2^53
+// cents) and must never overlap the neighbouring tile.
+function MoneyLines({ list, k }: { list: MoneyByCurrency[]; k: MoneyKey }) {
+  if (list.length === 0) return <>None recorded</>;
+  return (
+    <>
+      {list.map(m => (
+        <span key={m.currency} style={{ display: 'block', overflowWrap: 'anywhere' }}>{formatCents(m[k], m.currency)}</span>
+      ))}
+    </>
+  );
+}
+
+function contractedLine(c: ContractedServices): string {
+  const parts = [`${formatCents(c.contractedMonthlyCents, null)}/mo contracted (not invoiced)`];
+  if (c.unreadableValueCount > 0) {
+    parts.push(`${c.unreadableValueCount} with an unreadable value, not included`);
+  }
+  return parts.join(' · ');
+}
+
+function dealValue(v: string | null, withoutValue = 0, invalid = 0): string {
+  const base = v === null ? 'value unreadable' : `${formatDecimalDollars(v)} estimate`;
+  const notes: string[] = [];
+  if (withoutValue > 0) notes.push(`${withoutValue} open deal${withoutValue === 1 ? '' : 's'} with no value`);
+  if (invalid > 0) notes.push(`${invalid} invalid value${invalid === 1 ? '' : 's'} excluded`);
+  return notes.length > 0 ? `${base} (${notes.join('; ')}; not included)` : base;
+}
+
+function Unavailable({ what }: { what: string }) {
+  return <Empty title={`${what} unavailable`} text="This source could not be read just now. It is not an empty list — try again later." />;
+}
+
+function FlowLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} style={{ fontSize: 11, color: T.purple, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+      {children}
+    </Link>
+  );
+}
+
+// ─── HLNA Labs workspace links ───────────────────────────────────────────────
+// CRM/Commercial records shown here belong to HLNA Labs. A plain link only
+// when the founder is already working in HLNA Labs; otherwise a button that
+// switches through the audited impersonation flow first (see
+// openInHlnaWorkspace in the root), or a disabled control with the reason.
+
+type HlnaNav = {
+  workspace: HlnaWorkspace | null;
+  name: string;
+  loading: boolean;
+  pending: boolean;
+  error: string | null;
+  open: (href: string) => void;
+};
+
+function hlnaBlockedReason(h: HlnaNav): string | null {
+  if (h.loading && !h.workspace) return 'Checking which organisation you are working in…';
+  if (!h.workspace) return `Your working organisation could not be confirmed, so ${h.name} records cannot be opened from here.`;
+  if (h.workspace.switchTo === 'unavailable') return 'No HLNA Labs organisation was found, so these records cannot be opened from here.';
+  return null;
+}
+
+function HlnaLink({ hlna, href, children, describedBy }: {
+  hlna: HlnaNav; href: string; children: React.ReactNode; describedBy?: string;
+}) {
+  const blocked = hlnaBlockedReason(hlna);
+  if (!blocked && hlna.workspace?.switchTo === 'none') {
+    return (
+      <Link href={href} style={{ fontSize: 12, color: T.text, textDecoration: 'none' }}>{children}</Link>
+    );
+  }
+  const disabled = blocked !== null || hlna.pending;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-describedby={describedBy}
+      onClick={() => hlna.open(href)}
+      style={{
+        background: 'none', border: 0, padding: 0, font: 'inherit', fontSize: 12, textAlign: 'left',
+        color: disabled ? T.dim : T.text, textDecoration: 'underline dotted', textUnderlineOffset: 3,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function HlnaWorkspaceNotice({ hlna, id }: { hlna: HlnaNav; id: string }) {
+  const blocked = hlnaBlockedReason(hlna);
+  let text: string | null = null;
+  if (blocked) text = blocked;
+  else if (hlna.workspace?.switchTo === 'stop_viewing_as' || hlna.workspace?.switchTo === 'view_as_hlna') {
+    text = `You are working in another organisation. These records belong to ${hlna.name}: opening one first switches your working organisation to ${hlna.name} (recorded in the audit log), then opens it.`;
+  }
+  return (
+    <>
+      {text && <p id={id} className={styles.stateText} role="note" style={{ marginBottom: 8 }}>{text}</p>}
+      {hlna.pending && <p className={styles.stateText} role="status" style={{ marginBottom: 8 }}>Switching to {hlna.name}…</p>}
+      {hlna.error && <p className={styles.errorText} role="alert" style={{ marginBottom: 8 }}>{hlna.error}</p>}
+    </>
+  );
+}
+
+function FounderClientOverviewPanel({ overview, state, variant, hlna, crmPageState = 'idle', crmRequestedPage, onCrmPage }: {
+  overview: FounderClientOverview | null;
+  state: 'loading' | 'ready' | 'error';
+  variant: 'summary' | 'full';
+  hlna: HlnaNav;
+  crmPageState?: 'idle' | 'loading' | 'error';
+  /** Page most recently asked for — may differ from the displayed page while loading or after a failure. */
+  crmRequestedPage?: number;
+  onCrmPage?: (page: number) => void;
+}) {
+  const noticeId = useId();
+  const header = (
+    <div className={styles.cardHeader}>
+      <Lbl s="Clients & business flow" />
+      <span style={{ display: 'flex', gap: 12 }}>
+        <FlowLink href="/clients">Client workspaces →</FlowLink>
+        <FlowLink href="/organiser">Founder tasks →</FlowLink>
+      </span>
+    </div>
+  );
+
+  if (state === 'loading') return <Card>{header}<div className={styles.stateText}>Loading…</div></Card>;
+  if (state === 'error' || !overview) {
+    return (
+      <Card>
+        {header}
+        <Empty title="Client overview unavailable" text="The client overview could not be loaded. Nothing below is a confirmed empty list." />
+      </Card>
+    );
+  }
+
+  const orgs = overview.registeredOrganisations;
+  const prospects = overview.prospects.crmCompanies;
+  const crmSummary = overview.prospects.crmSummary;
+  const crmPage = overview.prospects.crmPage;
+  const customers = overview.billing.customers;
+  const totals = overview.billing.totals;
+  const unreadableBilling = overview.billing.unreadableAmountRows ?? 0;
+  const unavailable = (Object.keys(overview.sources) as SourceKey[]).filter(k => overview.sources[k] === 'unavailable');
+  const payingCount = customers?.filter(c => c.relationship === 'paying').length ?? null;
+  const withImplementation = orgs && overview.sources.implementations === 'ok'
+    ? orgs.filter(o => (o.implementations?.activeCount ?? 0) > 0).length
+    : null;
+  const hlnaName = overview.hlnaOrganisation?.name ?? 'HLNA Labs';
+  const billingSub = (label: string) => (unreadableBilling > 0 ? `${label} · incomplete: ${unreadableBilling} unreadable` : label);
+
+  const summary = (
+    <MetricStrip style={{ marginBottom: variant === 'full' ? 12 : 0 }}>
+      <Metric label="Registered organisations" value={orgs ? String(orgs.length) : '—'} sub={orgs ? 'BrainBase workspaces' : 'unavailable'} />
+      <Metric label="With active implementation" value={withImplementation != null ? String(withImplementation) : '—'} sub={withImplementation != null ? 'implementations' : 'unavailable'} />
+      <Metric label="Prospects with open deals" value={crmSummary ? String(crmSummary.companiesWithOpenDeals) : '—'} sub={crmSummary ? `all ${hlnaName} CRM companies` : 'unavailable'} />
+      <Metric label="Customers with allocated payments" value={payingCount != null ? String(payingCount) : '—'} sub={payingCount != null ? `${hlnaName} Commercial` : 'unavailable'} />
+      <Metric label="Invoiced (issued)" value={totals ? <MoneyLines list={totals} k="invoicedCents" /> : '—'} sub={totals ? billingSub('issued invoices') : 'unavailable'} />
+      <Metric label="Received (allocated)" value={totals ? <MoneyLines list={totals} k="allocatedReceivedCents" /> : '—'} sub={totals ? billingSub('payments allocated to issued invoices') : 'unavailable'} />
+    </MetricStrip>
+  );
+
+  const unavailableNote = unavailable.length > 0 && (
+    <p className={styles.stateText} role="status" style={{ marginTop: 8 }}>
+      Unavailable right now: {unavailable.map(k => SOURCE_LABEL[k]).join(', ')}.
+    </p>
+  );
+
+  if (variant === 'summary') {
+    return <Card>{header}{summary}{unavailableNote}</Card>;
+  }
+
+  const hlnaNoticeId = `${noticeId}-hlna`;
+
+  return (
+    <Card>
+      {header}
+      {summary}
+      {unavailableNote}
+
+      {/* 1. Registered organisations */}
+      <Lbl s="Registered organisations" as="h3" spaced />
+      <p className={styles.stateText} style={{ marginBottom: 8 }}>
+        BrainBase workspaces. Plan and status are account labels, not proof of payment; no record links an organisation to a CRM company or Commercial customer.
+      </p>
+      {orgs === null ? <Unavailable what="Organisations" /> : orgs.length === 0 ? (
+        <Empty title="No client organisations registered" text="Only the HLNA Labs organisation exists." />
+      ) : (
+        <ul className={styles.stackTight} style={{ listStyle: 'none', margin: '0 0 16px', padding: 0 }}>
+          {orgs.map(o => (
+            <li key={o.id} className={styles.row} style={{ display: 'grid', gap: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <Link href={o.links.workspace} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: 'none' }}>{o.name}</Link>
+                <span style={{ fontSize: 11, color: T.sub }}>
+                  {[o.status && `Status: ${o.status}`, o.plan && `Plan label: ${o.plan}`, `${o.userCount} ${o.userCount === 1 ? 'user' : 'users'}`].filter(Boolean).join(' · ')}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: T.sub, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                <span>
+                  Capabilities: {o.capabilities === null ? 'unavailable' : o.capabilities.length === 0 ? 'none enabled' : o.capabilities.map(c => c.name).join(', ')}
+                </span>
+                <span>
+                  Implementation: {o.implementations === null ? 'unavailable'
+                    : o.implementations.primary
+                      ? <>{IMPL_STAGE_LABEL[o.implementations.primary.stage] ?? o.implementations.primary.stage}{o.implementations.primary.health ? ` · ${o.implementations.primary.health.replace(/_/g, ' ')}` : ''}{o.implementations.activeCount > 1 ? ` (+${o.implementations.activeCount - 1} more)` : ''}</>
+                      : 'none active'}
+                </span>
+                <span>
+                  Managed services: {o.managedServices === null ? 'unavailable'
+                    : o.managedServices.activeCount === 0 ? 'none active'
+                    : `${o.managedServices.activeCount} active · ${contractedLine(o.managedServices)}`}
+                </span>
+                {o.onboarding !== null && (
+                  <span>Web Systems onboarding: {o.onboarding === undefined ? 'unavailable' : o.onboarding.stage.replace(/_/g, ' ')}</span>
+                )}
+                <span>Open requests: {o.openRequests === null ? 'unavailable' : o.openRequests}</span>
+              </div>
+              {o.implementations?.primary?.nextAction && (
+                <div style={{ fontSize: 11, color: T.text }}>Next: {o.implementations.primary.nextAction}</div>
+              )}
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <FlowLink href={o.links.workspace}>Workspace →</FlowLink>
+                {o.links.implementation && <FlowLink href={o.links.implementation}>Implementation →</FlowLink>}
+                {o.links.services && <FlowLink href={o.links.services}>Services →</FlowLink>}
+                {o.links.requests && <FlowLink href={o.links.requests}>Requests →</FlowLink>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {overview.unlinkedManagedServices && overview.unlinkedManagedServices.activeCount > 0 && (
+        <p className={styles.stateText} style={{ marginBottom: 16 }}>
+          {overview.unlinkedManagedServices.activeCount} active managed service{overview.unlinkedManagedServices.activeCount === 1 ? '' : 's'} not linked to any organisation ({contractedLine(overview.unlinkedManagedServices)}). <FlowLink href="/admin/deployments">Review →</FlowLink>
+        </p>
+      )}
+
+      {/* HLNA Labs records: CRM + Commercial open only in the HLNA workspace */}
+      <HlnaWorkspaceNotice hlna={hlna} id={hlnaNoticeId} />
+
+      {/* 2. Prospects */}
+      <Lbl s={`Prospects — ${hlnaName} CRM`} as="h3" spaced />
+      <p className={styles.stateText} style={{ marginBottom: 8 }}>
+        Deal values are pipeline estimates, not revenue, and record no currency.
+      </p>
+      {prospects === null || crmSummary === null || crmPage === null ? <Unavailable what={`${hlnaName} CRM`} /> : crmSummary.totalCompanies === 0 ? (
+        <Empty title="No CRM companies yet" text={`Add prospects in CRM while working in the ${hlnaName} workspace.`} />
+      ) : (
+        <>
+          <p className={styles.stateText} style={{ marginBottom: 8 }}>
+            All {crmSummary.totalCompanies} companies: {crmSummary.companiesWithOpenDeals} with open deals · {crmSummary.openDeals} open deal{crmSummary.openDeals === 1 ? '' : 's'} · {dealValue(crmSummary.openDealValue, crmSummary.openDealsWithoutValue, crmSummary.invalidOpenDealValues)} · {crmSummary.wonDeals} won
+          </p>
+          {!crmPage.complete && (
+            <p className={styles.stateText} role="status" style={{ marginBottom: 8 }}>
+              Showing companies {crmPage.from}–{crmPage.to} of {crmPage.totalCompanies}. This list is one page, not the whole portfolio.
+            </p>
+          )}
+          {prospects.length === 0 ? (
+            <Empty title="No companies on this page" text="Go back to an earlier page." />
+          ) : (
+            <ul className={styles.stackTight} style={{ listStyle: 'none', margin: '0 0 8px', padding: 0 }}>
+              {prospects.map(p => (
+                <li key={p.id} className={styles.row} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                  <HlnaLink hlna={hlna} href={p.href} describedBy={hlnaNoticeId}>{p.name}</HlnaLink>
+                  <span style={{ fontSize: 11, color: T.sub }}>
+                    {p.openDeals > 0
+                      ? `${p.openDeals} open deal${p.openDeals === 1 ? '' : 's'} · ${dealValue(p.openDealValue, p.openDealsWithoutValue, p.invalidOpenDealValues)}${p.latestOpenStage ? ` · ${p.latestOpenStage.replace(/_/g, ' ')}` : ''}`
+                      : 'No open deals'}
+                    {p.wonDeals > 0 ? ` · ${p.wonDeals} won` : ''}
+                    {p.commercialCustomerId ? ' · has billing record' : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!crmPage.complete && onCrmPage && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              {/* Computed from the DISPLAYED page; a newer click supersedes an in-flight request. */}
+              <Button size="sm" disabled={!crmPage.hasPrevious} onClick={() => onCrmPage(crmPage.page - 1)}>← Previous</Button>
+              <Button size="sm" disabled={!crmPage.hasNext} onClick={() => onCrmPage(crmPage.page + 1)}>Next →</Button>
+              {crmPageState === 'loading' && <span className={styles.stateText} role="status">Loading page {(crmRequestedPage ?? crmPage.page) + 1}…</span>}
+              {crmPageState === 'error' && (
+                <>
+                  <span className={styles.errorText} role="alert">
+                    Could not load page {(crmRequestedPage ?? crmPage.page) + 1}; still showing companies {crmPage.from}–{crmPage.to}.
+                  </span>
+                  <Button size="sm" onClick={() => onCrmPage(crmRequestedPage ?? crmPage.page)}>Retry page {(crmRequestedPage ?? crmPage.page) + 1}</Button>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <p className={styles.stateText} style={{ marginBottom: 16 }}>
+        Web Systems enquiries: {overview.prospects.webLeadsByStatus === null ? 'unavailable'
+          : Object.keys(overview.prospects.webLeadsByStatus).length === 0 ? 'none'
+          : Object.entries(overview.prospects.webLeadsByStatus).map(([s, n]) => `${s.replace(/_/g, ' ')} ${n}`).join(' · ')}
+        {' '}<FlowLink href="/admin/web-services">Open →</FlowLink>
+      </p>
+
+      {/* 3. Billing */}
+      <Lbl s={`Billing — ${hlnaName} Commercial`} as="h3" spaced />
+      <p className={styles.stateText} style={{ marginBottom: 8 }}>
+        Issued invoices only (drafts and void invoices excluded). Received means recorded payments allocated to those invoices; reversed payments and unallocated amounts are not included.
+      </p>
+      {customers === null || totals === null ? <Unavailable what={`${hlnaName} Commercial ledger`} /> : (
+        <>
+          {unreadableBilling > 0 && (
+            <p className={styles.errorText} role="status" style={{ marginBottom: 8 }}>
+              {unreadableBilling} ledger row{unreadableBilling === 1 ? '' : 's'} had an unreadable amount or currency and {unreadableBilling === 1 ? 'is' : 'are'} not included in these totals.
+            </p>
+          )}
+          <div className={styles.stackTight} style={{ marginBottom: 8 }}>
+            <div className={styles.statRow}><span style={{ fontSize: 12, color: T.sub }}>Invoiced (issued)</span><Meta size={12}><MoneyLines list={totals} k="invoicedCents" /></Meta></div>
+            <div className={styles.statRow}><span style={{ fontSize: 12, color: T.sub }}>Received (allocated to issued invoices)</span><Meta size={12}><MoneyLines list={totals} k="allocatedReceivedCents" /></Meta></div>
+            <div className={styles.statRow}><span style={{ fontSize: 12, color: T.sub }}>Outstanding</span><Meta size={12}><MoneyLines list={totals} k="outstandingCents" /></Meta></div>
+          </div>
+          {customers.length === 0 ? (
+            <Empty title="No Commercial customers yet" text={`Customers are created in Commercial while working in the ${hlnaName} workspace.`} />
+          ) : (
+            <ul className={styles.stackTight} style={{ listStyle: 'none', margin: '0 0 16px', padding: 0 }}>
+              {customers.map(c => (
+                <li key={c.id} className={styles.row} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                  <HlnaLink hlna={hlna} href={c.href} describedBy={hlnaNoticeId}>{c.name}{c.active ? '' : ' (inactive)'}</HlnaLink>
+                  <span style={{ fontSize: 11, color: T.sub }}>
+                    {RELATIONSHIP_LABEL[c.relationship]}
+                    {c.amounts.length > 0 ? ` · invoiced ${moneyLine(c.amounts, 'invoicedCents')} · received ${moneyLine(c.amounts, 'allocatedReceivedCents')} · outstanding ${moneyLine(c.amounts, 'outstandingCents')}` : ''}
+                    {c.unreadableAmountRows > 0 && c.relationship !== 'unreadable' ? ` · ${c.unreadableAmountRows} unreadable` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {/* 4. Not connected */}
+      <Lbl s="Not connected yet" as="h3" spaced />
+      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, color: T.sub }}>
+        {overview.notConnected.map(n => <li key={n.key}><strong style={{ color: T.text }}>{n.label}</strong> — {n.note}</li>)}
+      </ul>
     </Card>
   );
 }
@@ -1583,166 +1761,6 @@ function LiveContext() {
 // now the shared SlidePanel (dialog semantics, Escape, focus trap, focus
 // return, named close button). Same props, same actions, same content.
 
-function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, drawerActivity }: {
-  client: Client; onClose: () => void; onAction: (msg: string) => void;
-  onModal: (m: 'book-demo' | 'proposal') => void;
-  onAdvanceStage: (clientId: number, org: string, stage: Stage) => void;
-  drawerActivity: Array<{ ts: string; event: string }>;
-}) {
-  const router = useRouter();
-  return (
-    <SlidePanel open onClose={onClose} title={client.org}>
-      <div className={styles.drawerSummary}>
-        <div>
-          <div style={{ fontSize: 13, color: T.sub }}>{client.contact}</div>
-          <Meta size={11} color={T.dim}>{client.email}</Meta>
-        </div>
-        <div className={styles.cardHeaderGroup}>
-          <StagePill s={client.stage} />
-          <Meta size={12} color={T.text}>${client.value.toLocaleString()}/mo</Meta>
-          <span style={{ fontSize: 11, color: ageColor(client.daysAgo) }}>Last active: {ageLabel(client.daysAgo)}</span>
-        </div>
-      </div>
-
-      <div className={styles.drawerSections}>
-        <div className={styles.focusBox}>
-          <Lbl s="Next action" as="h3" spaced />
-          <div style={{ fontSize: 13, color: T.text, marginBottom: 10 }}>{client.action}</div>
-          <div className={styles.buttonRow}>
-            <Btn small label="← Back"             onClick={onClose} />
-            <Btn small label="Generate Briefing" onClick={() => { onClose(); router.push('/command'); }} />
-            <Btn small label="Create Proposal"   onClick={() => { onClose(); onModal('proposal'); }} />
-            {client.stage !== 'paid' && client.stage !== 'lost' && (
-              <Btn small variant="primary" label="Advance →" onClick={() => onAdvanceStage(client.id, client.org, client.stage)} />
-            )}
-          </div>
-        </div>
-
-        {drawerActivity.length > 0 && (
-          <div className={styles.drawerSection}>
-            <Lbl s="Session activity" as="h3" />
-            <div className={styles.stackTight}>
-              {drawerActivity.map((ev, i) => (
-                <div key={i} className={styles.row} style={{
-                  borderLeft: `2px solid ${T.green}`,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8,
-                }}>
-                  <span style={{ fontSize: 12, color: T.sub, flex: 1 }}>{ev.event}</span>
-                  <Meta size={11} color={T.green}>now</Meta>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Linked Tenant panel ── */}
-        {client.linked_organisation ? (
-          <div className={styles.drawerSection}>
-            <div className={styles.cardHeaderGroup}>
-              <Lbl s="Linked tenant" as="h3" />
-              <Chip color={T.cyan}>LINKED</Chip>
-            </div>
-            <div className={styles.row} style={{ padding: '9px 11px', borderColor: 'var(--status-info-border)' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 2 }}>{client.linked_organisation.name}</div>
-              <Code size={11} color={T.dim}>{client.linked_organisation.slug}</Code>
-              <div className={styles.twoCol} style={{ marginTop: 8 }}>
-                {client.linked_organisation.status && (
-                  <div className={styles.tile} style={{ background: T.s1 }}>
-                    <div className={styles.tileLabel}>Status</div>
-                    <div style={{ fontSize: 12, color: T.sub }}>{client.linked_organisation.status}</div>
-                  </div>
-                )}
-                {client.linked_organisation.created_at && (
-                  <div className={styles.tile} style={{ background: T.s1 }}>
-                    <div className={styles.tileLabel}>Created</div>
-                    <div style={{ fontSize: 12, color: T.sub }}>{new Date(client.linked_organisation.created_at).toLocaleDateString()}</div>
-                  </div>
-                )}
-              </div>
-              {client.linked_primary_user && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                  <div className={styles.tileLabel}>Primary contact</div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{client.linked_primary_user.name}</div>
-                  {client.linked_primary_user.email && <Meta size={11} color={T.dim}>{client.linked_primary_user.email}</Meta>}
-                </div>
-              )}
-              <div style={{ marginTop: 10 }}>
-                <Btn small label="Open Organisation Admin" onClick={() => router.push('/admin/orgs')} />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className={styles.drawerSection}>
-            <Lbl s="Tenant link" as="h3" />
-            <div className={styles.empty}>
-              <div className={styles.emptyTitle} style={{ marginBottom: 8 }}>Not linked to a tenant organisation</div>
-              <Btn small label="Link to existing org" onClick={() => router.push('/admin/orgs')} />
-            </div>
-          </div>
-        )}
-
-        <div className={styles.drawerSection}>
-          <Lbl s="Notes" as="h3" />
-          <div className={styles.row} style={{ fontSize: 12, color: T.sub, lineHeight: 1.6, padding: '8px 10px' }}>
-            {client.notes || <span style={{ color: T.dim, fontStyle: 'italic' }}>No notes</span>}
-          </div>
-        </div>
-
-        <div className={styles.drawerSection}>
-          <Lbl s="Usage summary" as="h3" />
-          <div className={styles.twoCol}>
-            {[
-              { l: 'Uploads',      v: client.usage.uploads   },
-              { l: 'Analyses run', v: client.usage.analyses  },
-              { l: 'Last active',  v: client.usage.lastActive },
-              { l: 'Top module',   v: client.usage.topModule  },
-            ].map(r => (
-              <div key={r.l} className={styles.tile}>
-                <div className={styles.tileLabel}>{r.l}</div>
-                <div className={styles.num} style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{r.v}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {client.uploads.length > 0 && (
-          <div className={styles.drawerSection}>
-            <Lbl s="Recent uploads" as="h3" />
-            <div className={styles.stackTight}>
-              {client.uploads.map((u, i) => (
-                <div key={i} className={styles.row} style={{ padding: '4px 8px' }}>
-                  <Code size={11} color={u.includes('FAILED') ? T.red : T.sub}>{u}</Code>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {client.insights.length > 0 && (
-          <div className={styles.drawerSection}>
-            <Lbl s="Recent HLNΛ insights" as="h3" />
-            {client.insights.map((ins, i) => (
-              <div key={i} className={styles.insight}>
-                {ins}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {client.insights.length === 0 && (
-          <div className={styles.empty}>
-            <div className={styles.emptyTitle}>No HLNΛ insights yet</div>
-            <div className={styles.emptyText}>Upload data to generate analysis</div>
-            <div style={{ marginTop: 8 }}>
-              <Btn small label="Upload Dataset" onClick={() => onAction(`Upload: ${client.org}`)} />
-            </div>
-          </div>
-        )}
-      </div>
-    </SlidePanel>
-  );
-}
-
 // ─── Left sidebar ─────────────────────────────────────────────────────────────
 // Visual convergence: nav entries are real controls on the shared module-nav
 // contract (moduleNavItemProps — aria-current on the current section, same
@@ -1753,12 +1771,13 @@ function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, draw
 
 type NavItem = { label: string; section?: Section; href?: string; dim?: boolean };
 
-function LeftSidebar({ onModal, section, setSection }: {
-  onModal: (m: 'book-demo' | 'proposal' | 'add-lead') => void;
+function LeftSidebar({ hlna, section, setSection }: {
+  hlna: HlnaNav;
   section: Section;
   setSection: (s: Section) => void;
 }) {
   const router = useRouter();
+  const hlnaHelpId = useId();
 
   const NAV: NavItem[] = [
     { label: 'Overview', section: 'overview' },
@@ -1778,10 +1797,17 @@ function LeftSidebar({ onModal, section, setSection }: {
     { label: 'Admin',    href: '/admin', dim: true },
   ];
 
+  // Lead, demo and proposal work happens in the existing HLNA Labs CRM and
+  // Commercial screens (the old modals were not backed by them). They open
+  // through openInHlnaWorkspace, so they never act on another organisation.
+  const hlnaBlocked = hlnaBlockedReason(hlna);
+  const hlnaNeedsSwitch = hlna.workspace?.switchTo === 'stop_viewing_as' || hlna.workspace?.switchTo === 'view_as_hlna';
+  const HLNA_ACTS = [
+    { icon: '＋', l: 'Add lead (CRM deal)',        href: '/crm/deals' },
+    { icon: '◆',  l: 'Log demo (CRM activity)',    href: '/crm/activities' },
+    { icon: '↗',  l: 'New quote (Commercial)',     href: '/commercial/quotes/new' },
+  ];
   const ACTS = [
-    { icon: '＋', l: 'Add lead',       fn: () => onModal('add-lead')              },
-    { icon: '◆',  l: 'Book demo',      fn: () => onModal('book-demo')             },
-    { icon: '↗',  l: 'Gen proposal',   fn: () => onModal('proposal')              },
     { icon: '⊞',  l: 'Clients',        fn: () => setSection('clients')            },
     { icon: '▷',  l: 'Run analysis',   fn: () => router.push('/command')          },
     { icon: '↑',  l: 'Upload dataset', fn: () => router.push('/data')             },
@@ -1824,6 +1850,24 @@ function LeftSidebar({ onModal, section, setSection }: {
       <div className={styles.sidebarGroup}>
         <h2 className={styles.sidebarHeading}>Actions</h2>
         <div className={styles.actionList}>
+          {HLNA_ACTS.map(a => (
+            <button
+              key={a.l}
+              type="button"
+              onClick={() => hlna.open(a.href)}
+              disabled={hlnaBlocked !== null || hlna.pending}
+              aria-describedby={hlnaBlocked || hlnaNeedsSwitch ? hlnaHelpId : undefined}
+              className={styles.actionButton}
+            >
+              <span className={styles.actionIcon} aria-hidden="true">{a.icon}</span>
+              {a.l}
+            </button>
+          ))}
+          {(hlnaBlocked || hlnaNeedsSwitch) && (
+            <p id={hlnaHelpId} style={{ fontSize: 10, color: T.dim, margin: '2px 8px 6px', lineHeight: 1.4 }}>
+              {hlnaBlocked ?? `Opens in ${hlna.name}; switches your working organisation first.`}
+            </p>
+          )}
           {ACTS.map(a => (
             <button key={a.l} type="button" onClick={a.fn} className={styles.actionButton}>
               <span className={styles.actionIcon} aria-hidden="true">{a.icon}</span>
@@ -1860,450 +1904,14 @@ function Toast({ msg, isError }: { msg: string; isError?: boolean }) {
   );
 }
 
-// ─── Add Lead modal ───────────────────────────────────────────────────────────
-// Visual convergence (all three modals): the hand-rolled fixed overlay +
-// box is now the shared Dialog (role="dialog", aria-modal, Escape, focus
-// trap, initial focus, focus return, named close). Every field keeps its
-// state binding, and every submit handler and request payload is unchanged;
-// fields gained real <label> associations via Field.
-
-const STAGE_OPTIONS: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal'];
-
-function AddLeadModal({ onClose, onAdded, clients }: {
-  onClose: () => void;
-  onAdded: (msg: string) => void;
-  clients: Client[];
-}) {
-  const [mode,       setMode]       = useState<'existing' | 'new'>('existing');
-  const [orgFilter,  setOrgFilter]  = useState('');
-  const [selId,      setSelId]      = useState<number | null>(null);
-  const [org,        setOrg]        = useState('');
-  const [contact,    setContact]    = useState('');
-  const [email,      setEmail]      = useState('');
-  const [stage,      setStage]      = useState<Stage>('lead');
-  const [valStr,     setValStr]     = useState('');
-  const [nextAction, setNextAction] = useState('');
-  const [note,       setNote]       = useState('');
-  const [loading,    setLoading]    = useState(false);
-
-  // ── Tenant linking state ─────────────────────────────────────────────────
-  type TenantOrg  = { id: string; name: string; slug: string };
-  type TenantUser = { id: string; name: string; email: string; organisation_id: string };
-
-  const [tenantOpen,     setTenantOpen]     = useState(false);
-  const [tenantOrgs,     setTenantOrgs]     = useState<TenantOrg[]>([]);
-  const [tenantUsers,    setTenantUsers]    = useState<TenantUser[]>([]);
-  const [tenantOrgId,    setTenantOrgId]    = useState('');
-  const [tenantContactId, setTenantContactId] = useState('');
-  const [tenantFilter,   setTenantFilter]   = useState('');
-  const [tenantLoading,  setTenantLoading]  = useState(false);
-
-  const openTenantSection = () => {
-    setTenantOpen(true);
-    if (tenantOrgs.length > 0) return;
-    setTenantLoading(true);
-    Promise.all([
-      fetch('/api/admin/orgs').then(r => r.ok ? r.json() : { orgs: [] }),
-      fetch('/api/admin/users').then(r => r.ok ? r.json() : { users: [] }),
-    ]).then(([orgsData, usersData]) => {
-      setTenantOrgs((orgsData.orgs ?? []) as TenantOrg[]);
-      setTenantUsers((usersData.users ?? []) as TenantUser[]);
-    }).catch(() => {}).finally(() => setTenantLoading(false));
-  };
-
-  const filteredTenantOrgs = tenantOrgs.filter(o =>
-    o.name.toLowerCase().includes(tenantFilter.toLowerCase())
-  );
-  const orgUsers = tenantOrgId ? tenantUsers.filter(u => u.organisation_id === tenantOrgId) : [];
-  const linkedTenantOrg = tenantOrgs.find(o => o.id === tenantOrgId);
-
-  const selectTenantOrg = (id: string) => {
-    setTenantOrgId(id);
-    setTenantContactId('');
-    const o = tenantOrgs.find(x => x.id === id);
-    if (o && !org.trim()) setOrg(o.name);
-  };
-
-  // ── Existing CRM client flow ──────────────────────────────────────────────
-  const filtered = clients.filter(c =>
-    c.org.toLowerCase().includes(orgFilter.toLowerCase())
-  );
-
-  const selectExisting = (id: number) => {
-    setSelId(id);
-    const c = clients.find(x => x.id === id);
-    if (!c) return;
-    setOrg(c.org);
-    if (c.contact && c.contact !== '—') setContact(c.contact);
-    if (c.email) setEmail(c.email);
-    if (c.value) setValStr(String(c.value));
-    setStage(c.stage === 'lost' ? 'lead' : c.stage);
-    if (c.action && c.action !== '—') setNextAction(c.action);
-    if (c.notes) setNote(c.notes);
-  };
-
-  const switchMode = (m: 'existing' | 'new') => {
-    setMode(m);
-    setSelId(null);
-    setOrg(''); setContact(''); setEmail('');
-    setStage('lead'); setValStr(''); setNextAction(''); setNote('');
-  };
-
-  const ready = !!org.trim() && (mode === 'new' || selId !== null);
-
-  const submit = async () => {
-    if (!ready || loading) return;
-    setLoading(true);
-    try {
-      await fetch('/api/admin/founder-action/add-lead', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          org:                org.trim(),
-          contact_name:       contact.trim() || undefined,
-          email:              email.trim()   || undefined,
-          stage,
-          estimated_value:    valStr ? Number(valStr) : undefined,
-          next_action:        nextAction.trim() || undefined,
-          note:               note.trim()       || undefined,
-          existing_client_id: selId ?? undefined,
-          organisation_id:    tenantOrgId     || undefined,
-          primary_contact_id: tenantContactId || undefined,
-        }),
-      });
-      onAdded(`Lead added — ${org.trim()}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const modeBtn = (m: 'existing' | 'new', label: string) => (
-    <button
-      type="button"
-      className={styles.segment}
-      aria-pressed={mode === m}
-      onClick={() => switchMode(m)}
-    >{label}</button>
-  );
-
-  return (
-    <Dialog open onClose={onClose} title="Add Lead" width={460}>
-      <div className={styles.dialogBody}>
-        <p className={styles.dialogIntro}>Add a prospect to the pipeline</p>
-
-        {/* Mode toggle */}
-        <div className={styles.segmented} role="group" aria-label="Organisation">
-          {modeBtn('existing', 'Existing organisation')}
-          {modeBtn('new',      'New organisation')}
-        </div>
-
-        {/* ── Existing org flow ── */}
-        {mode === 'existing' && (
-          <div style={{ display: 'grid', gap: 6 }}>
-            <Field label="Search organisations">
-              {control => (
-                <input
-                  {...control}
-                  className={fieldControlClassName}
-                  value={orgFilter}
-                  onChange={e => { setOrgFilter(e.target.value); setSelId(null); setOrg(''); }}
-                  placeholder="Type to filter…"
-                />
-              )}
-            </Field>
-            {filtered.length === 0 ? (
-              <div className={styles.stateText} style={{ padding: '6px 8px' }}>No matches — switch to &ldquo;New organisation&rdquo;</div>
-            ) : (
-              <select
-                size={Math.min(filtered.length, 5)}
-                value={selId ?? ''}
-                onChange={e => selectExisting(Number(e.target.value))}
-                aria-label="Matching organisations"
-                className={fieldControlClassName}
-                style={{ height: 'auto', padding: 0 }}
-              >
-                {filtered.map(c => (
-                  <option key={c.id} value={c.id} style={{ padding: '5px 8px' }}>
-                    {c.org}{c.contact && c.contact !== '—' ? ` — ${c.contact}` : ''} [{c.stage.toUpperCase()}]
-                  </option>
-                ))}
-              </select>
-            )}
-            {selId !== null && (
-              <div className={styles.notice}>
-                Lead will be added for <strong>{org}</strong>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Org name (new mode only) ── */}
-        {mode === 'new' && (
-          <Field label="Organisation name">
-            {control => (
-              <input
-                {...control}
-                className={fieldControlClassName}
-                value={org}
-                onChange={e => setOrg(e.target.value)}
-                placeholder="e.g. City of Adelaide"
-              />
-            )}
-          </Field>
-        )}
-
-        {/* Contact + Email */}
-        <div className={styles.formGrid2}>
-          <Field label="Contact name">
-            {control => <input {...control} className={fieldControlClassName} value={contact} onChange={e => setContact(e.target.value)} placeholder="Full name" />}
-          </Field>
-          <Field label="Email (optional)">
-            {control => <input {...control} className={fieldControlClassName} value={email} onChange={e => setEmail(e.target.value)} placeholder="email@council.sa.gov.au" />}
-          </Field>
-        </div>
-
-        {/* Stage + Value */}
-        <div className={styles.formGrid2}>
-          <Field label="Stage">
-            {control => (
-              <select {...control} className={fieldControlClassName} value={stage} onChange={e => setStage(e.target.value as Stage)}>
-                {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-              </select>
-            )}
-          </Field>
-          <Field label="Est. value $/mo (optional)">
-            {control => <input {...control} className={fieldControlClassName} type="number" value={valStr} onChange={e => setValStr(e.target.value)} placeholder="e.g. 2400" />}
-          </Field>
-        </div>
-
-        {/* Next action */}
-        <Field label="Next action (optional)">
-          {control => <input {...control} className={fieldControlClassName} value={nextAction} onChange={e => setNextAction(e.target.value)} placeholder="e.g. Send intro email" />}
-        </Field>
-
-        {/* Note */}
-        <Field label="Note (optional)">
-          {control => (
-            <textarea
-              {...control}
-              className={fieldControlClassName}
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              placeholder="Context, source, key contacts…"
-              rows={2}
-            />
-          )}
-        </Field>
-
-        {/* ── Link existing tenant ── */}
-        <div className={styles.tenantBox} data-linked={tenantOrgId ? 'true' : undefined}>
-          <button
-            type="button"
-            className={styles.tenantToggle}
-            aria-expanded={tenantOpen}
-            onClick={() => tenantOpen ? setTenantOpen(false) : openTenantSection()}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: tenantOrgId ? T.cyan : undefined }}>
-              Link existing tenant
-              {linkedTenantOrg && (
-                <span className={styles.chip} style={{ color: T.cyan, background: T.cyanA, borderColor: 'var(--status-info-border)', textTransform: 'none', letterSpacing: 0 }}>
-                  {linkedTenantOrg.name}
-                </span>
-              )}
-            </span>
-            <span aria-hidden="true">{tenantOpen ? '▲' : '▼'}</span>
-          </button>
-
-          {tenantOpen && (
-            <div className={styles.tenantBody}>
-              {tenantLoading ? (
-                <div className={styles.stateText}>Loading organisations…</div>
-              ) : tenantOrgs.length === 0 ? (
-                <div className={styles.stateText}>No tenant organisations found.</div>
-              ) : (
-                <>
-                  <div style={{ display: 'grid', gap: 5 }}>
-                    <Field label="Find tenant organisation">
-                      {control => (
-                        <input
-                          {...control}
-                          className={fieldControlClassName}
-                          value={tenantFilter}
-                          onChange={e => setTenantFilter(e.target.value)}
-                          placeholder="Type to filter…"
-                        />
-                      )}
-                    </Field>
-                    <select
-                      value={tenantOrgId}
-                      onChange={e => selectTenantOrg(e.target.value)}
-                      aria-label="Tenant organisation"
-                      className={fieldControlClassName}
-                    >
-                      <option value="">— No link —</option>
-                      {filteredTenantOrgs.map(o => (
-                        <option key={o.id} value={o.id}>{o.name} ({o.slug})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {tenantOrgId && (
-                    orgUsers.length === 0 ? (
-                      <div>
-                        <div className={styles.label} style={{ marginBottom: 4 }}>Primary contact (optional)</div>
-                        <div className={styles.stateText}>No users in this organisation.</div>
-                      </div>
-                    ) : (
-                      <Field label="Primary contact (optional)">
-                        {control => (
-                          <select
-                            {...control}
-                            className={fieldControlClassName}
-                            value={tenantContactId}
-                            onChange={e => setTenantContactId(e.target.value)}
-                          >
-                            <option value="">— Select contact —</option>
-                            {orgUsers.map(u => (
-                              <option key={u.id} value={u.id}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
-                            ))}
-                          </select>
-                        )}
-                      </Field>
-                    )
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        <FormActions>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={submit} disabled={!ready || loading}>
-            {loading ? 'Adding…' : 'Add Lead'}
-          </Button>
-        </FormActions>
-      </div>
-    </Dialog>
-  );
-}
-
-// ─── Book Demo modal ──────────────────────────────────────────────────────────
-
-function BookDemoModal({ onClose, onBook, clients }: {
-  onClose: () => void;
-  onBook: (org: string, date: string, time?: string) => Promise<void>;
-  clients: Client[];
-}) {
-  const [org,     setOrg]     = useState('');
-  const [date,    setDate]    = useState('');
-  const [time,    setTime]    = useState('');
-  const [loading, setLoading] = useState(false);
-  const ready = !!org && !!date;
-
-  return (
-    <Dialog open onClose={onClose} title="Book Demo" width={420}>
-      <div className={styles.dialogBody}>
-        <p className={styles.dialogIntro}>Schedule a product walkthrough with a prospect</p>
-
-        <Field label="Client">
-          {control => (
-            <select {...control} className={fieldControlClassName} value={org} onChange={e => setOrg(e.target.value)} style={{ color: org ? T.text : T.sub }}>
-              <option value="">Select a client or prospect…</option>
-              {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
-            </select>
-          )}
-        </Field>
-
-        <div className={styles.formGrid2}>
-          <Field label="Date">
-            {control => <input {...control} className={fieldControlClassName} type="date" value={date} onChange={e => setDate(e.target.value)} />}
-          </Field>
-          <Field label="Time (optional)">
-            {control => <input {...control} className={fieldControlClassName} type="time" value={time} onChange={e => setTime(e.target.value)} />}
-          </Field>
-        </div>
-
-        <FormActions>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!ready || loading}
-            onClick={async () => {
-              if (!ready || loading) return;
-              setLoading(true);
-              await onBook(org, date, time || undefined);
-              setLoading(false);
-            }}
-          >
-            {loading ? 'Logging…' : 'Confirm Demo'}
-          </Button>
-        </FormActions>
-      </div>
-    </Dialog>
-  );
-}
-
-// ─── Generate Proposal modal ──────────────────────────────────────────────────
-
-function ProposalModal({ preselect, onClose, onConfirm, clients }: { preselect?: Client | null; onClose: () => void; onConfirm: (msg: string) => void; clients: Client[] }) {
-  const [org,   setOrg]   = useState(preselect?.org ?? '');
-  const [price, setPrice] = useState(preselect ? String(preselect.value) : '');
-  const [mod,   setMod]   = useState(preselect?.usage.topModule ?? 'Waste & Recycling');
-  const MODS = ['Waste & Recycling', 'Fleet Management', 'Roads & Infrastructure', 'Full Platform'];
-  const ready = !!org;
-
-  return (
-    <Dialog open onClose={onClose} title="Generate Proposal" width={420}>
-      <div className={styles.dialogBody}>
-        <p className={styles.dialogIntro}>Draft a pricing proposal for a client or prospect</p>
-
-        <Field label="Client">
-          {control => (
-            <select {...control} className={fieldControlClassName} value={org} onChange={e => setOrg(e.target.value)} style={{ color: org ? T.text : T.sub }}>
-              <option value="">Select a client…</option>
-              {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
-            </select>
-          )}
-        </Field>
-
-        <div className={styles.formGrid2}>
-          <Field label="Monthly value ($)">
-            {control => <input {...control} className={fieldControlClassName} type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2400" />}
-          </Field>
-          <Field label="Primary module">
-            {control => (
-              <select {...control} className={fieldControlClassName} value={mod} onChange={e => setMod(e.target.value)}>
-                {MODS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            )}
-          </Field>
-        </div>
-
-        <div className={styles.hint}>
-          Full proposal generation will be wired to the reporting module in the next sprint.
-        </div>
-
-        <FormActions>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!ready}
-            onClick={() => ready && onConfirm(`Proposal drafted for ${org}${price ? ' · $' + price + '/mo' : ''}`)}
-          >
-            Create Proposal
-          </Button>
-        </FormActions>
-      </div>
-    </Dialog>
-  );
-}
+// ─── Legacy Add lead / Book demo / Proposal modals — removed ────────────────
+// They had empty client pickers (the legacy pipeline is no longer read) and
+// either posted to the unverified external founder-action backend or, for
+// "Generate Proposal", showed a success toast without saving anything. The
+// sidebar actions now open the existing authoritative screens (CRM deals,
+// CRM activities, Commercial quotes) in the HLNA Labs workspace instead —
+// see openInHlnaWorkspace. The legacy /api/admin/founder-action routes are left
+// in place (unchanged, no longer called from this page) pending a decision.
 
 // ─── KPI hero ─────────────────────────────────────────────────────────────────
 
@@ -2323,7 +1931,7 @@ function SnapshotHero({ metrics, loading }: { metrics: AttnMetrics | null; loadi
           ? (loading ? '…' : metrics ? `$${Math.round(metrics.activeMrr).toLocaleString()}` : '—')
           : '—';
         const sub = t.real
-          ? (loading ? 'loading' : metrics ? 'active managed services' : 'not connected')
+          ? (loading ? 'loading' : metrics ? 'managed services · not invoiced' : 'not connected')
           : 'not connected';
         return (
           <Metric
@@ -2342,33 +1950,115 @@ function SnapshotHero({ metrics, loading }: { metrics: AttnMetrics | null; loadi
 
 export default function FounderPage() {
   const [section,        setSection]        = useState<Section>('overview');
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [toast,          setToast]          = useState<string | null>(null);
   const [toastError,     setToastError]     = useState<string | null>(null);
-  const [modal,          setModal]          = useState<'book-demo' | 'proposal' | 'add-lead' | null>(null);
 
-  // ─── Session-level action state ──────────────────────────────────────────
-  const [clientOverrides, setClientOverrides] = useState<Record<number, ClientOverride>>({});
-  const [sessionEvents,   setSessionEvents]   = useState<SessionEvent[]>([]);
-  const [drawerActivity,  setDrawerActivity]  = useState<Record<number, Array<{ ts: string; event: string }>>>({});
+  // ─── Session-level activity ──────────────────────────────────────────────
+  // The only local events came from the legacy founder-action handlers,
+  // which this page no longer calls; Live Activity therefore shows its
+  // honest empty state rather than anything sourced from that backend.
+  const [sessionEvents] = useState<SessionEvent[]>([]);
 
-  // ─── Clients — real data only (Phase B: no more silent fallback to the
-  // PIPELINE mock; an unreachable/empty founder-clients backend now leaves
-  // clients genuinely empty, and ClientPipeline shows an honest
-  // "Not connected" state instead of fabricated accounts) ──────────────────
-  const [clients,        setClients]        = useState<Client[]>([]);
-  const [clientsLoading, setClientsLoading] = useState(true);
+  // ─── Clients — authoritative BrainBase records (registered organisations,
+  // HLNA CRM prospects, HLNA Commercial billing) via GET
+  // /api/admin/founder-clients, fetched once and shared by the Overview and
+  // Clients sections. Each source reports ok/unavailable on its own, so an
+  // unreadable source is never shown as an empty list. ───────────────────
+  const [clientOverview,        setClientOverview]        = useState<FounderClientOverview | null>(null);
+  const [clientOverviewState,   setClientOverviewState]   = useState<'loading' | 'ready' | 'error'>('loading');
+  // HQ CRM companies are listed one bounded page at a time; portfolio
+  // totals always come from the server's whole-portfolio aggregate.
+  //
+  // The REQUESTED page is separate from the DISPLAYED page (the one in the
+  // last successful response, overview.prospects.crmPage). Every request
+  // carries a fresh sequence number, so asking for the same page again —
+  // e.g. retrying a page that failed — always refetches. Previous/Next are
+  // computed from the displayed page. A newer request cancels the older
+  // one's handlers (effect cleanup), so a late response can never replace
+  // a newer page, and a failure keeps the last good page on screen.
+  const [crmRequest,   setCrmRequest]   = useState<{ page: number; seq: number }>({ page: 0, seq: 0 });
+  const [crmPageState, setCrmPageState] = useState<'idle' | 'loading' | 'error'>('idle');
 
   useEffect(() => {
-    fetch('/api/admin/founder-clients')
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then((data: { clients?: FounderClientRaw[] }) => {
-        if (Array.isArray(data?.clients) && data.clients.length > 0)
-          setClients(data.clients.map(mapRawClient));
+    let cancelled = false;
+    const crmPage = crmRequest.page;
+    const request = crmPage > 0
+      ? fetch(`/api/admin/founder-clients?crmPage=${crmPage}`)
+      : fetch('/api/admin/founder-clients');
+    request
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+      .then((data: FounderClientOverview) => {
+        if (cancelled) return;
+        setClientOverview(data);
+        setClientOverviewState('ready');
+        setCrmPageState('idle');
       })
-      .catch(() => { /* leave empty — ClientPipeline shows Not connected */ })
-      .finally(() => setClientsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(() => {
+        if (cancelled) return;
+        // A failed page change keeps the last good overview on screen and
+        // says so; a failed first load shows the whole panel as unavailable.
+        setClientOverviewState(prev => (prev === 'ready' ? prev : 'error'));
+        setCrmPageState(prev => (prev === 'loading' ? 'error' : prev));
+      });
+    return () => { cancelled = true; };
+  }, [crmRequest]);
+
+  const changeCrmPage = (page: number) => {
+    setCrmPageState('loading');
+    setCrmRequest(prev => ({ page, seq: prev.seq + 1 }));
+  };
+
+  // ─── HLNA Labs workspace navigation ───────────────────────────────────────
+  // CRM and Commercial records in the overview belong to the HLNA Labs
+  // (Brainbase HQ) organisation, but /crm and /commercial resolve the
+  // organisation from the session. When the founder is working in another
+  // organisation, links must not open that organisation's CRM/Commercial
+  // under HLNA Labs' record ids. The switch reuses the existing, audited
+  // /api/admin/impersonate flow (requireRole('super_admin') + server-side
+  // organisation lookup) — the same pattern as OrgSwitcher and Client
+  // Events' "Open event" — and only navigates after it succeeds, with a hard
+  // navigation so every server component re-resolves the session. The
+  // target id is the server-resolved HQ id from the overview response,
+  // never a query parameter.
+  const [hlnaSwitchPending, setHlnaSwitchPending] = useState(false);
+  const [hlnaSwitchError,   setHlnaSwitchError]   = useState<string | null>(null);
+
+  const openInHlnaWorkspace = async (href: string) => {
+    if (!href.startsWith('/') || href.startsWith('//')) return;
+    const workspace = clientOverview?.hlnaWorkspace;
+    const hq = clientOverview?.hlnaOrganisation;
+    if (!workspace || !hq || workspace.switchTo === 'unavailable') return;
+    if (workspace.switchTo === 'none') { window.location.assign(href); return; }
+    setHlnaSwitchPending(true);
+    setHlnaSwitchError(null);
+    try {
+      const res = workspace.switchTo === 'stop_viewing_as'
+        ? await fetch('/api/admin/impersonate', { method: 'DELETE' })
+        : await fetch('/api/admin/impersonate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orgId: hq.id }),
+          });
+      if (!res.ok) {
+        setHlnaSwitchError(`Could not switch to ${hq.name} (${res.status}). Nothing was opened.`);
+        setHlnaSwitchPending(false);
+        return;
+      }
+      window.location.assign(href);
+    } catch {
+      setHlnaSwitchError(`Could not switch to ${hq.name}. Nothing was opened.`);
+      setHlnaSwitchPending(false);
+    }
+  };
+
+  const hlnaNav: HlnaNav = {
+    workspace: clientOverview?.hlnaWorkspace ?? null,
+    name: clientOverview?.hlnaOrganisation?.name ?? 'HLNA Labs',
+    loading: clientOverviewState === 'loading',
+    pending: hlnaSwitchPending,
+    error: hlnaSwitchError,
+    open: openInHlnaWorkspace,
+  };
 
   // ─── Real operational snapshot metrics (Phase B) — same authoritative,
   // already-validated endpoint Phase A's Attention Queue uses
@@ -2434,139 +2124,13 @@ export default function FounderPage() {
     type:     'sales' as FeedType,
     title:    a.title,
     why:      a.description,
-    action:   'Review lead in dashboard',
+    action:   'Review in Command Centre',
     due:      'Now',
-    cta:      'View Lead',
+    cta:      'Review in Command Centre',
   }));
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  };
-
-  const showError = (msg: string) => {
-    setToastError(msg);
-    setTimeout(() => setToastError(null), 3500);
-  };
-
-  // ─── Session event logger ────────────────────────────────────────────────
-  const now = () => {
-    const d = new Date();
-    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
-
-  const addSessionEvent = (event: string, type: FeedType, client: string | null, clientId?: number) => {
-    const ts = now();
-    setSessionEvents(prev => [{ ts, event, type, client }, ...prev]);
-    if (clientId !== undefined) {
-      setDrawerActivity(prev => ({
-        ...prev,
-        [clientId]: [{ ts, event }, ...(prev[clientId] ?? [])],
-      }));
-    }
-  };
-
-  const flashRow = (id: number) => {
-    setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: true } }));
-    setTimeout(() => setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: false } })), 2200);
-  };
-
-  // ─── Backend action handlers ─────────────────────────────────────────────
-
-  const doFollowUp = async (clientId: number | string | undefined, org: string) => {
-    const id = typeof clientId === 'number' ? clientId : clientId != null ? Number(clientId) : undefined;
-    // Optimistic: mark row immediately
-    if (id != null) {
-      setClientOverrides(prev => ({
-        ...prev,
-        [id]: { ...prev[id], daysAgo: 0, action: 'Follow-up sent', followedUp: true, highlighted: true },
-      }));
-      setTimeout(() => setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: false } })), 2200);
-    }
-    try {
-      const res = await fetch('/api/admin/founder-action/follow-up-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, org }),
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      addSessionEvent(`Follow-up logged — ${org}`, 'sales', org, id);
-      showToast(`Follow-up logged — ${org}`);
-    } catch {
-      // Revert optimistic changes on error
-      if (id != null) {
-        setClientOverrides(prev => {
-          const copy = { ...prev };
-          delete copy[id];
-          return copy;
-        });
-      }
-      showError(`Could not log follow-up for ${org}`);
-    }
-  };
-
-  const doAdvanceStage = async (clientId: number | string, org: string, currentStage: Stage) => {
-    const STAGE_ORDER: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid'];
-    const idx = STAGE_ORDER.indexOf(currentStage);
-    const nextStage = idx >= 0 && idx < STAGE_ORDER.length - 1 ? STAGE_ORDER[idx + 1] : null;
-    if (!nextStage) { showError(`${org} is already at the final stage`); return; }
-    const id = typeof clientId === 'number' ? clientId : Number(clientId);
-    try {
-      const res = await fetch('/api/admin/founder-action/advance-client-stage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, org, stage: nextStage }),
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      setClientOverrides(prev => ({
-        ...prev,
-        [id]: { ...prev[id], stage: nextStage, action: `Stage → ${nextStage}` },
-      }));
-      flashRow(id);
-      addSessionEvent(`Stage advanced → ${nextStage}`, 'sales', org, id);
-      showToast(`${org} → ${nextStage}`);
-      setSelectedClient(null);
-    } catch {
-      showError(`Could not advance stage for ${org}`);
-    }
-  };
-
-  const doLogDemo = async (clientId: number | string | undefined, org: string, date: string, time?: string) => {
-    const id = clientId != null ? (typeof clientId === 'number' ? clientId : Number(clientId)) : undefined;
-    try {
-      const res = await fetch('/api/admin/founder-action/log-demo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, org, date, time }),
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      const label = `Demo logged — ${org} · ${date}${time ? ' at ' + time : ''}`;
-      addSessionEvent(label, 'sales', org, id);
-      if (id != null) flashRow(id);
-      showToast(label);
-    } catch {
-      showError(`Could not log demo for ${org}`);
-    }
-  };
-
-  const doMarkReviewed = async (analysisId: string | undefined, org: string, clientId?: number) => {
-    try {
-      const res = await fetch('/api/admin/founder-action/mark-analysis-reviewed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis_id: analysisId, org }),
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      addSessionEvent(`Analysis marked reviewed — ${org}`, 'product', org, clientId);
-      if (clientId != null) flashRow(clientId);
-      showToast(`Analysis marked reviewed — ${org}`);
-    } catch {
-      showError(`Could not mark analysis reviewed for ${org}`);
-    }
-  };
-
   return (
-    <div className={styles.root} style={{ margin: '-40px', height: APP_HEADER_OFFSET_VH_CALC }}>
+    <div className={styles.root} style={{ height: APP_HEADER_OFFSET_VH_CALC }}>
 
       {/* Status bar — Phase B: the fake "Demo status" dot (always green,
           backed by no real check) and the hardcoded "MRR $12,480 (demo)"
@@ -2583,7 +2147,7 @@ export default function FounderPage() {
         </div>
         <div className={styles.statusMeta}>
           <Meta size={11} color={T.sub}>
-            MRR {snapshotMetricsLoading ? '…' : snapshotMetrics ? `$${Math.round(snapshotMetrics.activeMrr).toLocaleString()}` : 'not connected'}
+            Contracted MRR {snapshotMetricsLoading ? '…' : snapshotMetrics ? `$${Math.round(snapshotMetrics.activeMrr).toLocaleString()}` : 'not connected'}
           </Meta>
           <span aria-hidden="true">|</span>
           <a href="/admin" className={styles.statusLink}>← Admin</a>
@@ -2593,7 +2157,7 @@ export default function FounderPage() {
       {/* Body */}
       <div className={styles.body}>
 
-        <LeftSidebar onModal={setModal} section={section} setSection={setSection} />
+        <LeftSidebar hlna={hlnaNav} section={section} setSection={setSection} />
 
         {/* Center column */}
         <div className={styles.main}>
@@ -2614,19 +2178,16 @@ export default function FounderPage() {
             <RealFounderOperations />
             <ImplementationSummary metrics={snapshotMetrics} loading={snapshotMetricsLoading} nextActions={implementationNextActions} />
             <HlnaBriefing />
-            <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} loading={clientsLoading} />
+            <FounderClientOverviewPanel overview={clientOverview} state={clientOverviewState} variant="summary" hlna={hlnaNav} />
             <RevenueIntel metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
             <FounderTaskSummary />
           </>}
 
           {/* ── Clients ── */}
           {section === 'clients' && <>
+            <FounderClientOverviewPanel overview={clientOverview} state={clientOverviewState} variant="full" hlna={hlnaNav} crmPageState={crmPageState} crmRequestedPage={crmRequest.page} onCrmPage={changeCrmPage} />
             <ImplementationsByClient />
-            <AttentionQueue
-              items={queueItems.filter(q => q.type === 'sales' || q.type === 'client')}
-              onAction={showToast} onFollowUp={doFollowUp} onMarkReviewed={doMarkReviewed}
-            />
-            <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} loading={clientsLoading} />
+            <AttentionQueue items={queueItems.filter(q => q.type === 'sales' || q.type === 'client')} />
           </>}
 
           {/* ── Revenue ── */}
@@ -2667,35 +2228,6 @@ export default function FounderPage() {
           </>}
         </aside>
       </div>
-
-      {/* Client drawer */}
-      {selectedClient && (
-        <ClientDrawer client={selectedClient} onClose={() => setSelectedClient(null)} onAction={showToast} onModal={m => { setSelectedClient(null); setModal(m); }} onAdvanceStage={doAdvanceStage} drawerActivity={drawerActivity[selectedClient.id] ?? []} />
-      )}
-
-      {/* Modals */}
-      {modal === 'add-lead' && (
-        <AddLeadModal
-          onClose={() => setModal(null)}
-          clients={clients}
-          onAdded={msg => { setModal(null); showToast(msg); }}
-        />
-      )}
-      {modal === 'book-demo' && (
-        <BookDemoModal
-          onClose={() => setModal(null)}
-          onBook={async (org, date, time) => { await doLogDemo(undefined, org, date, time); setModal(null); }}
-          clients={clients}
-        />
-      )}
-      {modal === 'proposal' && (
-        <ProposalModal
-          preselect={selectedClient}
-          onClose={() => setModal(null)}
-          onConfirm={msg => { setModal(null); showToast(msg); }}
-          clients={clients}
-        />
-      )}
 
       {/* Toast */}
       {toast      && <Toast msg={toast} />}

@@ -98,10 +98,10 @@ describe('Remaining visual islands (A) — no dark-only chrome on the converged 
   it('AdminClient keeps exactly one STAGE_C declaration (shared with Founder OS STAGE_FG) and renders the stage label on --text-primary', () => {
     const src = stripComments(read('app/admin/orgs/AdminClient.tsx'))
     expect(src.match(STAGE_C_LINE)).toHaveLength(1)
-    const founder = read('app/admin/founder/page.tsx')
-    const fg = founder.match(/const STAGE_FG: {2}Record<Stage, string> {3}= (\{[^\n]*\});/)
-    expect(fg).not.toBeNull()
-    expect(src).toContain(`const STAGE_C: Record<string, string> = ${fg![1]};`)
+    // Founder OS's mirrored STAGE_FG was removed with its legacy client
+    // pipeline (real-clients bundle); the shared hue values stay pinned here.
+    const fg = "{ lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' }"
+    expect(src).toContain(`const STAGE_C: Record<string, string> = ${fg};`)
     expect(src).not.toMatch(/color: stageColor\b/)
     expect(src).toContain("background: stageColor")
   })

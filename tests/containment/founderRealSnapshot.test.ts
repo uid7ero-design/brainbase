@@ -230,10 +230,12 @@ describe('Other Founder OS tabs/modules show honest "Not connected" states', () 
     expect(founderSource).toMatch(/function FounderTasksPanel\(\)\s*\{/)
   })
 
-  it('ClientPipeline no longer silently falls back to the fabricated PIPELINE fixture', () => {
+  it('the client view has no fabricated PIPELINE fixture and reports load failure as unavailable (real-clients bundle)', () => {
     expect(founderExecutable).not.toContain('const PIPELINE')
     expect(founderExecutable).not.toContain('Port Adelaide Council')
-    expect(founderSource).toContain('useState<Client[]>([])')
+    expect(founderExecutable).not.toMatch(/function ClientPipeline\b/)
+    expect(founderSource).toContain("useState<'loading' | 'ready' | 'error'>('loading')")
+    expect(founderSource).toContain('Client overview unavailable')
   })
 
   it('the LeftSidebar no longer shows fabricated "Open pipeline"/"Overdue actions" figures', () => {

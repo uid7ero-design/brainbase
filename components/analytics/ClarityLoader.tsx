@@ -35,10 +35,20 @@ declare global {
  *
  * See lib/analyticsRoutes.ts for the eligible-route allowlist and
  * lib/analyticsConsent.ts for the consent storage.
+ *
+ * `authenticated` comes from the root layout's server-side session check.
+ * A signed-in person is inside their private workspace even when the URL
+ * is an allowlisted marketing path: the workspace header's BrainBase logo
+ * links to "/", which renders the marketing homepage under the
+ * authenticated app header. Route eligibility alone therefore showed the
+ * consent prompt (and, with stored consent, started Clarity) inside a
+ * signed-in founder/client session. With a session, the prompt is never
+ * shown, Clarity is never started (and is stopped if already running), and
+ * the stored consent value is left exactly as the visitor chose it.
  */
-export default function ClarityLoader() {
+export default function ClarityLoader({ authenticated = false }: { authenticated?: boolean }) {
   const pathname = usePathname();
-  const eligible = isClarityAllowedRoute(pathname);
+  const eligible = !authenticated && isClarityAllowedRoute(pathname);
 
   const [consent, setConsent] = useState(getAnalyticsConsent());
   const [scriptLoaded, setScriptLoaded] = useState(false);

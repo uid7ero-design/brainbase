@@ -49,9 +49,9 @@ const DARK_SLABS = /#(07080B|0B0C12|0F1018|EEEEF0)\b/i
 const ANY_HEX = /#[0-9a-f]{3,8}\b/i
 
 describe('Founder OS — the documented stage-hue data map is the only colour literal', () => {
-  it('STAGE_FG is declared exactly once, as a single-line data map', () => {
+  it('STAGE_FG was removed with the legacy client pipeline (real-clients bundle) — no stage-hue map remains', () => {
     const matches = stripComments(read(PAGE)).match(new RegExp(STAGE_MAP_LINE.source, 'gm')) ?? []
-    expect(matches).toHaveLength(1)
+    expect(matches).toHaveLength(0)
   })
 
   for (const rel of FILES) {
@@ -114,14 +114,21 @@ describe('Founder OS — interaction semantics', () => {
     return page.slice(start, next < 0 ? undefined : next)
   }
 
-  it('the three modals render through the shared Dialog (role="dialog", Escape, focus trap/return)', () => {
+  // Real-clients review corrections: the Add Lead / Book Demo / Proposal
+  // modals were removed (empty pickers; external or no persistence). The
+  // sidebar actions now open the existing CRM/Commercial screens through the
+  // HLNA-workspace switch — behaviour pinned in
+  // tests/components/app/FounderOs.test.tsx. No hand-rolled replacement
+  // overlay may appear in their place.
+  it('the legacy modals are gone and no other modal took their place', () => {
     for (const name of ['AddLeadModal', 'BookDemoModal', 'ProposalModal']) {
-      expect(body(name)).toMatch(/<Dialog\s+open\s+onClose=\{onClose\}\s+title="/)
+      expect(page).not.toContain(`function ${name}(`)
     }
+    expect(page).not.toMatch(/role="dialog"/)
   })
 
-  it('the client drawer renders through the shared SlidePanel', () => {
-    expect(body('ClientDrawer')).toMatch(/<SlidePanel\s+open\s+onClose=\{onClose\}/)
+  it('the legacy client drawer (fed only by the removed external pipeline) is gone', () => {
+    expect(page).not.toMatch(/function ClientDrawer\b/)
   })
 
   it('no hand-rolled fixed overlays or clickable <div>s remain', () => {

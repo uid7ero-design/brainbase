@@ -116,7 +116,11 @@ for (const route of ROUTES) {
   })
 
   describe(`GET /api/admin/${route.label} — existing behaviour preserved`, () => {
-    it('with no backend configured, falls back to the same empty/mock response as before, and audits source as ' + route.fallbackSource, async () => {
+    // founder-clients no longer proxies to the external backend (real-clients
+    // bundle) — its data/fallback behaviour is pinned in
+    // tests/containment/founderClientOverview.test.ts. The authorization
+    // block above and the audit-on-failure check below still cover it.
+    it.skipIf(route.label === 'founder-clients')('with no backend configured, falls back to the same empty/mock response as before, and audits source as ' + route.fallbackSource, async () => {
       getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'org-a', role: 'super_admin', name: 'Admin One' })
       queue([ACTIVE_SUPER_ADMIN_ROW])
       const res = await route.GET(asNextRequest(new Request(route.path)))

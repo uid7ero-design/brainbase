@@ -12,7 +12,12 @@
 
 /* ── Shell ─────────────────────────────────────────────────────────── */
 
+/* Cancels the admin shell's <main> padding (app/admin/AdminLayout.module.css)
+   so Founder OS fills it edge to edge. Must mirror that padding at every
+   breakpoint: a fixed -40px on mobile (where <main> pads 24px 16px) pushes
+   content past the left edge of the scroll area. */
 .root {
+  margin: -40px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -21,6 +26,12 @@
   font-family: var(--bb-font-sans);
   font-size: 0.75rem;
   line-height: 1.45;
+}
+
+@media (max-width: 767px) {
+  .root {
+    margin: -24px -16px;
+  }
 }
 
 .statusBar {
