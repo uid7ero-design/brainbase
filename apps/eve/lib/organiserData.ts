@@ -78,7 +78,11 @@ export type Overview = {
 // show, for at most OVERVIEW_EVENT_CAP events (reported when exceeded).
 export async function loadOverview(token: string, events: OrganiserEvent[]): Promise<Overview> {
   const subset = events.slice(0, OVERVIEW_EVENT_CAP);
-  const perEvent = await Promise.all(subset.map(async e => ({ orders: await loadOrders(token, e.id), attendees: await loadAttendees(token, e.id) })));
+  const perEvent = await Promise.all(subset.map(async e => {
+    // Independent, authenticated reads: neither needs the other's result.
+    const [orders, attendees] = await Promise.all([loadOrders(token, e.id), loadAttendees(token, e.id)]);
+    return { orders, attendees };
+  }));
   let orderCount = 0, paidOrderCount = 0, ticketCount = 0, checkedInCount = 0;
   for (const { orders, attendees } of perEvent) {
     const live = orders.filter(o => o.status !== 'CANCELLED');
