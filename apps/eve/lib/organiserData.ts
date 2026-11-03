@@ -1,5 +1,14 @@
 import { getTicketingGateway, type OrganiserAttendee, type OrganiserEvent, type OrganiserOrder, type OrganiserPaymentDetail, type OrganiserPayments, type OrganiserSettings } from './ticketing/gateway';
 import { redirect } from 'next/navigation';
+import { requireOrganiser } from './organiserAuth';
+
+export async function loadWorkspace(withOverview = false) {
+  const { token, session } = await requireOrganiser(withOverview ? 'overview' : 'events');
+  // During staggered deployments an older API returns identity only. Missing
+  // fields use the old authenticated path; an explicit empty list stays empty.
+  const events = session.events ?? await loadEvents(token);
+  return { token, session, events };
+}
 
 // Loads for the organiser pages. A non-ok API answer is surfaced as an
 // error the page renders honestly; an unauthorised answer (the session or
@@ -78,7 +87,11 @@ export type Overview = {
 // show, for at most OVERVIEW_EVENT_CAP events (reported when exceeded).
 export async function loadOverview(token: string, events: OrganiserEvent[]): Promise<Overview> {
   const subset = events.slice(0, OVERVIEW_EVENT_CAP);
-  const perEvent = await Promise.all(subset.map(async e => ({ orders: await loadOrders(token, e.id), attendees: await loadAttendees(token, e.id) })));
+  const perEvent = await Promise.all(subset.map(async e => {
+    // Independent, authenticated reads: neither needs the other's result.
+    const [orders, attendees] = await Promise.all([loadOrders(token, e.id), loadAttendees(token, e.id)]);
+    return { orders, attendees };
+  }));
   let orderCount = 0, paidOrderCount = 0, ticketCount = 0, checkedInCount = 0;
   for (const { orders, attendees } of perEvent) {
     const live = orders.filter(o => o.status !== 'CANCELLED');

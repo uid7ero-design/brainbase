@@ -90,12 +90,12 @@ describe('organiser portal', () => {
     await expect(EventsPage()).rejects.toThrow('REDIRECT:/signin?reason=not-enabled');
     await expect(CheckInPage({ searchParams: Promise.resolve({}) } as never)).rejects.toThrow('REDIRECT:/signin?reason=not-enabled');
     // Only /auth/session was asked: no event, order or check-in call.
-    for (const [url] of fetchMock.mock.calls) expect(String(url)).toMatch(/\/api\/ticketing\/auth\/session$/);
+    for (const [url] of fetchMock.mock.calls) expect(new URL(String(url)).pathname).toBe('/api/ticketing/auth/session');
   });
 
   it('an enabled organisation gets the portal as before', async () => {
     fetchMock.mockImplementation(async (url: string) => {
-      const body = String(url).endsWith('/auth/session')
+      const body = new URL(String(url)).pathname.endsWith('/auth/session')
         ? { user: { id: 'u1', name: 'Pat', role: 'manager' }, organisationId: 'org1', organisation: { slug: 'acme', name: 'Acme Events' } }
         : { organisation: { slug: 'acme', name: 'Acme Events' }, events: [], orders: [], summary: {} };
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });

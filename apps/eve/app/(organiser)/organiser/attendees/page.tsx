@@ -1,9 +1,8 @@
 import { OrganiserShell } from '@/components/organiser/OrganiserShell';
 import { EventPicker } from '@/components/organiser/EventPicker';
 import { Unavailable } from '@/components/ui/primitives';
-import { requireOrganiser } from '@/lib/organiserAuth';
 import { identityOf } from '@/lib/identity';
-import { loadAttendees, loadEvents, pickEvent } from '@/lib/organiserData';
+import { loadAttendees, loadWorkspace, pickEvent } from '@/lib/organiserData';
 import { formatDateTime } from '@/lib/format';
 import { RecordedAnswers } from '@/components/organiser/RecordedAnswers';
 
@@ -13,8 +12,7 @@ type Props = { searchParams: Promise<{ event?: string }> };
 
 export default async function OrganiserAttendeesPage({ searchParams }: Props) {
   const { event: requested } = await searchParams;
-  const { token, session } = await requireOrganiser();
-  const events = await loadEvents(token);
+  const { token, session, events } = await loadWorkspace();
   const event = pickEvent(events, requested);
   const attendees = event ? await loadAttendees(token, event.id) : [];
   return (

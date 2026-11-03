@@ -1,15 +1,13 @@
 import { OrganiserShell } from '@/components/organiser/OrganiserShell';
 import { Card, Unavailable } from '@/components/ui/primitives';
-import { requireOrganiser } from '@/lib/organiserAuth';
 import { identityOf } from '@/lib/identity';
-import { loadEvents, loadOverview } from '@/lib/organiserData';
+import { loadWorkspace, loadOverview } from '@/lib/organiserData';
 
 export const dynamic = 'force-dynamic';
 
 export default async function OrganiserDashboardPage() {
-  const { token, session } = await requireOrganiser();
-  const events = await loadEvents(token);
-  const o = await loadOverview(token, events);
+  const { token, session, events } = await loadWorkspace(true);
+  const o = session.overview ?? await loadOverview(token, events);
   const tiles: [string, number][] = [
     ['Events', o.eventCount], ['Published', o.publishedCount], ['Orders', o.orderCount],
     ['Paid orders', o.paidOrderCount], ['Tickets', o.ticketCount], ['Checked in', o.checkedInCount],
