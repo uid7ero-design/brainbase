@@ -2,6 +2,7 @@ import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { normalizeEmail, normalizePhone, splitPurchaserName, recordEventBookingActivityForOrder } from './eventSync';
 import { EVENT_CONTACT_CLASSIFICATION } from './classification';
+import { contactIdentityLock } from './contactIdentityLock';
 
 // Phase 6.2 — historical Events -> CRM backfill. Reuses the existing,
 // generic crm_contacts model (this file does NOT introduce a second
@@ -235,19 +236,21 @@ export async function executeEventContactBackfill(organisationId: string): Promi
       const lockMarker = normEmail ? EMAIL_MARKER : PHONE_MARKER;
       const lockIdentity = (normEmail ?? normPhone) as string;
 
-      // Single compound statement — lock, count every match, and (only
-      // when zero matches exist) create a new contact, all in one round
-      // trip, mirroring syncEventOrderContact()'s own lock-then-read-
-      // then-write shape exactly. Unlike that function, this reports
-      // match_count back to the caller so ambiguity (>1) can be detected
-      // and skipped rather than silently resolved via LIMIT 1.
-      const rows = (await sql`
-        WITH lock_cte AS (
-          SELECT pg_advisory_xact_lock(hashtext(${organisationId}), hashtext(${lockMarker + ':' + lockIdentity})) AS locked
-        ),
-        matches AS (
+      // One transaction, two statements: lock, THEN count every match and
+      // (only when zero matches exist) create a new contact, mirroring
+      // syncEventOrderContact()'s own shape. The lock is its own statement
+      // so the count below takes its snapshot after the lock is held
+      // (lib/crm/contactIdentityLock.ts explains why a single CTE that
+      // locks and reads together can insert a duplicate). Unlike the live
+      // sync, this reports match_count back to the caller so ambiguity
+      // (>1) can be detected and skipped rather than silently resolved via
+      // LIMIT 1.
+      const [, lockedRows] = await sql.transaction([
+        contactIdentityLock(organisationId, lockMarker, lockIdentity),
+        sql`
+        WITH matches AS (
           SELECT c.id, c.created_at
-          FROM crm_contacts c, lock_cte
+          FROM crm_contacts c
           WHERE c.organisation_id = ${organisationId}
             AND (
               (${normEmail}::text IS NOT NULL AND lower(trim(c.email)) = ${normEmail})
@@ -270,7 +273,9 @@ export async function executeEventContactBackfill(organisationId: string): Promi
           (SELECT cnt FROM match_count) AS match_count,
           (SELECT id FROM matches ORDER BY created_at ASC LIMIT 1) AS existing_id,
           (SELECT id FROM ins) AS created_id
-      `) as { match_count: number; existing_id: string | null; created_id: string | null }[];
+      `,
+      ]);
+      const rows = lockedRows as { match_count: number; existing_id: string | null; created_id: string | null }[];
 
       const matchCount = rows[0]?.match_count ?? 0;
 

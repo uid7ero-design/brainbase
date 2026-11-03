@@ -363,7 +363,12 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('the whole capacity-gated write goes through exactly one sql.transaction([...]) call, never independent non-transactional round trips', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // The capacity-gated write is the ONE transaction this request opens for the order. The best-effort CRM contact sync
+    // that runs after it commits (lib/crm/eventSync.ts) opens its own separate transaction whose first statement is the
+    // identity lock; those are counted by that lock statement and excluded, so any extra transaction in the capacity write
+    // itself would still fail this assertion.
+    const crmLockStatements = sqlMock.mock.calls.filter(c => ((c as unknown as [string[]])[0]).join('?').trim().startsWith('SELECT pg_advisory_xact_lock')).length
+    expect(transactionMock.mock.calls.length - crmLockStatements).toBe(1)
   })
 
   it('non-session single-type registration submits exactly 2 statements to the transaction: lock, capacity-gated insert', async () => {
