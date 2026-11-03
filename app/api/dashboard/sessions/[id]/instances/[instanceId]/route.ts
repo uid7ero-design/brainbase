@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { isBookingCapacityError } from '@/lib/bookingCapacity'
 import { propagateRecurringEnrolment, normalizeEmail, findDuplicateEnrolment } from '@/lib/tennisRecurrence'
 
 export async function POST(
@@ -84,6 +85,8 @@ export async function POST(
 
     return NextResponse.json({ booking: rows[0], propagation }, { status: 201 })
   } catch (err) {
+    // The database capacity guard refused the insert: another request took the last place.
+    if (isBookingCapacityError(err)) return NextResponse.json({ error: 'Session is full' }, { status: 409 })
     console.error('[dashboard/sessions/instances/[instanceId] POST]', err)
     return NextResponse.json({ error: 'Failed to enroll' }, { status: 500 })
   }

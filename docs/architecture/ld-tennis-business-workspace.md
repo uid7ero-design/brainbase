@@ -25,9 +25,9 @@ Legacy session/type/date/roster endpoints now report unreadable sources instead 
 
 ## Reconciliation with open work
 
-PR #462 remains separate. Its pinned head `777f9148eace08bd3ad541c5963586d37c134ef1` supplies the **disposable-test-only** capacity SQL fixture. No SQL from that branch is applied to a hosted database, and its production error mappings are not copied into this bundle. The only shared modified route is the instance route: #462 changes POST error mapping, while this bundle changes GET read-failure handling; those hunks are independent.
+PR #462 is reconciled into this release after the user's explicit authorization on 2026-11-03. Its capacity SQL and error mappings are included without changing their behavior. The integration configuration preserves both existing Scheduling/Assurance suites and the capacity suite. The SQL text matches the pinned fixture at `777f9148eace08bd3ad541c5963586d37c134ef1` (line endings aside).
 
-Coaching writes fail closed unless the `bookings_capacity_guard` BEFORE INSERT trigger is enabled and its expected function/locking/error-code markers exist. This is a prerequisite check, not a cryptographic verification of deployed SQL and not proof of every update/reactivation race. The pinned SQL has a real concurrent-insert proof. Rehearse and authorize #462's rollout separately before enabling this workspace for live booking changes.
+Coaching writes fail closed unless the `bookings_capacity_guard` BEFORE INSERT trigger is enabled and its expected function/locking/error-code markers exist. This is a prerequisite check, not proof of every update/reactivation race. Rollout order is application code first, then the capacity SQL, then the tenant-specific module setup. `scripts/enable-ld-tennis-business-workspace.sql` guards the exact LD Tennis identity, active module registry and Scheduling integrity before enabling Scheduling, CRM, Invoicing, Purchasing and Budgeting. It preserves existing Events access, roles, user grants and settings, initialises missing Adelaide timezone/AUD settings, and records before/after configuration in the audit log. It is idempotent and was rehearsed on this PR's Preview database.
 
 PR #472 remains draft pending shared-family-email policy. No duplicate-email policy or identity merge is introduced here. Other open PRs are not part of this bundle.
 
@@ -56,3 +56,7 @@ Local receipt, 2026-11-03: 3,937 related containment/component checks passed (28
 5. Verify the approved deployment and agreed synthetic live journey before treating the workspace as operationally handed over. Leave the old Sessions history available. No automatic family-email merge or paid-marker conversion.
 
 The in-app guide is `/business/tennis/help`. This is a business workspace bundle, not a claim that generic Scheduling booking migration or all Brainbase modules are complete.
+
+## Authorised combined release validation — 2026-11-03
+
+The capacity prerequisite passed 20/20 real disposable-Postgres concurrency/safety checks after reconciliation; its 24 containment checks and 26 related workspace checks passed. A Windows line-ending assumption in one SQL documentation assertion was normalised without changing SQL behavior. Changed-code lint passed. The combined optimized production build, TypeScript and full local HTTPS synthetic journey passed and removed its owned services. Preview capacity SQL and tenant enablement were applied successfully on `br-solitary-dust-a7h4yiff`; production remains pending final-head CI/security/preview and exact-head merge. User authorization covers production capacity SQL, LD module enablement, merge/deploy and verification; no further routine approval is required.
