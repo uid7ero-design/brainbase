@@ -75,14 +75,14 @@ describe('Phase 1 does not enable the module anywhere', () => {
     expect(nav).toContain("href: '/dashboard/sessions'");
   });
 
-  it('the scheduling capability key is reserved but not seeded or checked anywhere', () => {
+  it('outside the scheduling domain, existing scanned presentation surfaces only use the key for navigation', () => {
     expect(SCHEDULING_CAPABILITY_KEY).toBe('scheduling');
     const hits = sources
       .filter(f => !rel(f).startsWith('lib/scheduling/'))
       .filter(f => /['"]scheduling['"]/.test(readFileSync(f, 'utf8')) && /capabilit|requireCapability|module_key/i.test(readFileSync(f, 'utf8')))
       .map(rel);
-    // Phase 2B.2c (deliberate, reviewed change): the navigation entry and its icon name the key; both are presentation only.
-    expect(hits).toEqual(['components/brand/CapabilityIcon.tsx', 'components/nav/navModel.ts']);
+    // The LD-only business home link is another presentation use. It does not enable modules or change Scheduling authority.
+    expect(hits).toEqual(['components/brand/CapabilityIcon.tsx', 'components/dashboard/TennisDashboard.tsx', 'components/nav/navModel.ts']);
   });
 
   it('no SQL script or migration creates or alters a scheduling_* table', () => {
@@ -96,6 +96,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Its contents are pinned file-by-file in schedulingPhase2aContainment.test.ts; the shared DDL
         // lives in packages/scheduling/sql (outside these directories) and is pinned there as well.
         if (rel(full) === 'scripts/scheduling') continue;
+        // Explicitly authorised LD rollout: settings/entitlements only, pinned by Phase 2B containment.
+        if (rel(full) === 'scripts/enable-ld-tennis-business-workspace.sql') continue;
         // Phase 2B.0 (deliberate, reviewed change): the disposable-Postgres proof of the host files names scheduling_*
         // objects by necessity. It reaches only SCHEDULING_TEST_DATABASE_URL (pinned in schedulingPhase2b0Containment.test.ts).
         if (rel(full) === 'scripts/tests/schedulingHost2b0.integration.test.ts') continue;

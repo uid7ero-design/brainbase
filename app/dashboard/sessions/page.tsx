@@ -1,4 +1,5 @@
 'use client'
+import { coachingFetch as fetch, isCoachingWorkspace } from '@/lib/tennisBusiness/coachingFetch'
 
 import { useEffect, useState, useCallback, useRef, useId } from 'react'
 import {
@@ -1179,7 +1180,6 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
   onToggleError: (id: string | null, message: string | null) => void
 }) {
   const { instance, bookings } = detail
-  if (!instance) return null
   // A session flagged `recurring` should always offer Weekly, even before
   // any future instances exist yet — but `recurring` alone is not a
   // reliable signal in practice: generate-instances does not require it,
@@ -1187,7 +1187,6 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
   // propagate into (this was the actual production bug — Weekly was
   // wrongly hidden for such a session). Offer Weekly whenever either is true.
   const canOfferWeekly = sessionRecurring || hasOtherInstances
-  const end  = endTime(instance.start_time, instance.duration_minutes)
   const paid = bookings.filter(b => b.paid).length
   const [showEnroll, setShowEnroll] = useState(false)
   const [enrollForm, setEnrollForm] = useState({ name: '', email: '' })
@@ -1207,6 +1206,9 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
     if (!showEnroll) return
     fetch('/api/contacts').then(r => r.json()).then(d => setContacts(d.contacts ?? [])).catch(() => null)
   }, [showEnroll])
+
+  if (!instance) return null
+  const end = endTime(instance.start_time, instance.duration_minutes)
 
   const filtered = nameQuery.trim().length > 0
     ? contacts.filter(c => c.name.toLowerCase().includes(nameQuery.toLowerCase()) || (c.email ?? '').toLowerCase().includes(nameQuery.toLowerCase())).slice(0, 8)
@@ -1595,7 +1597,7 @@ export default function SessionsPage() {
         if (expected == null) continue
         if (parseLocalDate(dateStr).getDay() !== expected) badIds.add(inst.session_id)
       }
-      if (badIds.size > 0) {
+      if (badIds.size > 0 && !isCoachingWorkspace()) {
         Promise.all([...badIds].map(id =>
           fetch(`${API}/${id}/generate-instances`, { method: 'POST' }).catch(() => null)
         )).catch(() => null)
@@ -1617,6 +1619,9 @@ export default function SessionsPage() {
   // effect above is left exactly as it is; "Repair future dates" remains
   // available per-session as a manual fallback.
   useEffect(() => {
+    // Recovery in the business workspace must only read saved state. Repairs there
+    // are explicit actions, so remounting cannot replay an uncertain schedule write.
+    if (isCoachingWorkspace()) return
     fetch(`${API}/reconcile`, { method: 'POST' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`reconcile failed (${r.status})`)))
       .then((result: ReconcileAllSummary) => {
@@ -1650,7 +1655,7 @@ export default function SessionsPage() {
       const today = todayStr()
       const future = loaded.filter(i => normalizeDate(i.date as string | Date) >= today)
       const mismatch = future.some(i => parseLocalDate(normalizeDate(i.date as string | Date)).getDay() !== d.session!.day_of_week)
-      if (mismatch) {
+      if (mismatch && !isCoachingWorkspace()) {
         fetch(`${API}/${sessionId}/generate-instances`, { method: 'POST' })
           .then(r => r.ok ? r.json() : null)
           .then(rd => {

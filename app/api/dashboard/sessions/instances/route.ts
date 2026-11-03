@@ -50,6 +50,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ instances })
   } catch (err) {
     console.error('[dashboard/sessions/instances GET]', err)
-    return NextResponse.json({ instances: [] })
+    return NextResponse.json({ error: 'Saved session dates could not be loaded.' }, { status: 503 })
   }
 }

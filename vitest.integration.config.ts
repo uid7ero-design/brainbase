@@ -185,6 +185,11 @@ import path from 'path';
 // Assurance Inspections & Audits addition: scripts/tests/assuranceInspectionsAudits
 // .integration.test.ts (see scripts/tests/verify-assurance-inspections-audits.sh),
 // same explicit-file-argument isolation.
+// LD Tennis booking capacity addition: scripts/tests/bookingCapacityConcurrency.integration
+// .test.ts (real-Postgres concurrency proof that no booking path can exceed a session
+// instance's max_capacity — see scripts/tests/verify-booking-capacity-concurrency.sh),
+// same explicit-file-argument isolation. Needs the lib/db sql-client seam and a
+// lib/org requireRole stand-in.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -255,6 +260,7 @@ export default defineConfig({
       'scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts',
       'scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts',
       'scripts/tests/schedulingBookingOverlay2c2.integration.test.ts',
+      'scripts/tests/bookingCapacityConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

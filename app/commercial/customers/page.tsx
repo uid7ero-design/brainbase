@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import SlidePanel from '../_components/SlidePanel';
 import CustomerForm from '../_components/CustomerForm';
@@ -24,20 +24,45 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+  const [changing, setChanging] = useState(false);
+  const requestNumber = useRef(0);
+  const writing = useRef(false);
 
   async function load() {
-    const res = await fetch('/api/commercial/customers');
-    if (res.ok) setCustomers((await res.json()).customers);
-    setLoading(false);
+    const number = ++requestNumber.current;
+    setLoading(true); setCustomers([]); setError('');
+    try {
+      const res = await fetch('/api/commercial/customers', { cache: 'no-store', signal: AbortSignal.timeout(30000) });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!Array.isArray(data.customers)) throw new Error();
+      if (number === requestNumber.current) setCustomers(data.customers);
+    } catch { if (number === requestNumber.current) setError('Saved billing customers could not be loaded. Review saved records before making changes.'); }
+    finally { if (number === requestNumber.current) setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    // Subsequent refreshes clear rows synchronously so old records cannot remain actionable.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+    const invalidate = () => { requestNumber.current++; };
+    return invalidate;
+  }, []);
 
   async function toggleActive(c: Customer) {
-    await fetch(`/api/commercial/customers/${c.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }),
-    });
-    load();
+    if (writing.current || loading || error) return;
+    writing.current = true; setChanging(true);
+    try {
+      const response = await fetch(`/api/commercial/customers/${c.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }), signal: AbortSignal.timeout(30000),
+      });
+      if (!response.ok) throw new Error();
+      await load();
+    } catch {
+      requestNumber.current++; setCustomers([]);
+      setError('The status change could not be confirmed. Review saved records before trying again.');
+    } finally { writing.current = false; setChanging(false); }
   }
 
   const filtered = customers.filter(c =>
@@ -49,9 +74,11 @@ export default function CustomersPage() {
     <div style={{ maxWidth: 1100 }}>
       <PageHeader
         title="Customers"
-        description={`${customers.length} total`}
-        actions={<button type="button" onClick={() => setShowAdd(true)} {...buttonProps('primary')}>+ Add Customer</button>}
+        description={loading || error ? 'Check saved billing customers' : `${customers.length} total`}
+        actions={<button type="button" disabled={loading || !!error || changing} onClick={() => setShowAdd(true)} {...buttonProps('primary')}>+ Add Customer</button>}
       />
+      {error && <p role="alert">{error}</p>}
+      <button type="button" disabled={loading || changing} onClick={() => void load()} {...buttonProps('secondary')}>Review saved records</button>
 
       <WorkToolbar count={search && !loading ? `${filtered.length} of ${customers.length}` : undefined}>
         <ToolbarSearch label="Search customers" value={search} onChange={e => setSearch(e.target.value)} />
@@ -72,7 +99,7 @@ export default function CustomersPage() {
           </thead>
           <tbody>
             {loading && <TableStateRow colSpan={7} kind="loading">Loading customers…</TableStateRow>}
-            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No customers yet.</TableStateRow>}
+            {!loading && !error && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">{search ? 'No matching customers.' : 'No customers yet.'}</TableStateRow>}
             {filtered.map(c => (
               <tr key={c.id}>
                 <td className={tableStyles.primary}>
@@ -86,7 +113,7 @@ export default function CustomersPage() {
                 <td className={tableStyles.actions}>
                   <span style={{ display: 'inline-flex', gap: 12 }}>
                     <Link href={`/commercial/customers/${c.id}`} className={tableStyles.link} aria-label={`View customer ${c.name}`}>View →</Link>
-                    <button type="button" onClick={() => toggleActive(c)} className={tableStyles.link} aria-label={`${c.active ? 'Deactivate' : 'Reactivate'} customer ${c.name}`}>
+                    <button type="button" disabled={changing} onClick={() => toggleActive(c)} className={tableStyles.link} aria-label={`${c.active ? 'Deactivate' : 'Reactivate'} customer ${c.name}`}>
                       {c.active ? 'Deactivate' : 'Reactivate'}
                     </button>
                   </span>
@@ -98,7 +125,7 @@ export default function CustomersPage() {
       </TableContainer>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Customer">
-        <CustomerForm onSaved={() => { setShowAdd(false); load(); }} />
+        <CustomerForm onReview={() => { setShowAdd(false); load(); }} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
     </div>
   );

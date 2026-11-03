@@ -244,7 +244,7 @@ describe('routes are unchanged — only their placement moved', () => {
     const hrefs = flattenNavLinks(nav).map(l => l.href).sort();
     expect(hrefs).toEqual([
       '/account/profile', '/admin/client-events', '/admin/founder', '/admin/orgs', '/admin/pipeline',
-      '/admin/users', '/clients', '/command', '/commercial', '/crm', '/dashboard', '/dashboard/blog',
+      '/admin/users', '/business/tennis', '/clients', '/command', '/commercial', '/crm', '/dashboard', '/dashboard/blog',
       '/dashboard/contacts', '/dashboard/fleet', '/dashboard/integrations', '/dashboard/leads',
       '/dashboard/pipeline', '/dashboard/sessions', '/dashboard/social', '/dashboard/wste', '/dashboards',
       '/data', '/data-hub/import', '/events', '/hlna', '/onboarding', '/organiser', '/people', '/reports',

@@ -172,14 +172,24 @@ describe('Phase C.2D — a generic zero-module tenant does not receive the LD Te
   it('the LD Tennis Leads/Squad/Sessions/Blog group is reachable only via dashboardVariant \'ld-tennis\', never via an enabledModules/enabledCapabilities length check', () => {
     const tennis = WORK_ITEMS.find((e): e is NavGroup => e.kind === 'group' && e.id === 'tennis')!
     expect(tennis.gate).toEqual({ variant: 'ld-tennis' })
-    expect(tennis.children.map(c => c.label)).toEqual(['Leads', 'Squad', 'Sessions', 'Blog'])
-    for (const child of tennis.children) expect(child.gate).toBeUndefined()
+    expect(tennis.children.map(c => c.label)).toEqual(['Business workspace', 'Leads', 'Squad', 'Sessions', 'Blog'])
+    const businessCapabilities = ['scheduling', 'crm', 'invoicing', 'purchasing', 'budgeting']
+    expect(tennis.children[0].gate).toEqual({ anyCapability: businessCapabilities })
+    for (const child of tennis.children.slice(1)) expect(child.gate).toBeUndefined()
     // A zero-capability generic tenant gets no tennis entries; a
-    // zero-capability LD Tennis tenant gets all of them plus Requests.
+    // zero-capability LD Tennis tenant keeps its legacy entries plus Requests.
     for (const role of ['viewer', 'manager', 'admin', 'super_admin']) {
       const generic = allHrefs(ctx(role, [], null))
       for (const href of TENNIS_HREFS) expect(generic, `${role} ${href}`).not.toContain(href)
       const ld = allHrefs(ctx(role, [], 'ld-tennis'))
+      expect(ld).not.toContain('/business/tennis')
+      expect(allHrefs(ctx(role, ['events', 'organiser'], 'ld-tennis'))).not.toContain('/business/tennis')
+      for (const capability of businessCapabilities) {
+        expect(allHrefs(ctx(role, [capability], 'ld-tennis'))).toContain('/business/tennis')
+        for (const variant of [null, 'brainbase-hq'] as const) {
+          expect(allHrefs(ctx(role, [capability], variant))).not.toContain('/business/tennis')
+        }
+      }
       for (const href of [...TENNIS_HREFS, '/dashboard/pipeline']) expect(ld, `${role} ${href}`).toContain(href)
     }
     // The gate itself is dashboardVariant === 'ld-tennis' — confirm no

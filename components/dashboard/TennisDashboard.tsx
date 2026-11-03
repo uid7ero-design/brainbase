@@ -253,6 +253,7 @@ export default function TennisDashboard({
             Ticketing). Renders nothing when no module is enabled — see
             ModuleAccessCard's own comment. */}
         <ModuleAccessCard enabledCapabilities={enabledCapabilities} role={role} />
+        {enabledCapabilities.some(key => ['scheduling', 'crm', 'invoicing', 'purchasing', 'budgeting'].includes(key)) && <p><Link href="/business/tennis">Open LD Tennis business workspace</Link></p>}
 
         {/* KPIs */}
         <section className={styles.kpiGrid} aria-label="Key figures">
