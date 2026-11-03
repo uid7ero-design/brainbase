@@ -7,10 +7,11 @@ import { readSessionToken } from './session';
 // this very call, so a disabled user or a removed entitlement lands here
 // as unauthorised on the next navigation. An organisation that is not (or
 // no longer) enabled on Eve gets a neutral "not enabled" sign-in notice.
-export async function requireOrganiser(): Promise<{ token: string; session: OrganiserSession }> {
+export async function requireOrganiser(include?: 'events' | 'overview'): Promise<{ token: string; session: OrganiserSession }> {
   const token = await readSessionToken();
   if (!token) redirect('/signin');
-  const result = await getTicketingGateway().getSession(token);
+  const gateway = getTicketingGateway();
+  const result = await (include ? gateway.getSession(token, include) : gateway.getSession(token));
   if (result.status === 'ok') return { token, session: result.data };
   if (result.status === 'forbidden' && result.code === 'EVE_NOT_ENABLED') redirect('/signin?reason=not-enabled');
   if (result.status === 'unauthorised' || result.status === 'forbidden') redirect('/signin?reason=session');

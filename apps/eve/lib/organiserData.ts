@@ -1,5 +1,14 @@
 import { getTicketingGateway, type OrganiserAttendee, type OrganiserEvent, type OrganiserOrder, type OrganiserPaymentDetail, type OrganiserPayments, type OrganiserSettings } from './ticketing/gateway';
 import { redirect } from 'next/navigation';
+import { requireOrganiser } from './organiserAuth';
+
+export async function loadWorkspace(withOverview = false) {
+  const { token, session } = await requireOrganiser(withOverview ? 'overview' : 'events');
+  // During staggered deployments an older API returns identity only. Missing
+  // fields use the old authenticated path; an explicit empty list stays empty.
+  const events = session.events ?? await loadEvents(token);
+  return { token, session, events };
+}
 
 // Loads for the organiser pages. A non-ok API answer is surfaced as an
 // error the page renders honestly; an unauthorised answer (the session or

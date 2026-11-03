@@ -135,7 +135,8 @@ export type CheckoutStatus = {
   tickets: { attendee_name: string; ticket_token: string }[];
 };
 
-export type OrganiserSession = { user: { id: string; name: string; role: string }; organisationId: string; organisation: { slug: string; name: string } };
+export type OrganiserOverview = { eventCount: number; publishedCount: number; orderCount: number; paidOrderCount: number; ticketCount: number; checkedInCount: number; truncated: boolean };
+export type OrganiserSession = { user: { id: string; name: string; role: string }; organisationId: string; organisation: { slug: string; name: string }; events?: OrganiserEvent[]; overview?: OrganiserOverview };
 export type OrganiserEvent = { id: string; name: string; slug: string; status: string; venue: string | null; starts_at: string; ends_at: string; timezone: string; session_count: number; ticket_type_count: number };
 export type OrganiserOrder = {
   id: string; purchaser_name: string; purchaser_email: string; status: string; payment_status: string;
@@ -232,7 +233,7 @@ export function createGateway() {
     login: (body: { username: string; password: string; organisationId?: string }, clientIp?: string | null) =>
       call<LoginResult>('/auth/login', { method: 'POST', body, clientIp }),
     logout: (session: string | null) => call<{ ok: true }>('/auth/logout', { method: 'POST', session }),
-    getSession: (session: string | null) => call<OrganiserSession>('/auth/session', { session }),
+    getSession: (session: string | null, include?: 'events' | 'overview') => call<OrganiserSession>(`/auth/session${include ? `?include=${include}` : ''}`, { session }),
     listOrganisations: (session: string | null) => call<{ organisations: { id: string; name: string }[] }>('/auth/organisation', { session }),
     switchOrganisation: (session: string | null, organisationId: string) =>
       call<{ token: string; expiresAt: number; organisationId: string }>('/auth/organisation', { method: 'POST', session, body: { organisationId } }),

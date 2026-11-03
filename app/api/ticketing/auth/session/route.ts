@@ -1,7 +1,10 @@
 import { authorizeTicketingApiRequest } from '@/lib/ticketing/authorize';
+import { handleOrganiserWorkspace } from '@/lib/ticketing/workspace';
 
 // Resolves the current context from the database. Server-to-server only.
 export async function GET(req: Request) {
+  const include = new URL(req.url).searchParams.get('include');
+  if (include === 'events' || include === 'overview') return handleOrganiserWorkspace(req, include === 'overview');
   const auth = await authorizeTicketingApiRequest(req, 'viewer');
   if (!auth.ok) return auth.response;
   const { userId, organisationId, organisationSlug, organisationName, role, name } = auth.context;
