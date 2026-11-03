@@ -188,6 +188,11 @@ test.describe('1. time labels', () => {
     const atEnd = await top();
     for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
     await expect.poll(top, { message: 'ArrowUp scrolls back up from the end' }).toBeLessThan(atEnd);
+    // Home after End: Chromium animates key scrolling even without scroll-behavior, so an immediate read is always mid-flight; poll for the settled top
+    await page.keyboard.press('End');
+    await expect.poll(() => grid.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 2), { message: 'End goes to the end again' }).toBe(true);
+    await page.keyboard.press('Home');
+    await expect.poll(top, { message: 'Home goes back to the top after End' }).toBe(0);
     await context.close();
   });
 });
