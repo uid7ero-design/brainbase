@@ -2130,7 +2130,7 @@ export default function FounderPage() {
   }));
 
   return (
-    <div className={styles.root} style={{ margin: '-40px', height: APP_HEADER_OFFSET_VH_CALC }}>
+    <div className={styles.root} style={{ height: APP_HEADER_OFFSET_VH_CALC }}>
 
       {/* Status bar — Phase B: the fake "Demo status" dot (always green,
           backed by no real check) and the hardcoded "MRR $12,480 (demo)"
