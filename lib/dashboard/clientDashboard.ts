@@ -18,7 +18,7 @@ const CLIENT_DASHBOARD_SLUGS: Record<string, DashboardVariant> = {
 // organisations table (id 1732569e-..., slug 'brainbase', name
 // "Brainbase") during this round's route trace. Kept as a slug, not a
 // UUID, for the same reason LD Tennis is keyed by slug.
-const BRAINBASE_SLUG = 'brainbase'
+export const BRAINBASE_SLUG = 'brainbase'
 
 // Pure — takes the slug and role already looked up, returns which variant
 // (if any) applies. Kept separate from the DB call below so it's directly

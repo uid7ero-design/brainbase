@@ -263,9 +263,10 @@ describe('Founder OS is untouched by the CRM restoration', () => {
     expect(FOUNDER_PAGE_SOURCE).not.toMatch(/fetch\(['"`]\/api\/crm\//)
   })
 
-  it('the founder-clients API still proxies to the external founder backend and is still super_admin-gated — unchanged by this phase (SEC-1B2 hardened the gate to requireRole(), same threshold)', () => {
+  it('the founder-clients API is still super_admin-gated, and (real-clients bundle) reads BrainBase records via lib/founder/clientOverview instead of the external backend', () => {
     expect(FOUNDER_CLIENTS_API_SOURCE).toContain("requireRole('super_admin')")
-    expect(FOUNDER_CLIENTS_API_SOURCE).toContain('NEXT_PUBLIC_API_URL')
+    expect(FOUNDER_CLIENTS_API_SOURCE).toContain("from '@/lib/founder/clientOverview'")
+    expect(FOUNDER_CLIENTS_API_SOURCE).not.toMatch(/process\.env\.NEXT_PUBLIC_API_URL|fetch\(/)
   })
 
   it('no CRM page reads from or writes to the founder-clients/founder-action APIs, and no Founder OS code reads from crm_companies/crm_contacts/crm_deals/crm_activities', () => {

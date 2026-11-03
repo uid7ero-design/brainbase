@@ -95,27 +95,19 @@ describe('GET /api/admin/founder-intelligence — live backend path preserved ex
   })
 })
 
-describe('GET /api/admin/founder-clients — no caller identity is forwarded to the backend (unchanged)', () => {
-  it('the outbound fetch carries no session/user/org identifying header or query param', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'org-a', role: 'super_admin', name: 'Admin One' })
-    queue([ACTIVE_SUPER_ADMIN_ROW])
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ clients: [] }) })
-
-    await getFounderClients(asNextRequest(new Request('http://localhost/api/admin/founder-clients')))
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://founder-backend.example.com/founder-clients')
-    expect(JSON.stringify(init.headers ?? {})).not.toMatch(/admin1|org-a/)
-  })
-
-  it('live backend data is returned unmodified, and audited as source: "live"', async () => {
+describe('GET /api/admin/founder-clients — never calls the external founder backend (real-clients bundle)', () => {
+  it('even with NEXT_PUBLIC_API_URL configured, reads only BrainBase records and makes no outbound fetch', async () => {
     getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'org-a', role: 'super_admin', name: 'Admin One' })
     queue([ACTIVE_SUPER_ADMIN_ROW])
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ clients: [{ id: 1, name: 'Port Adelaide' }] }) })
 
     const res = await getFounderClients(asNextRequest(new Request('http://localhost/api/admin/founder-clients')))
+    expect(res.status).toBe(200)
+    expect(fetchMock).not.toHaveBeenCalled()
     const body = await res.json()
-    expect(body).toEqual({ clients: [{ id: 1, name: 'Port Adelaide' }] })
+    expect(body).not.toHaveProperty('clients')
+    expect(JSON.stringify(body)).not.toContain('Port Adelaide')
+    expect(body.sources.organisations).toBe('ok')
     expect(auditMock.mock.calls[0]?.[0]).toMatchObject({ resource: 'founder_clients', source: 'live' })
   })
 })
