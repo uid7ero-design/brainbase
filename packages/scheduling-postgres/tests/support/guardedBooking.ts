@@ -7,14 +7,14 @@
 // An idempotency key that already exists inserts nothing either (zero rows): the caller then reads the existing reservation by key.
 //
 // $1 organisation, $2 offering, $3 offering version, $4 resource, $5 resource version, $6 reservation id, $7 hold id, $8 schedule, $9 starts, $10 ends, $11 idempotency key.
-export const GUARDED_BOOKING_SQL = `
+const buildGuardedSql = (offeringToken: false | 'check' | 'ignore') => `
   WITH lov AS (
     SELECT 1 FROM scheduling_availability_versions v
      WHERE v.organisation_id = $1 AND v.owner_kind = 'offering' AND v.owner_id = $2 AND v.version = $3::bigint
        FOR SHARE OF v
   ), lo AS (
     SELECT o.id, o.organisation_id, o.schedule_id FROM scheduling_offerings o, lov
-     WHERE o.organisation_id = $1 AND o.id = $2 AND o.archived_at IS NULL
+     WHERE o.organisation_id = $1 AND o.id = $2 AND o.archived_at IS NULL${offeringToken === 'check' ? ' AND o.updated_at = $12::timestamptz' : offeringToken === 'ignore' ? ' AND ($12::timestamptz IS NULL OR true)' : ''}
        FOR SHARE OF o
   ), lrv AS (
     SELECT 1 FROM scheduling_availability_versions v, lo
@@ -42,6 +42,18 @@ export const GUARDED_BOOKING_SQL = `
     RETURNING id
   )
   SELECT id FROM res`;
+
+export const GUARDED_BOOKING_SQL = buildGuardedSql(false);
+
+/**
+ * DECISION (docs/architecture/scheduling-phase2c3-offering-config-at-commit.md): the same statement, but it also requires the offering EDIT TOKEN (updated_at, $12) the application read. The
+ * offering row is already locked FOR SHARE, so a configuration writer (duration, price, capacity, start time, name, recurrence, archive) waits for an in-flight booking, and a booking that waited
+ * for a writer re-checks the token against the writer's new row and inserts nothing. No migration: it reuses the token every offering form already carries. SCHEDULING_SKIP_OFFERING_TOKEN=1 makes
+ * the clause a no-op, which is the failing-first (red) run of the tests.
+ */
+export const GUARDED_BOOKING_TOKEN_SQL = buildGuardedSql(process.env.SCHEDULING_SKIP_OFFERING_TOKEN === '1' ? 'ignore' : 'check');
+
+export const SLOW_GUARDED_BOOKING_TOKEN_SQL = (seconds: number) => GUARDED_BOOKING_TOKEN_SQL.replace('SELECT id FROM res', `SELECT id, pg_sleep(${seconds}) FROM res`);
 
 /** The same statement with a pause inside it after the locks and the insert, to hold the version rows share-locked while another request arrives. */
 export const SLOW_GUARDED_BOOKING_SQL = (seconds: number) => GUARDED_BOOKING_SQL.replace('SELECT id FROM res', `SELECT id, pg_sleep(${seconds}) FROM res`);
