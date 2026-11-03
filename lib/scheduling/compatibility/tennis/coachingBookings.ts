@@ -13,13 +13,13 @@ export interface CoachingBookingInput {
 export interface CoachingBooking {
   id: string; occurrence_id: string; customer_name: string;
   customer_email: string | null; customer_phone: string | null; notes: string | null;
-  status: string; attendance: string | null; payment_status: string;
+  status: string; attendance: string | null; payment_status: string; coaching_attendance_version: number;
 }
 export type BookingResult =
   | { ok: true; booking: CoachingBooking; replayed: boolean }
   | { ok: false; code: 'NOT_FOUND' | 'FULL' | 'DUPLICATE' | 'KEY_CONFLICT' | 'CLOSED' | 'PROTECTED_HISTORY' };
 
-const columns = 'id,occurrence_id,customer_name,customer_email,customer_phone,notes,status,attendance,payment_status';
+const columns = 'id,occurrence_id,customer_name,customer_email,customer_phone,notes,status,attendance,payment_status,coaching_attendance_version';
 function staff(tenant: TenantContext, permission: 'scheduling.reserve' | 'scheduling.attendance') {
   if (!tenant.organisationId || tenant.actor.kind !== 'staff' || !tenant.can(permission)) throw new Error('Coaching permission denied');
 }
@@ -95,21 +95,27 @@ export class CoachingBookings {
 
   async cancel(tenant: TenantContext, id: string): Promise<BookingResult> {
     staff(tenant, 'scheduling.reserve');
-    const changed = await this.sql.query<CoachingBooking>(`UPDATE scheduling_reservations SET
-      status='cancelled',cancelled_at=now(),cancelled_by='staff',cancel_reason='staff cancellation'
-      WHERE organisation_id=$1 AND id=$2 AND preset_key='classes_coaching' AND status IN ('pending','confirmed')
-        AND attendance IS NULL AND payment_status='unpaid' AND starts_at>now() RETURNING ${columns}`, [tenant.organisationId, id]);
-    if (changed[0]) return { ok: true, booking: changed[0], replayed: false };
-    const rows = await this.sql.query<CoachingBooking>(`SELECT ${columns} FROM scheduling_reservations WHERE organisation_id=$1 AND id=$2 AND preset_key='classes_coaching'`, [tenant.organisationId, id]);
-    if (!rows[0]) return { ok: false, code: 'NOT_FOUND' };
-    return rows[0].status === 'cancelled' ? { ok: true, booking: rows[0], replayed: true } : { ok: false, code: 'PROTECTED_HISTORY' };
+    const rows = await this.sql.query<{ result: BookingResult }>('SELECT scheduling_coaching_cancel_booking($1,$2) AS result', [tenant.organisationId, id]);
+    if (rows.length !== 1) throw Error('Coaching cancellation outcome unavailable');
+    return rows[0].result;
   }
 
-  async attendance(tenant: TenantContext, id: string, value: 'attended' | 'absent' | null): Promise<CoachingBooking | null> {
+  async attendance(tenant: TenantContext, id: string, value: 'attended' | 'absent' | null, expectedVersion: number, key: string): Promise<CoachingBooking | null> {
     staff(tenant, 'scheduling.attendance');
-    if (value !== null && !['attended', 'absent'].includes(value)) throw new Error('Invalid coaching attendance');
-    const rows = await this.sql.query<CoachingBooking>(`UPDATE scheduling_reservations SET attendance=$3
-      WHERE organisation_id=$1 AND id=$2 AND preset_key='classes_coaching' AND status='confirmed' RETURNING ${columns}`, [tenant.organisationId, id, value]);
-    return rows[0] ?? null;
+    if ((value !== null && !['attended', 'absent'].includes(value)) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0
+      || !/^[A-Za-z0-9_-]{16,80}$/.test(key) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) throw new Error('Invalid coaching attendance');
+    const request = { kind: 'attendance', bookingId: id, value, expectedVersion };
+    try {
+      const rows = await this.sql.query<{ result: { booking: CoachingBooking | null } }>(
+        'SELECT scheduling_coaching_set_attendance($1,$2,$3,$4,$5,$6) AS result',
+        [tenant.organisationId, id, value, expectedVersion, key, tenant.actor.kind === 'staff' ? tenant.actor.userId : null]);
+      if (rows.length !== 1) throw Error('Coaching attendance outcome unavailable');
+      return rows[0].result.booking;
+    } catch (error) {
+      const saved = await this.sql.query<{ result: { booking: CoachingBooking } }>(`SELECT result FROM scheduling_coaching_commands
+        WHERE organisation_id=$1 AND command_key=$2 AND request=$3::jsonb`, [tenant.organisationId, key, JSON.stringify(request)]);
+      if (saved.length === 1) return saved[0].result.booking;
+      throw error;
+    }
   }
 }

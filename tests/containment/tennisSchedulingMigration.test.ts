@@ -119,10 +119,12 @@ describe('Tennis migration projection preflight', () => {
     const s = fixture(); s.instances = [...s.instances, { ...s.instances[0], id: 'other', start_time: '17:00' }];
     expect(codes(s)).toContain('DUPLICATE_SLOT');
   });
-  it('preserves protected live bookings inside a pause as a review conflict', () => {
+  it('preserves protected live bookings inside a pause with an explicit warning, but refuses unprotected conflicts', () => {
     const s = fixture(); s.bookings[0].paid = true;
     s.pauses = [{ id: 'pause', organisation_id: s.organisationId, session_id: 'session', recurring_group_id: 'group', pause_from: '2026-11-03', pause_until: '2026-11-10' }];
-    expect(codes(s)).toContain('LIVE_BOOKING_IN_PAUSE'); expect(s.bookings[0].status).toBe('confirmed');
+    expect(assessTennisMigration(s).warnings).toContainEqual({ source: 'bookings', id: 'booking', code: 'LIVE_BOOKING_IN_PAUSE' });
+    expect(assessTennisMigration(s).compatibleProjection).toBe(true); expect(s.bookings[0].status).toBe('confirmed');
+    s.bookings[0].paid = false; expect(codes(s)).toContain('LIVE_BOOKING_IN_PAUSE');
     s.bookings[0].status = 'cancelled'; expect(codes(s)).not.toContain('LIVE_BOOKING_IN_PAUSE');
   });
   it('refuses unsupported class pauses and invalid date ranges', () => {

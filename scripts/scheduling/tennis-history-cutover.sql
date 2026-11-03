@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS scheduling_tennis_cutover (
   phase text NOT NULL DEFAULT 'legacy' CHECK(phase IN ('legacy','frozen','scheduling')),
   captured_hash text,
   captured_at timestamptz,
-  CHECK((captured_hash IS NULL)=(captured_at IS NULL))
+  captured_timezone text,
+  captured_currency text,
+  CHECK((captured_hash IS NULL)=(captured_at IS NULL)),
+  CHECK((captured_hash IS NULL)=(captured_timezone IS NULL)),
+  CHECK((captured_hash IS NULL)=(captured_currency IS NULL))
 );
 CREATE TABLE IF NOT EXISTS scheduling_tennis_history (
   organisation_id text NOT NULL REFERENCES scheduling_tennis_cutover(organisation_id),
@@ -47,7 +51,8 @@ BEGIN
     RAISE EXCEPTION 'cutover transition not enabled' USING ERRCODE='STCTL';
   END IF;
   IF OLD.captured_hash IS NOT NULL AND
-    (NEW.captured_hash IS DISTINCT FROM OLD.captured_hash OR NEW.captured_at IS DISTINCT FROM OLD.captured_at) THEN
+    (NEW.captured_hash IS DISTINCT FROM OLD.captured_hash OR NEW.captured_at IS DISTINCT FROM OLD.captured_at
+      OR NEW.captured_timezone IS DISTINCT FROM OLD.captured_timezone OR NEW.captured_currency IS DISTINCT FROM OLD.captured_currency) THEN
     RAISE EXCEPTION 'history receipt is immutable' USING ERRCODE='STCTL';
   END IF;
   IF NEW.captured_hash IS DISTINCT FROM OLD.captured_hash AND NEW.phase<>'frozen' THEN
@@ -114,8 +119,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION scheduling_tennis_manifest(org text) RETURNS text
 LANGUAGE sql STABLE SET timezone='UTC' AS $$
-  SELECT encode(sha256(convert_to(COALESCE(jsonb_agg(jsonb_build_array(source_table,source_id,source_row)
-    ORDER BY source_table,source_id)::text,'[]'),'UTF8')),'hex') FROM scheduling_tennis_source_rows(org)
+  SELECT encode(sha256(convert_to(jsonb_build_array(
+    (SELECT timezone FROM organisations WHERE id=org),
+    (SELECT currency FROM scheduling_settings WHERE organisation_id=org),
+    COALESCE(jsonb_agg(jsonb_build_array(source_table,source_id,source_row) ORDER BY source_table,source_id),'[]'::jsonb))::text,'UTF8')),'hex')
+    FROM scheduling_tennis_source_rows(org)
 $$;
 
 CREATE OR REPLACE FUNCTION scheduling_tennis_history_guard() RETURNS trigger
@@ -134,13 +142,17 @@ FOR EACH ROW EXECUTE FUNCTION scheduling_tennis_history_guard();
 CREATE OR REPLACE FUNCTION scheduling_tennis_capture_history(org text, expected_hash text)
 RETURNS TABLE(manifest text,row_count bigint)
 LANGUAGE plpgsql SET timezone='UTC' SET lock_timeout='5s' SET statement_timeout='30s' AS $$
-DECLARE state scheduling_tennis_cutover%ROWTYPE; actual text; archived text;
+DECLARE state scheduling_tennis_cutover%ROWTYPE; actual text; archived text; tz text; currency_code text;
 BEGIN
   IF current_setting('transaction_isolation')<>'read committed' THEN
     RAISE EXCEPTION 'history capture requires read committed' USING ERRCODE='STISO';
   END IF;
   SELECT * INTO state FROM scheduling_tennis_cutover WHERE organisation_id=org FOR UPDATE;
   IF NOT FOUND OR state.phase<>'frozen' THEN RAISE EXCEPTION 'source not frozen' USING ERRCODE='STFRZ'; END IF;
+  SELECT timezone INTO tz FROM organisations WHERE id=org AND slug='ld-tennis' AND status='ACTIVE' FOR SHARE;
+  SELECT currency INTO currency_code FROM scheduling_settings WHERE organisation_id=org FOR SHARE;
+  IF tz IS NULL OR NOT EXISTS(SELECT 1 FROM pg_timezone_names WHERE name=tz) OR currency_code IS NULL OR currency_code!~'^[A-Z]{3}$'
+    THEN RAISE EXCEPTION 'source configuration unavailable' USING ERRCODE='STCHG'; END IF;
   actual:=scheduling_tennis_manifest(org);
   IF expected_hash IS NULL OR expected_hash<>actual OR (state.captured_hash IS NOT NULL AND state.captured_hash<>actual) THEN
     RAISE EXCEPTION 'source changed since review' USING ERRCODE='STCHG';
@@ -148,11 +160,11 @@ BEGIN
   INSERT INTO scheduling_tennis_history(organisation_id,source_table,source_id,source_row)
     SELECT org,s.source_table,s.source_id,s.source_row FROM scheduling_tennis_source_rows(org) s
     ON CONFLICT(organisation_id,source_table,source_id) DO NOTHING;
-  SELECT encode(sha256(convert_to(COALESCE(jsonb_agg(jsonb_build_array(h.source_table,h.source_id,h.source_row)
-    ORDER BY h.source_table,h.source_id)::text,'[]'),'UTF8')),'hex') INTO archived
+  SELECT encode(sha256(convert_to(jsonb_build_array(tz,currency_code,COALESCE(jsonb_agg(jsonb_build_array(h.source_table,h.source_id,h.source_row)
+    ORDER BY h.source_table,h.source_id),'[]'::jsonb))::text,'UTF8')),'hex') INTO archived
     FROM scheduling_tennis_history h WHERE h.organisation_id=org;
   IF archived<>actual THEN RAISE EXCEPTION 'history does not match source' USING ERRCODE='STHIS'; END IF;
-  UPDATE scheduling_tennis_cutover SET captured_hash=actual,captured_at=COALESCE(captured_at,now()) WHERE organisation_id=org;
+  UPDATE scheduling_tennis_cutover SET captured_hash=actual,captured_at=COALESCE(captured_at,now()),captured_timezone=tz,captured_currency=currency_code WHERE organisation_id=org;
   RETURN QUERY SELECT actual,count(*) FROM scheduling_tennis_history h WHERE h.organisation_id=org;
 END $$;
 

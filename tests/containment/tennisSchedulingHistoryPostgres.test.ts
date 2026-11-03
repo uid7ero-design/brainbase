@@ -13,13 +13,14 @@ describe.skipIf(!url)('Tennis full-history barrier on disposable Postgres', () =
   const sql = { async query<T>(text: string, params: readonly unknown[]) { return (await pool.query(text, [...params])).rows as T[]; } };
   const tenant: TenantContext = { organisationId: org, timezone: 'Australia/Adelaide', actor: { kind: 'staff', userId: 'synthetic' }, can: () => true };
   beforeAll(async () => {
-    await pool.query('CREATE TABLE organisations(id text PRIMARY KEY,slug text,status text)');
+    await pool.query('CREATE TABLE organisations(id text PRIMARY KEY,slug text,status text,timezone text); CREATE TABLE scheduling_settings(organisation_id text PRIMARY KEY,currency text)');
     for (const table of tables) await pool.query(`CREATE TABLE ${table}(id text PRIMARY KEY,organisation_id text NOT NULL,notes text,paid boolean,attendance text)`);
     await pool.query(readFileSync('scripts/scheduling/tennis-history-cutover.sql', 'utf8'));
   });
   beforeEach(async () => {
-    await pool.query(`TRUNCATE scheduling_tennis_history,scheduling_tennis_cutover,${tables.join(',')},organisations CASCADE`);
-    await pool.query("INSERT INTO organisations VALUES($1,'ld-tennis','ACTIVE'),('other','other','ACTIVE')", [org]);
+    await pool.query(`TRUNCATE scheduling_tennis_history,scheduling_tennis_cutover,${tables.join(',')},organisations,scheduling_settings CASCADE`);
+    await pool.query("INSERT INTO organisations VALUES($1,'ld-tennis','ACTIVE','Australia/Adelaide'),('other','other','ACTIVE','Australia/Adelaide')", [org]);
+    await pool.query("INSERT INTO scheduling_settings VALUES($1,'AUD')", [org]);
     for (const table of tables) await pool.query(`INSERT INTO ${table} VALUES($1,$2,'Synthetic original notes',true,'attending'),($3,'other','Other tenant',false,NULL)`, [table, org, `${table}-other`]);
     await pool.query('SELECT scheduling_tennis_prepare_history($1)', [org]);
   });

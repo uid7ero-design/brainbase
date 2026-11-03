@@ -35,6 +35,12 @@ try {
     stdio: 'inherit', timeout: 120000,
     env: { ...process.env, TENNIS_HISTORY_TEST_URL: historyUrl, DATABASE_URL: historyUrl, DIRECT_URL: historyUrl, RESEND_API_KEY: '' },
   });
+  exec('docker', ['exec', name, 'createdb', '-U', 'postgres', 'tennis_import_proof']);
+  const importUrl = `postgresql://postgres:${password}@${address}/tennis_import_proof`;
+  exec(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', 'tests/containment/tennisSchedulingImportPostgres.test.ts'], {
+    stdio: 'inherit', timeout: 120000,
+    env: { ...process.env, TENNIS_IMPORT_TEST_URL: importUrl, DATABASE_URL: importUrl, DIRECT_URL: importUrl, RESEND_API_KEY: '' },
+  });
 } finally {
   if (created) {
     exec('docker', ['rm', '-f', name], { stdio: 'ignore' });

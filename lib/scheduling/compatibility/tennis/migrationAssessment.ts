@@ -50,6 +50,7 @@ export interface TennisMigrationAssessment {
   cutoverReady: false;
   counts: { sessions: number; instances: number; bookings: number; pauses: number; series: number };
   problems: MigrationProblem[];
+  warnings: MigrationProblem[];
   preservation: { cancelledBookings: number; paidMarkers: number; attendanceMarkers: number; archivedSessions: number };
 }
 
@@ -81,6 +82,7 @@ export function tennisPriceCents(price: string): number | null {
 /** No identities are matched, records dropped, timestamps invented or writes performed. */
 export function assessTennisMigration(snapshot: TennisMigrationSnapshot): TennisMigrationAssessment {
   const problems: MigrationProblem[] = [];
+  const warnings: MigrationProblem[] = [];
   const add = (source: Source, id: string, code: MigrationProblemCode) => {
     // Diagnostics must not echo malformed ids which could contain customer input.
     const safeId = idValid(id) ? id : '[invalid]';
@@ -178,10 +180,15 @@ export function assessTennisMigration(snapshot: TennisMigrationSnapshot): Tennis
       if (b.session_id !== p.session_id) add('pauses', p.id, 'PARENT_MISMATCH');
       const date = b.session_instance_id ? instances.get(b.session_instance_id)?.date : undefined;
       // Legacy can preserve paid/attended bookings inside a pause. Never cancel them during import.
-      if (date && b.status !== 'cancelled' && date >= p.pause_from && date <= p.pause_until) add('bookings', b.id, 'LIVE_BOOKING_IN_PAUSE');
+      if (date && b.status !== 'cancelled' && date >= p.pause_from && date <= p.pause_until) {
+        if (b.paid || b.attendance_status !== null) {
+          if (!warnings.some(w => w.id === b.id && w.code === 'LIVE_BOOKING_IN_PAUSE')) warnings.push({ source: 'bookings', id: b.id, code: 'LIVE_BOOKING_IN_PAUSE' });
+        } else add('bookings', b.id, 'LIVE_BOOKING_IN_PAUSE');
+      }
     }
   }
   problems.sort((a, b) => order(JSON.stringify(a), JSON.stringify(b)));
+  warnings.sort((a, b) => order(JSON.stringify(a), JSON.stringify(b)));
   return {
     version: 1,
     projectionFingerprint: createHash('sha256').update(JSON.stringify(canonical(snapshot))).digest('hex'),
@@ -189,6 +196,7 @@ export function assessTennisMigration(snapshot: TennisMigrationSnapshot): Tennis
     cutoverReady: false,
     counts: { sessions: snapshot.sessions.length, instances: snapshot.instances.length, bookings: snapshot.bookings.length, pauses: snapshot.pauses.length, series: series.size },
     problems,
+    warnings,
     preservation: {
       cancelledBookings: snapshot.bookings.filter(b => b.status === 'cancelled').length,
       paidMarkers: snapshot.bookings.filter(b => b.paid).length,
