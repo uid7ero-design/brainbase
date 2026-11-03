@@ -46,12 +46,34 @@ describe('there is still no booking-writing route', () => {
 });
 
 describe('the shared schema is exactly the approved one', () => {
-  it('has no migration beyond 037 and no rollback beyond 098', () => {
+  it('has no migration beyond 041 and no rollback beyond 099', () => {
     const names = readdirSync(path.join(ROOT, 'packages/scheduling/sql'));
     const numbers = names.map(n => Number(n.slice(0, 3))).filter(Number.isFinite);
-    expect(Math.max(...numbers)).toBe(98);
-    expect(names.filter(n => /^0(3[8-9]|[4-8]\d)_/.test(n))).toEqual([]);
-    expect(names.filter(n => /^099_|^1\d\d_/.test(n))).toEqual([]);
+    expect(Math.max(...numbers)).toBe(99);
+    expect(names.filter(n => /^0(3[8-9]|40|4[2-9]|[5-8]\d)_/.test(n))).toEqual([]);
+    expect(names.filter(n => /^1\d\d_/.test(n))).toEqual([]);
+  });
+  it('041 is additive: it creates only two GiST indexes and its registry row, and alters, drops or updates nothing', () => {
+    const sql = read('packages/scheduling/sql/041_range_indexes.sql').replace(/--.*$/gm, '');
+    expect(sql).not.toMatch(/\bALTER\s+/i);
+    expect(sql).not.toMatch(/\bDROP\s+/i);
+    expect(sql).not.toMatch(/\bUPDATE\s+\w/i);
+    expect(sql).not.toMatch(/\bDELETE\b|\bTRUNCATE\b/i);
+    expect(sql).not.toMatch(/\bCREATE\s+(OR\s+REPLACE\s+)?(TABLE|FUNCTION|TRIGGER|VIEW|EXTENSION|UNIQUE)\b/i);
+    expect(sql).not.toMatch(/ld_tennis|ticketing|events?_|tennis/i);
+    expect([...sql.matchAll(/CREATE INDEX IF NOT EXISTS (\w+)\s+ON (\w+) USING gist/g)].map(m => `${m[1]} on ${m[2]}`)).toEqual([
+      'scheduling_reservations_range_gist on scheduling_reservations',
+      'scheduling_occurrences_range_gist on scheduling_occurrences',
+    ]);
+    expect((sql.match(/\bCREATE\b/g) ?? []).length).toBe(2);
+    expect([...sql.matchAll(/INSERT INTO (\w+)/g)].map(m => m[1])).toEqual(['scheduling_schema_migrations']);
+  });
+  it('the 041 rollback is independent and complete', () => {
+    const sql = read('packages/scheduling/sql/099_range_indexes_rollback.sql').replace(/--.*$/gm, '');
+    expect([...sql.matchAll(/DROP INDEX IF EXISTS (\w+)/g)].map(m => m[1])).toEqual(['scheduling_reservations_range_gist', 'scheduling_occurrences_range_gist']);
+    expect(sql).toMatch(/DELETE FROM scheduling_schema_migrations WHERE version = '2c\.4\.1'/);
+    expect(sql).not.toMatch(/\b(ALTER|CREATE|UPDATE|INSERT|TRUNCATE)\b/i);
+    expect(sql).not.toMatch(/DROP\s+(TABLE|TRIGGER|FUNCTION|COLUMN|CONSTRAINT)/i);
   });
   it('037 is additive: it creates its own table, functions and triggers and alters, drops or updates nothing that exists', () => {
     const sql = read('packages/scheduling/sql/037_availability_versions.sql').replace(/--.*$/gm, '');

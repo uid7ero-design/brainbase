@@ -6,6 +6,7 @@
 #   packages/scheduling-postgres/tests/availabilityVersions.integration.test.ts   Migration 037: rows, backfill, every bump source, isolation, rollback
 #   packages/scheduling-postgres/tests/availabilityAtCommit.integration.test.ts   Phase 2C.0: what is and is not atomic when availability is checked and a booking written
 #   packages/scheduling-postgres/tests/bookingReads.integration.test.ts           Phase 2C.2: tenant-scoped range reads, viewer-reduced shape, read-only proof (a READ ONLY connection)
+#   packages/scheduling-postgres/tests/rangeIndexes.integration.test.ts          Migration 041: GiST range indexes (apply/rollback/idempotent, predicate equivalence, plan)
 #   scripts/tests/schedulingBookingOverlay2c2.integration.test.ts                  Phase 2C.2: the guarded overlay API (permissions, redaction, bounds)
 # Suites that do not exist on the current branch are skipped, so the same script serves the 2C.1 and 2C.2 branches.
 #
@@ -77,6 +78,7 @@ run() { # one file per run: two files in one run execute in parallel and race on
 run packages/scheduling-postgres/tests/availabilityVersions.integration.test.ts
 run packages/scheduling-postgres/tests/availabilityAtCommit.integration.test.ts
 run packages/scheduling-postgres/tests/bookingReads.integration.test.ts
+run packages/scheduling-postgres/tests/rangeIndexes.integration.test.ts
 run scripts/tests/schedulingBookingOverlay2c2.integration.test.ts
 
 if [ "${SCHED_KEEP:-0}" = "1" ]; then echo "KEPT $NAME  $URL"; fi
