@@ -3,6 +3,7 @@ import sql from '@/lib/db'
 import { isBookingCapacityError } from '@/lib/bookingCapacity'
 import { checkRateLimit } from '@/lib/rateLimit'
 import { getClientIp } from '@/lib/clientIp'
+import { publicTennisBooking } from '@/lib/scheduling/runtime'
 
 const ORG_ID = process.env.LD_TENNIS_ORG_ID
 
@@ -13,11 +14,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too many requests. Please wait before trying again.' }, { status: 429 })
   }
 
-  let body: { session_instance_id: string; name: string; email: string; phone?: string }
+  let body: { session_instance_id: string; name: string; email: string; phone?: string; idempotencyKey?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request' }, { status: 400 }) }
 
-  if (!body.session_instance_id || !body.name?.trim() || !body.email?.trim()) {
+  if (!body || typeof body.session_instance_id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(body.session_instance_id)
+    || typeof body.name!=='string' || !body.name.trim() || body.name.length>200 || typeof body.email!=='string'
+    || body.email.length>320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim()) || (body.phone!==undefined && (typeof body.phone!=='string' || body.phone.length>80))) {
     return NextResponse.json({ error: 'session_instance_id, name and email are required' }, { status: 400 })
+  }
+
+  try {
+    const service=publicTennisBooking(); const phase=await service.phase();
+    if(phase==='frozen')return NextResponse.json({error:'Bookings are briefly paused for a system handover.',code:'HANDOVER_PAUSED'},{status:503,headers:{'cache-control':'no-store'}});
+    if(phase==='scheduling') {
+      if(typeof body.idempotencyKey!=='string' || !/^[A-Za-z0-9_-]{16,80}$/.test(body.idempotencyKey))return NextResponse.json({error:'Reload the booking form before booking.',code:'INVALID_INPUT'},{status:400});
+      return NextResponse.json(await service.book({...body,idempotencyKey:body.idempotencyKey}),{status:201,headers:{'cache-control':'no-store'}});
+    }
+  } catch(error) {
+    const code=(error as {code?:string}).code;
+    if(code==='STOFF')return NextResponse.json({error:'Bookings are currently paused.',code:'HANDOVER_PAUSED'},{status:503,headers:{'cache-control':'no-store'}});
+    if(['SCCAP','23505','STCLS','SCARC','SCCLS','STKEY'].includes(code ?? ''))return NextResponse.json({error:'This session is unavailable, full or already booked.',code:'BOOKING_REFUSED'},{status:409,headers:{'cache-control':'no-store'}});
+    return NextResponse.json({error:'The booking result is not confirmed. Check your saved request before booking again.',code:'OUTCOME_UNKNOWN'},{status:503,headers:{'cache-control':'no-store'}});
   }
 
   // Verify instance exists and is available
@@ -136,4 +153,13 @@ export async function POST(req: NextRequest) {
     console.error('[tennis/book POST]', err)
     return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 })
   }
+}
+
+export async function GET(req:NextRequest) {
+  if(!ORG_ID)return NextResponse.json({error:'Booking not available'},{status:503});
+  if(!checkRateLimit(`tennis-book-check:${getClientIp(req)}`,60,60_000))return NextResponse.json({error:'Please wait before checking again.'},{status:429});
+  const q=new URL(req.url).searchParams;const key=q.get('key');
+  if(!key || !/^[A-Za-z0-9_-]{16,80}$/.test(key) || [...q.keys()].some(k=>k!=='key') || q.getAll('key').length!==1)return NextResponse.json({error:'Invalid request'},{status:400});
+  try {return NextResponse.json({result:await publicTennisBooking().saved(key)},{headers:{'cache-control':'private, no-store'}});}
+  catch{return NextResponse.json({error:'The saved result could not be checked.'},{status:503,headers:{'cache-control':'private, no-store'}});}
 }

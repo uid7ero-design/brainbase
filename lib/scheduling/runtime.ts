@@ -4,7 +4,11 @@ import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersi
 import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, type SqlExecutor } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
-import { CoachingClasses, type GenerationResult } from './compatibility/tennis/coachingClasses';
+import { CoachingClasses, type GenerationResult, type RestorationResult } from './compatibility/tennis/coachingClasses';
+import { CoachingWorkspace } from './compatibility/tennis/coachingWorkspace';
+import { CoachingRosterActions } from './compatibility/tennis/coachingRosterActions';
+import type { CoachingAction } from './coachingContract';
+import { TennisPublicBooking } from './compatibility/tennis/publicBooking';
 
 // Phase 2B.1 — the BrainBase runtime for Scheduling: the one place that joins the app's Neon driver, the shared
 // @scheduling/postgres repositories, the session's organisation and the organisation's configuration.
@@ -27,6 +31,16 @@ import { CoachingClasses, type GenerationResult } from './compatibility/tennis/c
 export { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 
 export interface SchedulingRuntime {
+  coachingLifecycle?: {
+    archive(id: string, key: string): Promise<unknown>; restore(id: string, key: string): Promise<RestorationResult>;
+    saved(id: string, key: string, action: string): Promise<unknown|null>;
+  };
+  coachingRoster?: {
+    dates(from: string, until: string, after?: string): ReturnType<CoachingWorkspace['dates']>;
+    roster(id: string, after?: string): ReturnType<CoachingWorkspace['roster']>;
+    execute(action: CoachingAction): Promise<unknown>;
+    saved(key: string, kind: string, bookingId?: string): Promise<boolean>;
+  };
   /** Lazy, tenant-bound commands; no schema is installed or activated here. */
   coaching?: { generateClasses(offeringId: string, key: string): Promise<GenerationResult>; savedGeneration(offeringId: string, key: string): Promise<GenerationResult | null> };
   tenant: TenantContext;
@@ -75,6 +89,11 @@ export function createSchedulingExecutor(signal?: AbortSignal, recorder?: Statem
   };
 }
 
+/** Public Tennis bridge: configuration only, never a request-supplied tenant. */
+export function publicTennisBooking() {
+  return new TennisPublicBooking(createSchedulingExecutor(), process.env.LD_TENNIS_ORG_ID ?? '');
+}
+
 /** Builds the runtime for an authorised staff session. Read-only: it never writes to the database. */
 export async function loadSchedulingRuntime(session: { organisationId: string; userId: string; role: string }, options: { signal?: AbortSignal; recorder?: StatementRecorder } = {}): Promise<SchedulingRuntime> {
   const executor = createSchedulingExecutor(options.signal, options.recorder);
@@ -93,9 +112,22 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
   const tenant = staffTenantContext({ ...identity, timezone: timezone.value });
   if (!settings) throw new SchedulingConfigurationError('missing_settings');
   const classes = new CoachingClasses(executor);
+  const coachingLifecycle = {
+    archive: (id:string,key:string) => classes.archiveLive(tenant,id,key),
+    restore: (id:string,key:string) => classes.restoreLive(tenant,id,systemClock.today(tenant.timezone),key),
+    saved: (id:string,key:string,action:string) => action==='restore' ? classes.savedRestoration(tenant,id,key) : classes.savedArchive(tenant,id,key),
+  };
+  const workspace = new CoachingWorkspace(executor);
+  const actions = new CoachingRosterActions(executor);
+  const coachingRoster = {
+    dates: (from: string, until: string, after?: string) => workspace.dates(tenant,from,until,after),
+    roster: (id: string, after?: string) => workspace.roster(tenant,id,after),
+    execute: (action: CoachingAction) => actions.execute(tenant,action),
+    saved: (key: string, kind: string, bookingId?: string) => actions.saved(tenant,key,kind,bookingId),
+  };
   const coaching = {
     generateClasses: (offeringId: string, key: string) => classes.generateLive(tenant, offeringId, systemClock.today(tenant.timezone), key),
     savedGeneration: (offeringId: string, key: string) => classes.savedGeneration(tenant, offeringId, key),
   };
-  return { tenant, persistence, availability, bookingReads, settings, timezone, coaching };
+  return { tenant, persistence, availability, bookingReads, settings, timezone, coaching, coachingRoster, coachingLifecycle };
 }

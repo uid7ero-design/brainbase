@@ -360,6 +360,13 @@ BEGIN
       OR (start_instant AT TIME ZONE schedule.timezone)::time IS DISTINCT FROM offer.start_time
       OR end_instant IS DISTINCT FROM start_instant+make_interval(mins=>offer.duration_minutes)
       THEN RAISE EXCEPTION 'Class plan does not match current configuration' USING ERRCODE='STVAL'; END IF;
+    IF to_regclass('public.scheduling_coaching_restorations') IS NOT NULL THEN
+      IF EXISTS(WITH RECURSIVE ancestors(id) AS (
+        SELECT original_offering_id FROM scheduling_coaching_restorations WHERE organisation_id=org AND restored_offering_id=class_id
+        UNION ALL SELECT r.original_offering_id FROM scheduling_coaching_restorations r JOIN ancestors a ON r.restored_offering_id=a.id WHERE r.organisation_id=org
+      ) SELECT 1 FROM scheduling_occurrences o JOIN ancestors a ON a.id=o.offering_id WHERE o.organisation_id=org AND o.local_date=day AND o.status='scheduled')
+        THEN existing:=existing+1; CONTINUE; END IF;
+    END IF;
     new_id:=NULL;
     INSERT INTO scheduling_occurrences(id,organisation_id,offering_id,local_date,local_start_time,timezone,starts_at,ends_at,capacity)
       VALUES(gen_random_uuid()::text,org,offer.id,day,offer.start_time,schedule.timezone,start_instant,end_instant,offer.capacity)

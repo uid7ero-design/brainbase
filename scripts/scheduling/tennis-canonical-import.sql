@@ -109,10 +109,15 @@ BEGIN
     ELSIF TG_TABLE_NAME='scheduling_series_pauses' THEN
       SELECT f.schedule_id INTO target_schedule FROM scheduling_series g JOIN scheduling_offerings f ON f.organisation_id=g.organisation_id AND f.id=g.offering_id
         WHERE g.organisation_id=target_org AND g.id=payload->>'series_id';
+    ELSIF TG_TABLE_NAME='scheduling_coaching_restorations' THEN
+      SELECT schedule_id INTO target_schedule FROM scheduling_offerings WHERE organisation_id=target_org AND id=payload->>'original_offering_id';
+    ELSIF TG_TABLE_NAME='scheduling_coaching_restored_series' THEN
+      SELECT f.schedule_id INTO target_schedule FROM scheduling_series g JOIN scheduling_offerings f ON f.organisation_id=g.organisation_id AND f.id=g.offering_id WHERE g.organisation_id=target_org AND g.id=payload->>'original_series_id';
     ELSIF TG_TABLE_NAME IN ('scheduling_coaching_markers','scheduling_coaching_series_links') THEN
       SELECT schedule_id INTO target_schedule FROM scheduling_reservations WHERE organisation_id=target_org AND id=payload->>'reservation_id';
     END IF;
     IF target_schedule='tennis-coaching' THEN
+      IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'Tennis target requires read committed' USING ERRCODE='STISO'; END IF;
       SELECT c.phase INTO phase FROM scheduling_tennis_cutover c WHERE organisation_id=target_org FOR SHARE;
       IF phase IS DISTINCT FROM 'scheduling' THEN RAISE EXCEPTION 'Imported Tennis target awaits activation' USING ERRCODE='STFRZ'; END IF;
     END IF;

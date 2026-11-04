@@ -3,6 +3,7 @@ import { requireSession, unauthorized, forbidden, type OrgSession } from '@/lib/
 import { requireCapability, CapabilityAccessError } from '@/lib/capabilities/requireCapability';
 import type { SchedulingPermission, TenantContext } from '@scheduling/core';
 import { SCHEDULING_CAPABILITY_KEY, permissionsForRole, staffTenantContext } from './adapters/brainbase';
+import { getUserPermissions } from '@/lib/organisationUsers/access';
 
 // The fail-closed gate for every Scheduling route. Routes never call it directly: they are built with schedulingRoute()
 // in lib/scheduling/route.ts, the one importer of this file (tests/containment/schedulingPhase2b1Containment.test.ts pins
@@ -58,6 +59,15 @@ export async function authorizeSchedulingRequest(permission: SchedulingPermissio
   }
 
   if (!permissionsForRole(session.role).includes(permission)) return { ok: false, response: forbidden() };
+
+  // Roster GETs require reserve permission because they disclose customer data.
+  // Middleware's GET/view rule alone is insufficient for that distinction.
+  if(session.role!=='super_admin') {
+    try {
+      const managed=await getUserPermissions(session.organisationId,session.userId);
+      if(managed && (permission==='scheduling.view' ? !['view','use'].includes(managed.scheduling ?? 'none') : managed.scheduling!=='use')) return {ok:false,response:forbidden()};
+    } catch {return {ok:false,response:NextResponse.json({error:'Unable to verify Scheduling access.'},{status:503})};}
+  }
 
   const tenant = staffTenantContext({
     organisationId: session.organisationId,

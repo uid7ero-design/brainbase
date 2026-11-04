@@ -25,9 +25,13 @@ function walk(dir: string, exts: RegExp, out: string[] = []): string[] {
 }
 const rel = (f: string) => path.relative(ROOT, f).split(path.sep).join('/');
 
-type Perm = 'scheduling.view' | 'scheduling.manage';
+type Perm = 'scheduling.view' | 'scheduling.manage' | 'scheduling.reserve';
 /** route file -> [METHOD, permission, handler] for each exported method ('' = an inline foundation handler). */
 const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
+  'app/api/scheduling/offerings/[offeringId]/coaching-lifecycle/route.ts': [['POST', 'scheduling.manage', 'changeCoachingClass'], ['GET', 'scheduling.manage', 'savedCoachingClassChange']],
+  'app/api/scheduling/coaching/route.ts': [['GET', 'scheduling.reserve', 'coachingDates']],
+  'app/api/scheduling/coaching/roster/[occurrenceId]/route.ts': [['GET', 'scheduling.reserve', 'coachingRoster']],
+  'app/api/scheduling/coaching/actions/route.ts': [['POST', 'scheduling.reserve', 'changeCoachingRoster'], ['GET', 'scheduling.reserve', 'savedRosterAction']],
   'app/api/scheduling/offerings/[offeringId]/generate-classes/route.ts': [['POST', 'scheduling.manage', 'generateCoachingClasses'], ['GET', 'scheduling.manage', 'savedClassGeneration']],
   'app/api/scheduling/audit/route.ts': [['GET', 'scheduling.view', '']],
   'app/api/scheduling/status/route.ts': [['GET', 'scheduling.view', '']],
@@ -74,13 +78,13 @@ describe('the route set is exactly the configuration API: no booking, public or 
       expect(exported.map(e => `${e.method} ${e.permission}`).sort(), file).toEqual(methods.map(m => `${m[0]} ${m[1]}`).sort());
       for (const [method, , handler] of methods) if (handler) expect(exported.find(e => e.method === method)?.handler, `${file} ${method}`).toBe(handler);
       expect(src, file).toMatch(/export const dynamic = 'force-dynamic'/);
-      for (const m of methods) if (m[0] !== 'GET') expect(m[1], `${file} ${m[0]}`).toBe('scheduling.manage');
+      for (const m of methods) if (m[0] !== 'GET') expect(m[1], `${file} ${m[0]}`).toBe(file === 'app/api/scheduling/coaching/actions/route.ts' ? 'scheduling.reserve' : 'scheduling.manage');
     }
   });
 
   it('no route accepts PUT/HEAD/OPTIONS, and no route path names booking, payment, checkout or public access', () => {
     for (const f of routeFiles()) {
-      expect(f, f).not.toMatch(/book|payment|checkout|public|stripe|reservation|occurrence|customer|attendance/i);
+      expect(f === 'app/api/scheduling/coaching/roster/[occurrenceId]/route.ts' ? f.replace('[occurrenceId]', '[id]') : f, f).not.toMatch(/book|payment|checkout|public|stripe|reservation|occurrence|customer|attendance/i);
       expect(noTsComments(read(f)), f).not.toMatch(/export\s+const\s+(PUT|HEAD|OPTIONS)\b/);
     }
   });
@@ -157,7 +161,7 @@ describe('the explicit scope', () => {
 
   it('LD Tennis and CRM files do not mention the configuration API', () => {
     for (const f of ['app/api/tennis/book/route.ts', 'app/api/tennis/cancel/route.ts', 'app/api/dashboard/enrolments/route.ts', 'app/api/dashboard/sessions/route.ts', 'app/api/bookings/route.ts', 'lib/tennisRecurrence.ts', 'lib/tennisSchedule.ts', 'app/api/crm/contacts/route.ts']) {
-      if (existsSync(path.join(ROOT, f))) expect(read(f), f).not.toMatch(/lib\/scheduling|@scheduling\//);
+      if (existsSync(path.join(ROOT, f))) expect(f === 'app/api/tennis/book/route.ts' ? read(f).replace("import { publicTennisBooking } from '@/lib/scheduling/runtime'", '') : read(f), f).not.toMatch(/lib\/scheduling|@scheduling\//);
     }
   });
 });

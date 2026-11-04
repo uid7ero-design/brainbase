@@ -1,5 +1,6 @@
 import 'server-only';
 import sql from '@/lib/db';
+import { coachingAuthority } from './coachingAuthority';
 import { businessPeriod, exactCents, type BusinessModule, type BusinessOverview, type Section } from './model';
 
 async function read<T>(enabled: boolean, run: () => Promise<T>): Promise<Section<T>> {
@@ -19,6 +20,16 @@ export async function readTennisBusiness(organisationId: string, modules: Busine
   const { from, to } = businessPeriod(month);
   const [coaching, crm, income, costs] = await Promise.all([
     read(modules.includes('scheduling'), async () => {
+      const authority=await coachingAuthority(organisationId);
+      if(authority==='frozen')throw Error('Coaching handover paused');
+      if(authority==='scheduling') {
+        const [row]=await sql`SELECT to_char(now() AT TIME ZONE 'Australia/Adelaide','YYYY-MM-DD') AS today,
+          (SELECT count(*)::int FROM scheduling_occurrences o JOIN scheduling_offerings f ON f.organisation_id=o.organisation_id AND f.id=o.offering_id
+            WHERE o.organisation_id=${organisationId} AND f.schedule_id='tennis-coaching' AND o.local_date=(now() AT TIME ZONE o.timezone)::date AND o.status='scheduled') sessions,
+          (SELECT count(*)::int FROM contacts WHERE organisation_id=${organisationId} AND status='active') players`;
+        if(typeof row?.today!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(row.today))throw Error('Invalid date');
+        return {today:row.today,sessions:count(row.sessions),players:count(row.players)};
+      }
       const [row] = await sql`SELECT to_char(now() AT TIME ZONE 'Australia/Adelaide','YYYY-MM-DD') AS today,
         (SELECT count(*)::int FROM session_instances i JOIN sessions s ON s.id=i.session_id
          WHERE s.organisation_id=${organisationId} AND i.date=(now() AT TIME ZONE 'Australia/Adelaide')::date AND i.status='scheduled') AS sessions,

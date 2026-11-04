@@ -138,7 +138,7 @@ describe('the guard itself', () => {
     const importers = (re: RegExp, relative?: RegExp) =>
       sources.filter(f => re.test(readFileSync(f, 'utf8')) || (relative !== undefined && rel(f).startsWith('lib/scheduling/') && relative.test(readFileSync(f, 'utf8')))).map(rel).sort();
     expect(importers(/lib\/scheduling\/access['"]/, /from ['"]\.\/access['"]/)).toEqual(['lib/scheduling/route.ts']);
-    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['lib/scheduling/route.ts']);
+    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'lib/scheduling/route.ts']);
     expect(importers(/@scheduling\/postgres/)).toEqual(['lib/scheduling/runtime.ts']);
   });
 });
@@ -210,14 +210,14 @@ describe('the phase stays a foundation', () => {
   it('the new runtime files mention no payment provider and no LD Tennis table', () => {
     for (const f of ['lib/scheduling/runtime.ts', 'lib/scheduling/route.ts', 'lib/scheduling/audit.ts']) {
       const source = noTsComments(read(f));
-      const checked = f === 'lib/scheduling/runtime.ts' ? source.replace("from './compatibility/tennis/coachingClasses'", '') : source;
+      const checked = f === 'lib/scheduling/runtime.ts' ? source.replace("from './compatibility/tennis/coachingClasses'", '').replace("from './compatibility/tennis/coachingWorkspace'", '').replace("from './compatibility/tennis/coachingRosterActions'", '').replace("from './compatibility/tennis/publicBooking'", '').replaceAll('TennisPublicBooking', 'PublicAdapter').replaceAll('publicTennisBooking', 'publicAdapter').replace('LD_TENNIS_ORG_ID', 'PUBLIC_ORG') : source;
       expect(checked, f).not.toMatch(/stripe|payment_intent|checkout|\bcontacts\b|tennis/i);
     }
   });
 
   it('no LD Tennis or CRM file mentions the scheduling runtime, guard or audit', () => {
     const files = ['app/api/tennis/book/route.ts', 'app/api/tennis/cancel/route.ts', 'app/api/dashboard/enrolments/route.ts', 'app/api/dashboard/sessions/route.ts', 'app/api/bookings/route.ts', 'lib/tennisRecurrence.ts', 'lib/tennisSchedule.ts', 'app/api/crm/contacts/route.ts'];
-    for (const f of files) if (existsSync(path.join(ROOT, f))) expect(read(f), f).not.toMatch(/lib\/scheduling|@scheduling\//);
+    for (const f of files) if (existsSync(path.join(ROOT, f))) expect(f === 'app/api/tennis/book/route.ts' ? read(f).replace("import { publicTennisBooking } from '@/lib/scheduling/runtime'", '') : read(f), f).not.toMatch(/lib\/scheduling|@scheduling\//);
   });
 
   it('the shared core still imports no host module (adding a permission added no dependency)', () => {

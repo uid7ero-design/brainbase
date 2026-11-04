@@ -15,13 +15,15 @@ import { verifyRemainingWorkflows } from './helpers/hrLocalWorkflows.mjs';
 import { verifyHrSetup } from './helpers/hrLocalSetup.mjs';
 import { verifyCrmRecovery } from './helpers/crmRecoveryLocal.mjs';
 import { setupTennisBusiness, verifyTennisBusiness } from './helpers/tennisBusinessLocal.mjs';
+import { setupTennisScheduling, verifyTennisScheduling, TENNIS_FIXTURE_ORG } from './helpers/tennisSchedulingLocal.mjs';
 import { verifyOrganisationUsers } from './helpers/organisationUsersLocal.mjs';
 
 const root = process.cwd();
 if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Error('Run from the repository worktree.');
 const name = `hr-full-local-${randomUUID().slice(0, 8)}`;
 const crmOnly=process.argv.includes('--crm');
-const tennisOnly=process.argv.includes('--tennis-business');
+const tennisSchedulingOnly=process.argv.includes('--tennis-scheduling');
+const tennisOnly=process.argv.includes('--tennis-business') || tennisSchedulingOnly;
 const productionMode = process.argv.includes('--production');
 const contextOptions = productionMode ? { ignoreHTTPSErrors: true } : {};
 const nextDirectory = path.resolve(root, '.next');
@@ -79,6 +81,8 @@ try {
   await q("INSERT INTO hr_administrators(organisation_id,user_id) VALUES('local-hr','local-admin')");
   await q("INSERT INTO hr_people(organisation_id,linked_user_id,first_name,last_name) VALUES('local-hr','local-employee','Local','Employee'),('local-other',NULL,'Foreign','Fixture')");
   if(tennisOnly) await setupTennisBusiness(q);
+  const tennisFixture=tennisSchedulingOnly ? await setupTennisScheduling(q) : null;
+  if(tennisSchedulingOnly)env.LD_TENNIS_ORG_ID=TENNIS_FIXTURE_ORG;
   let sqlCalls = 0;
   const objects = new Map();
   let storageCalls = 0;
@@ -245,7 +249,8 @@ try {
     await sleep(1000);
   }
   console.log('Real login issued its session cookie. Checking actual HR routes.');
-  if(tennisOnly){await verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password});}
+  if(tennisSchedulingOnly){await verifyTennisScheduling({origin,context,page,q,fixture:tennisFixture});}
+  else if(tennisOnly){await verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password});}
   else if(crmOnly){await verifyCrmRecovery({origin,context,page,q,browser,contextOptions,password});}
   else {
   await verifyOrganisationUsers({origin,context,page,q,emails,browser,contextOptions});

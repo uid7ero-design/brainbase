@@ -12,6 +12,8 @@ export interface CoachingRosterRow {
   paidMarker: boolean; markerVersion: number | null; priceCents: number | null; currency: string;
   seriesId: string | null; cancelledAt: string | null; originalCreatedAt: string | null;
   historyOnly: boolean;
+  seriesStatus?: string | null;
+  pauses?: { id: string; from: string; until: string }[];
 }
 export interface CoachingRosterPage {
   occurrence: { id: string; date: string; startTime: string; status: string; capacity: number; name: string };
@@ -39,10 +41,14 @@ export async function readCoachingRoster(sql: MigrationReadExecutor, tenant: Ten
       SELECT r.id,jsonb_build_object('id',r.id,'name',r.customer_name,'email',r.customer_email,'phone',r.customer_phone,'notes',r.notes,
         'status',r.status,'attendance',r.attendance,'attendanceVersion',r.coaching_attendance_version,
         'paidMarker',COALESCE(m.paid_marker,false),'markerVersion',COALESCE(m.version,0),'priceCents',r.price_cents,'currency',r.currency,
-        'seriesId',COALESCE(r.series_id,l.series_id),'cancelledAt',r.cancelled_at,'originalCreatedAt',h.source_row->>'created_at','historyOnly',false) AS data
+        'seriesId',COALESCE(r.series_id,l.series_id),'seriesStatus',g.status,
+        'pauses',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'from',to_char(p.pause_from,'YYYY-MM-DD'),'until',to_char(p.pause_until,'YYYY-MM-DD')) ORDER BY p.pause_from,p.id)
+          FROM scheduling_series_pauses p WHERE p.organisation_id=r.organisation_id AND p.series_id=g.id AND p.pause_until>=(now() AT TIME ZONE r.timezone)::date),'[]'),
+        'cancelledAt',r.cancelled_at,'originalCreatedAt',h.source_row->>'created_at','historyOnly',false) AS data
       FROM scheduling_reservations r JOIN scope o ON o.organisation_id=r.organisation_id AND o.id=r.occurrence_id
       LEFT JOIN scheduling_coaching_markers m ON m.organisation_id=r.organisation_id AND m.reservation_id=r.id
       LEFT JOIN scheduling_coaching_series_links l ON l.organisation_id=r.organisation_id AND l.reservation_id=r.id
+      LEFT JOIN scheduling_series g ON g.organisation_id=r.organisation_id AND g.id=COALESCE(r.series_id,l.series_id)
       LEFT JOIN scheduling_tennis_booking_origins p ON p.organisation_id=r.organisation_id AND p.reservation_id=r.id
       LEFT JOIN scheduling_tennis_history h ON h.organisation_id=p.organisation_id AND h.source_table='bookings' AND h.source_id=p.source_id
       UNION ALL

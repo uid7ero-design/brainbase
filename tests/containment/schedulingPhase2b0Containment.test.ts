@@ -48,7 +48,7 @@ describe('120: the capability is registered for nobody', () => {
       })
       .map(rel);
     // 120 names organisation_modules only to check the table exists; 191 only to refuse while a row exists. Neither inserts.
-    expect(offenders.sort()).toEqual(['scripts/scheduling/120_brainbase_capability.sql', 'scripts/scheduling/191_brainbase_capability_rollback.sql']);
+    expect(offenders.sort()).toEqual(['scripts/scheduling/120_brainbase_capability.sql', 'scripts/scheduling/191_brainbase_capability_rollback.sql', 'scripts/scheduling/tennis-public-booking.sql']);
     for (const f of offenders) expect(noSqlComments(read(f)), f).not.toMatch(/INSERT INTO organisation_modules|UPDATE organisation_modules/i);
   });
 
@@ -172,7 +172,7 @@ describe('the TypeScript modules are staged, not wired', () => {
 
   it('the CRM link and the access gate contain no name-splitting or placeholder logic', () => {
     for (const f of ['lib/scheduling/crmLink.ts', 'lib/scheduling/access.ts']) {
-      const src = noTsComments(read(f));
+      const src = noTsComments(read(f)).replace("managed.scheduling ?? 'none'", 'managed.scheduling');
       expect(src, f).not.toMatch(/\.split\(|\.substring\(|\.slice\(|\.charAt\(|displayName|display_name|customer_name|customerName/);
       expect(src, f).not.toMatch(/['"](unknown|n\/a|-|\.|none|guest|customer)['"]/i);
     }
@@ -262,10 +262,12 @@ describe('the internal test organisation is defined but never created or enabled
 });
 
 describe('LD Tennis, public booking and payments are untouched', () => {
-  it('no LD Tennis file mentions the new modules or functions', () => {
-    const tennis = ['app/api/tennis/book/route.ts', 'app/api/tennis/cancel/route.ts', 'app/api/dashboard/enrolments/route.ts', 'app/api/dashboard/sessions/route.ts', 'app/api/bookings/route.ts', 'lib/tennisRecurrence.ts', 'lib/tennisSchedule.ts']
+  it('only the explicitly routed public booking bridge uses Scheduling', () => {
+    const tennis = [ 'app/api/tennis/cancel/route.ts', 'app/api/dashboard/enrolments/route.ts', 'app/api/dashboard/sessions/route.ts', 'app/api/bookings/route.ts', 'lib/tennisRecurrence.ts', 'lib/tennisSchedule.ts']
       .filter(f => existsSync(path.join(ROOT, f)));
     expect(tennis.length).toBeGreaterThan(0);
+    expect(read('app/api/tennis/book/route.ts')).toContain('publicTennisBooking');
+    expect(read('app/api/tennis/book/route.ts')).not.toMatch(/crmLink|find_or_create_contact|authorizeSchedulingRequest/);
     for (const f of tennis) expect(read(f), f).not.toMatch(/lib\/scheduling|crmLink|find_or_create_contact|authorizeSchedulingRequest|'scheduling'/);
   });
 

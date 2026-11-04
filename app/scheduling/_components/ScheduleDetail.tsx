@@ -7,6 +7,7 @@ import type { OfferingView, ScheduleView, StatusView } from '@/lib/scheduling/da
 import { RESOURCE_KIND_LABELS, describeCancellation, formatDuration, formatMoney, presetName, recurrenceSummary, wordingFor } from '@/lib/scheduling/dashboard/wording';
 import { offeringFieldPlan } from '@/lib/scheduling/dashboard/forms';
 import { AssignDialog } from './AssignDialog';
+import { CoachingClassLifecycle } from './CoachingClassLifecycle';
 import { ClassDatesAction } from './ClassDatesAction';
 import { ConfirmDialog } from './ConfirmDialog';
 import { OfferingDialog } from './OfferingDialog';
@@ -82,6 +83,7 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
 
   return (
     <div className={styles.page}>
+      {schedule.id === 'tennis-coaching' && canManage && <p><Link href="/scheduling/coaching">Open coaching roster and history</Link></p>}
       <PageHeader
         eyebrow={<Link href="/scheduling/schedules">Schedules</Link>}
         title={schedule.name}
@@ -140,6 +142,7 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                   actions={o =>
                     o.archivedAt !== null ? (
                       <span className={styles.actionButtons}>
+                        {schedule.id === 'tennis-coaching' && canEdit && <CoachingClassLifecycle id={o.id} name={o.name} archived onChanged={reload} />}
                         <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
                         <Link href={`/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${o.name}`}>Calendar</Link>
                       </span>
@@ -154,7 +157,7 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                           <>
                             {schedule.id === 'tennis-coaching' && schedule.presetKey === 'classes_coaching' && o.recurrence.kind === 'weekly' && <ClassDatesAction offeringId={o.id} name={o.name} onGenerated={reload} />}
                             <Button size="sm" onClick={() => setMode({ kind: 'editOffering', offering: o })} aria-label={`Edit ${o.name}`}>Edit</Button>
-                            <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'archiveOffering', offering: o })} aria-label={`Archive ${o.name}`}>Archive</Button>
+                            {schedule.id === 'tennis-coaching' ? <CoachingClassLifecycle id={o.id} name={o.name} archived={false} onChanged={reload} /> : <Button size="sm" variant="ghost" onClick={() => setMode({ kind: 'archiveOffering', offering: o })} aria-label={`Archive ${o.name}`}>Archive</Button>}
                           </>
                         )}
                       </span>

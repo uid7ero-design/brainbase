@@ -50,7 +50,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .filter(f => !rel(f).startsWith('app/scheduling/'))
       .filter(f => /@scheduling\/core|@\/lib\/scheduling|from ['"]\.\.?\/.*scheduling\//.test(readFileSync(f, 'utf8')))
       .map(rel);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts']);
   });
 
   it('no scheduling route or page exists', () => {
@@ -61,7 +61,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
     // Phase 2B.3b (deliberate, reviewed change): the availability API adds availability-exceptions and availability-rules (pinned route by
     // route in schedulingPhase2b2bContainment.test.ts).
     // Phase 2C.2 (deliberate, reviewed change): calendar-overlay, the READ-ONLY overlay of committed bookings (pinned in schedulingPhase2b2bContainment.test.ts and schedulingPhase2c2Containment.test.ts).
-    expect(apiRoutes).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'calendar-overlay', 'offerings', 'resources', 'schedules', 'status']);
+    expect(apiRoutes).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'calendar-overlay', 'coaching', 'offerings', 'resources', 'schedules', 'status']);
     expect(existsSync(path.join(ROOT, 'app/dashboard/scheduling'))).toBe(false);
     expect(existsSync(path.join(ROOT, 'app/book'))).toBe(false); // Phase 2B.2c: app/scheduling (the configuration dashboard) now exists
   });
@@ -130,7 +130,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
       }
     };
     sqlDirs.forEach(d => scan(path.join(ROOT, d)));
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['scripts/tests/helpers/tennisSchedulingLocal.mjs']);
     expect(read('prisma/schema.prisma')).not.toMatch(/scheduling_/);
   });
 });

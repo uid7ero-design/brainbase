@@ -5,6 +5,10 @@ import { PostgresReservationRepository } from '@scheduling/postgres';
 import { getPreset, validateReservationForPreset, type TenantContext } from '@scheduling/core';
 import { importTennisHistory } from '@/lib/scheduling/compatibility/tennis/importHistory';
 import { readCoachingRoster } from '@/lib/scheduling/compatibility/tennis/coachingHistory';
+import { CoachingClasses } from '@/lib/scheduling/compatibility/tennis/coachingClasses';
+import { CoachingWorkspace } from '@/lib/scheduling/compatibility/tennis/coachingWorkspace';
+import { CoachingRosterActions } from '@/lib/scheduling/compatibility/tennis/coachingRosterActions';
+import { TennisPublicBooking } from '@/lib/scheduling/compatibility/tennis/publicBooking';
 
 const url = process.env.TENNIS_IMPORT_TEST_URL;
 if (url && (!['127.0.0.1', 'localhost'].includes(new URL(url).hostname) || new URL(url).pathname !== '/tennis_import_proof')) throw Error('Owned disposable database required');
@@ -17,11 +21,15 @@ describe.skipIf(!url)('Frozen Tennis history import into actual Scheduling table
   beforeAll(async () => {
     for (const file of ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '035_availability_partial_closures.sql', '036_availability_zones.sql', '037_availability_versions.sql']) await pool.query(readFileSync(`packages/scheduling/sql/${file}`, 'utf8'));
     await pool.query(`CREATE TABLE organisations(id text PRIMARY KEY,slug text,status text,timezone text);
+      CREATE TABLE modules(key text PRIMARY KEY,active boolean);
+      CREATE TABLE organisation_modules(organisation_id text,module_key text,enabled boolean);
       CREATE TABLE sessions(id text PRIMARY KEY,organisation_id text,name text,session_type text,session_colour_key text,day_of_week int,start_date date,end_mode text,end_after_weeks int,end_date date,start_time time,duration_minutes int,max_capacity int,price_per_session numeric,archived_at timestamptz);
       CREATE TABLE session_instances(id text PRIMARY KEY,organisation_id text,session_id text,date date,start_time time,duration_minutes int,max_capacity int,status text);
       CREATE TABLE bookings(id text PRIMARY KEY,organisation_id text,session_id text,session_instance_id text,client_name text,client_email text,status text,paid boolean,attendance_status text,is_recurring boolean,recurring_group_id text,notes text,created_at timestamp);
       CREATE TABLE booking_recurrence_pauses(id text PRIMARY KEY,organisation_id text,session_id text,recurring_group_id text,pause_from date,pause_until date,reason text);
-      CREATE TABLE session_types(id text PRIMARY KEY,organisation_id text,name text,slug text,colour_key text,active boolean);`);
+      CREATE TABLE session_types(id text PRIMARY KEY,organisation_id text,name text,slug text,colour_key text,active boolean);
+      CREATE TABLE client_pipeline(id uuid PRIMARY KEY,organisation_id text,type text,title text,description text,status text,priority text);
+      CREATE TABLE pipeline_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),pipeline_id uuid REFERENCES client_pipeline(id),organisation_id text,author_type text,body text);`);
     await pool.query(readFileSync('scripts/scheduling/tennis-coaching-operations.sql', 'utf8'));
     await pool.query(readFileSync('scripts/scheduling/tennis-history-cutover.sql', 'utf8'));
     const migration = readFileSync('scripts/scheduling/tennis-canonical-import.sql', 'utf8');
@@ -30,10 +38,16 @@ describe.skipIf(!url)('Frozen Tennis history import into actual Scheduling table
       const position = Number((error as { position?: string }).position);
       throw Error(`Import migration failed at line ${migration.slice(0, position).split('\n').length}: ${(error as Error).message}`, { cause: error });
     }
+    await pool.query(readFileSync('scripts/scheduling/tennis-class-restoration.sql','utf8'));
+    await pool.query(readFileSync('scripts/scheduling/tennis-public-booking.sql','utf8'));
+    await pool.query(readFileSync('scripts/scheduling/tennis-activate-cutover.sql','utf8'));
   }, 30000);
   beforeEach(async () => {
+    await pool.query('TRUNCATE client_pipeline,pipeline_messages CASCADE');
     await pool.query(`TRUNCATE scheduling_schedules,scheduling_resources,scheduling_settings,scheduling_coaching_commands,scheduling_tennis_import_receipts,scheduling_tennis_booking_origins,scheduling_tennis_history,scheduling_tennis_cutover,organisations,sessions,session_instances,bookings,booking_recurrence_pauses,session_types CASCADE`);
     await pool.query("INSERT INTO organisations VALUES($1,'ld-tennis','ACTIVE','Australia/Adelaide'),('other','other','ACTIVE','Australia/Adelaide')", [org]);
+    await pool.query("TRUNCATE modules,organisation_modules; INSERT INTO modules VALUES('scheduling',true)");
+    await pool.query("INSERT INTO organisation_modules VALUES($1,'scheduling',true)",[org]);
     await pool.query("INSERT INTO scheduling_settings(organisation_id,currency) VALUES($1,'AUD')", [org]);
     await pool.query("INSERT INTO sessions VALUES('s',$1,'Synthetic coaching','junior','blue',2,'2099-11-03','ongoing',NULL,NULL,'16:00',60,2,12.50,NULL)", [org]);
     await pool.query("INSERT INTO session_instances VALUES('i',$1,'s','2099-11-03','16:00',60,2,'scheduled'),('closed',$1,'s','2099-11-10','16:00',60,2,'cancelled')", [org]);
@@ -49,6 +63,119 @@ describe.skipIf(!url)('Frozen Tennis history import into actual Scheduling table
     await pool.query("UPDATE scheduling_tennis_cutover SET phase='frozen' WHERE organisation_id=$1", [org]);
     await pool.query('SELECT * FROM scheduling_tennis_capture_history($1,$2)', [org, hash]);
   }
+  async function activate() {
+    await freezeAndCapture(); const receipt=await importTennisHistory(sql,org,hash);
+    await pool.query("SELECT scheduling_tennis_transition($1,'scheduling',$2,$3,'Synthetic acceptance')",[org,hash,receipt.target_hash]);
+    return receipt;
+  }
+  it('serves a tenant-bound roster and keeps frozen writes closed until an exact-manifest cutover',async()=>{
+    const workspace=new CoachingWorkspace(sql);const actions=new CoachingRosterActions(sql);
+    expect((await workspace.dates(tenant,'2099-11-03','2099-11-10')).phase).toBe('legacy');
+    await freezeAndCapture();const receipt=await importTennisHistory(sql,org,hash);
+    expect((await workspace.dates(tenant,'2099-11-03','2099-11-10')).dates).toHaveLength(2);
+    const command={kind:'enrol' as const,occurrenceId:'i',name:'New player',email:'new@example.invalid',phone:null,notes:null,weekly:false,until:'2099-11-03',idempotencyKey:'synthetic-roster-enrol'};
+    await expect(actions.execute(tenant,command)).rejects.toMatchObject({code:'STOFF'});
+    await expect(pool.query("SELECT scheduling_tennis_transition($1,'scheduling',$2,'wrong','Synthetic acceptance')",[org,hash])).rejects.toMatchObject({code:'STCHG'});
+    await pool.query("SELECT scheduling_tennis_transition($1,'scheduling',$2,$3,'Synthetic acceptance')",[org,hash,receipt.target_hash]);
+    expect(await actions.execute(tenant,command)).toMatchObject({ok:true,booking:{customer_name:'New player'}});
+    expect(await actions.saved(tenant,command.idempotencyKey,'enrol')).toBe(true);
+    await expect(workspace.dates({...tenant,can:()=>false},'2099-11-03','2099-11-10')).rejects.toThrow('permission');
+    expect(await workspace.roster({...tenant,organisationId:'other'},'i').catch(()=>null)).toBeNull();
+    expect((await workspace.roster(tenant,'i'))!.rows).toHaveLength(2);
+    await expect(pool.query("INSERT INTO bookings(id,organisation_id) VALUES('blocked',$1)",[org])).rejects.toMatchObject({code:'STFRZ'});
+  });
+  it('atomically hands public bookings to the pipeline and recovers a committed but lost response',async()=>{
+    await activate();const service=new TennisPublicBooking(sql,org);
+    let dropped=false;
+    const transport={async query<T>(text:string,params:readonly unknown[]=[]){const rows=await sql.query<T>(text,params);if(text.startsWith('SELECT scheduling_tennis_public_book') && !dropped){dropped=true;throw Error('lost response');}return rows;}};
+    const input={session_instance_id:'i',name:'Public synthetic',email:'public@example.invalid',idempotencyKey:'synthetic-public-booking'};
+    const receipt=await new TennisPublicBooking(transport,org).book(input);
+    expect(receipt.success).toBe(true);expect(await service.saved(input.idempotencyKey)).toEqual(receipt);
+    expect(await service.book(input)).toEqual(receipt);
+    expect((await pool.query('SELECT count(*)::int n FROM client_pipeline')).rows[0].n).toBe(1);
+    expect((await pool.query('SELECT count(*)::int n FROM pipeline_messages')).rows[0].n).toBe(1);
+    await expect(service.book({...input,name:'Different'})).rejects.toMatchObject({code:'STKEY'});
+    await expect(service.book({...input,email:'second@example.invalid',idempotencyKey:'synthetic-public-second'})).rejects.toMatchObject({code:'SCCAP'});
+    expect((await pool.query('SELECT count(*)::int n FROM client_pipeline')).rows[0].n).toBe(1);
+    await expect(new TennisPublicBooking(sql,'other').book(input)).rejects.toMatchObject({code:'STOFF'});
+  });
+  it('freezes the new writer, refuses unsafe rollback after a booking, and resumes only the reviewed snapshot',async()=>{
+    const receipt=await activate();
+    await new TennisPublicBooking(sql,org).book({session_instance_id:'i',name:'Public synthetic',email:'public@example.invalid',idempotencyKey:'synthetic-public-cutover'});
+    const frozen=(await pool.query("SELECT scheduling_tennis_transition($1,'frozen',$2,NULL,'Synthetic freeze') receipt",[org,hash])).rows[0].receipt;
+    expect(frozen.targetHash).not.toBe(receipt.target_hash);
+    await expect(pool.query("SELECT scheduling_tennis_transition($1,'legacy',$2,$3,'Synthetic rollback')",[org,hash,frozen.targetHash])).rejects.toMatchObject({code:'STNEW'});
+    await expect(new TennisPublicBooking(sql,org).book({session_instance_id:'i',name:'Other',email:'other@example.invalid',idempotencyKey:'synthetic-public-frozen'})).rejects.toMatchObject({code:'STOFF'});
+    await pool.query("SELECT scheduling_tennis_transition($1,'scheduling',$2,$3,'Synthetic resume')",[org,hash,frozen.targetHash]);
+    expect((await pool.query('SELECT count(*)::int n FROM scheduling_reservations')).rows[0].n).toBe(2);
+  });
+  it('admits only one concurrent public request for the last place without an orphan pipeline row',async()=>{
+    await activate();const service=new TennisPublicBooking(sql,org);
+    const outcomes=await Promise.allSettled(['first','second'].map(name=>service.book({session_instance_id:'i',name,email:`${name}@example.invalid`,idempotencyKey:`synthetic-public-${name}`})));
+    expect(outcomes.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+    expect(outcomes.filter(r=>r.status==='rejected')).toHaveLength(1);
+    expect((await pool.query('SELECT count(*)::int n FROM client_pipeline')).rows[0].n).toBe(1);
+    expect((await pool.query('SELECT count(*)::int n FROM pipeline_messages')).rows[0].n).toBe(1);
+    expect((await pool.query('SELECT count(*)::int n FROM scheduling_reservations')).rows[0].n).toBe(2);
+  });
+  it('rolls back the booking and pipeline together if the handover message fails',async()=>{
+    await activate();
+    await pool.query("CREATE FUNCTION synthetic_message_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER synthetic_message_failure BEFORE INSERT ON pipeline_messages FOR EACH ROW EXECUTE FUNCTION synthetic_message_failure()");
+    try {
+      await expect(new TennisPublicBooking(sql,org).book({session_instance_id:'i',name:'Synthetic failed',email:'failed@example.invalid',idempotencyKey:'synthetic-public-failure'})).rejects.toThrow('synthetic failure');
+      expect((await pool.query('SELECT count(*)::int n FROM client_pipeline')).rows[0].n).toBe(0);
+      expect((await pool.query('SELECT count(*)::int n FROM scheduling_reservations')).rows[0].n).toBe(1);
+      expect(await new TennisPublicBooking(sql,org).saved('synthetic-public-failure')).toBeNull();
+    } finally {await pool.query('DROP TRIGGER synthetic_message_failure ON pipeline_messages; DROP FUNCTION synthetic_message_failure()');}
+  });
+  it('allows a pre-write return to legacy with the imported history still intact',async()=>{
+    const receipt=await activate();
+    await pool.query("SELECT scheduling_tennis_transition($1,'frozen',$2,NULL,'Synthetic freeze')",[org,hash]);
+    await pool.query("SELECT scheduling_tennis_transition($1,'legacy',$2,$3,'Synthetic rollback')",[org,hash,receipt.target_hash]);
+    expect((await pool.query('SELECT count(*)::int n FROM scheduling_tennis_history')).rows[0].n).toBeGreaterThan(0);
+    await pool.query("UPDATE sessions SET name='Legacy restored' WHERE organisation_id=$1",[org]);
+    await expect(pool.query("UPDATE scheduling_reservations SET notes='blocked' WHERE organisation_id=$1",[org])).rejects.toMatchObject({code:'STFRZ'});
+  });
+  it('archives safely and restores new dates and weekly lineages without reviving cancelled history',async()=>{
+    await activate();const classes=new CoachingClasses(sql);
+    const before=(await pool.query("SELECT source_row FROM scheduling_tennis_history WHERE source_table='bookings' ORDER BY source_id")).rows;
+    const archived=await classes.archiveLive(tenant,'s','synthetic-class-archive');
+    expect(archived).toMatchObject({offeringId:'s',protected:['b'],cancelled:[]});
+    const restored=await classes.restoreLive(tenant,'s','2099-11-03','synthetic-class-restore');
+    expect(restored.offeringId).not.toBe('s');expect(restored.originalOfferingId).toBe('s');
+    expect(restored.dates.created.some(d=>d.date==='2099-11-10')).toBe(true);
+    expect(restored.dates.created.some(d=>d.date==='2099-11-03')).toBe(false);
+    expect((await pool.query("SELECT status FROM scheduling_occurrences WHERE id='closed'")).rows[0].status).toBe('cancelled');
+    expect((await pool.query("SELECT source_row FROM scheduling_tennis_history WHERE source_table='bookings' ORDER BY source_id")).rows).toEqual(before);
+    expect(await classes.restoreLive(tenant,'s','2099-11-03','synthetic-class-restore')).toEqual(restored);
+    expect(restored.enrolments).toHaveLength(1);
+    const roster=(await pool.query('SELECT count(*)::int n FROM scheduling_reservations WHERE offering_id=$1',[restored.offeringId])).rows[0].n;
+    expect(roster).toBeGreaterThan(0);
+    expect((await pool.query("SELECT count(*)::int n FROM scheduling_reservations WHERE offering_id=$1 AND local_start_date BETWEEN '2099-12-01' AND '2099-12-08'",[restored.offeringId])).rows[0].n).toBe(0);
+    await classes.generateLive(tenant,restored.offeringId,'2099-11-03','synthetic-restored-generation');
+    expect((await pool.query("SELECT count(*)::int n FROM scheduling_occurrences WHERE offering_id=$1 AND local_date='2099-11-03'",[restored.offeringId])).rows[0].n).toBe(0);
+  });
+  it('drains an in-flight public transaction before freezing and records its committed booking in the frozen manifest',async()=>{
+    await activate();const writer=await pool.connect();const freezer=await pool.connect();
+    try {
+      await writer.query('BEGIN');
+      await writer.query("SELECT scheduling_tennis_public_book($1,'i','Synthetic inflight','inflight@example.invalid',NULL,'synthetic-inflight-booking')",[org]);
+      const pid=(await freezer.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+      const freeze=freezer.query("SELECT scheduling_tennis_transition($1,'frozen',$2,NULL,'Drain proof') result",[org,hash]);
+      // Attach a handler immediately so an unexpected early refusal is reported
+      // by the assertion rather than becoming an unhandled rejection.
+      const outcome=freeze.then(value=>({value}),error=>({error}));
+      let waiting=false;
+      for(let attempt=0;attempt<50;attempt++){
+        if((await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock'",[pid])).rowCount){waiting=true;break;}
+        await new Promise(resolve=>setTimeout(resolve,20));
+      }
+      expect(waiting).toBe(true);await writer.query('COMMIT');
+      const frozen=await outcome;if('error' in frozen)throw frozen.error;
+      expect(frozen.value.rows[0].result.targetHash).toBe((await pool.query('SELECT scheduling_tennis_target_manifest($1) hash',[org])).rows[0].hash);
+      expect((await pool.query("SELECT count(*)::int n FROM scheduling_reservations WHERE customer_email='inflight@example.invalid'")).rows[0].n).toBe(1);
+    } finally {await writer.query('ROLLBACK');writer.release();freezer.release();}
+  });
   it('imports offerings, dated occurrences, lineage and pauses while preserving complete cancelled history', async () => {
     await freezeAndCapture(); const receipt = await importTennisHistory(sql, org, hash);
     expect(receipt.counts).toEqual({ sourceBookings: 2, canonicalBookings: 1, cancelledHistory: 1 });

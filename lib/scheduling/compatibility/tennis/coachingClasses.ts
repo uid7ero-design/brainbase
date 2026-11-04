@@ -1,13 +1,26 @@
 import { addLocalDays, isLocalDate, planOccurrences, type TenantContext, type OccurrenceOffering, type ExistingOccurrenceSlot } from '@scheduling/core';
 import type { MigrationReadExecutor } from './migrationSnapshot';
+import { CoachingWorkspace } from './coachingWorkspace';
 
 interface GenerationBasis { token: string; timezone: string; offering: OccurrenceOffering; existing: ExistingOccurrenceSlot[] }
+export interface RestorationResult { offeringId: string; originalOfferingId: string; dates: GenerationResult; enrolments: {seriesId:string;result:unknown}[] }
 export interface GenerationResult { created: { id: string; date: string }[]; existing: number; skipped: { date: string; startTime: string; reason: string }[] }
 
 /** A read plans the dates, then ONE database command checks the exact class
  * configuration under lock before inserting the whole plan and its receipt. */
 export class CoachingClasses {
   constructor(private readonly sql: MigrationReadExecutor) {}
+  async archiveLive(tenant: TenantContext, offeringId: string, key: string): Promise<unknown> {
+    if (tenant.actor.kind!=='staff' || !tenant.can('scheduling.manage')) throw Error('Coaching class permission denied');
+    await new CoachingWorkspace(this.sql).requireActive(tenant);
+    try { return (await this.sql.query<{result:unknown}>('SELECT scheduling_coaching_archive_class($1,$2,$3,$4) result',[tenant.organisationId,offeringId,key,tenant.actor.userId]))[0]?.result; }
+    catch(error) { const saved=await this.savedArchive(tenant,offeringId,key); if(saved)return saved;throw error; }
+  }
+  async savedArchive(tenant: TenantContext, offeringId: string, key: string): Promise<unknown|null> {
+    if (tenant.actor.kind!=='staff' || !tenant.can('scheduling.manage')) throw Error('Coaching class permission denied');
+    return (await this.sql.query<{result:unknown}>(`SELECT result FROM scheduling_coaching_commands WHERE organisation_id=$1 AND command_key=$2
+      AND request->>'kind'='archive-class' AND request->>'offeringId'=$3`,[tenant.organisationId,key,offeringId]))[0]?.result ?? null;
+  }
   async savedGeneration(tenant: TenantContext, offeringId: string, key: string): Promise<GenerationResult | null> {
     if (!tenant.organisationId || tenant.actor.kind !== 'staff' || !tenant.can('scheduling.manage')) throw Error('Coaching class permission denied');
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(offeringId) || !/^[A-Za-z0-9_-]{16,80}$/.test(key)) throw Object.assign(Error('Invalid generation key'),{code:'STVAL'});
@@ -31,12 +44,25 @@ export class CoachingClasses {
     if (!enabled[0]?.ready) throw Object.assign(Error('Coaching integration unavailable'), { code: 'STOFF' });
     return this.generate(tenant, offeringId, today, key);
   }
+  async restoreLive(tenant: TenantContext, offeringId: string, today: string, key: string): Promise<RestorationResult> {
+    if (tenant.actor.kind !== 'staff' || !tenant.can('scheduling.manage')) throw Error('Coaching class permission denied');
+    await new CoachingWorkspace(this.sql).requireActive(tenant);
+    return this.run<RestorationResult>(tenant,offeringId,today,key,true);
+  }
+  async savedRestoration(tenant: TenantContext, offeringId: string, key: string): Promise<RestorationResult|null> {
+    if (tenant.actor.kind !== 'staff' || !tenant.can('scheduling.manage') || !/^[A-Za-z0-9_-]{16,80}$/.test(key)) throw Error('Coaching class permission denied');
+    return (await this.sql.query<{result:RestorationResult}>(`SELECT result FROM scheduling_coaching_commands WHERE organisation_id=$1 AND command_key=$2
+      AND request->>'kind'='restore-class' AND request->>'offeringId'=$3`,[tenant.organisationId,key,offeringId]))[0]?.result ?? null;
+  }
   async generate(tenant: TenantContext, offeringId: string, today: string, key: string): Promise<GenerationResult> {
+    return this.run<GenerationResult>(tenant,offeringId,today,key,false);
+  }
+  private async run<T>(tenant: TenantContext, offeringId: string, today: string, key: string, restoring: boolean): Promise<T> {
     if (!tenant.organisationId || tenant.actor.kind !== 'staff' || !tenant.can('scheduling.manage')) throw Error('Coaching class permission denied');
     if (typeof offeringId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(offeringId) || !isLocalDate(today)
       || typeof key !== 'string' || !/^[A-Za-z0-9_-]{16,80}$/.test(key)) throw Error('Invalid class generation request');
-    const request = { kind: 'generate-classes', offeringId, from: today };
-    const recover = async () => (await this.sql.query<{ result: GenerationResult }>(`SELECT result FROM scheduling_coaching_commands
+    const request = { kind: restoring ? 'restore-class' : 'generate-classes', offeringId, from: today };
+    const recover = async () => (await this.sql.query<{ result: T }>(`SELECT result FROM scheduling_coaching_commands
       WHERE organisation_id=$1 AND command_key=$2 AND request=$3::jsonb`, [tenant.organisationId, key, JSON.stringify(request)]))[0]?.result;
     const saved = await recover(); if (saved) return saved;
     const rows = await this.sql.query<GenerationBasis>(`SELECT
@@ -55,13 +81,14 @@ export class CoachingClasses {
     const basis = rows[0];
     // Tennis's existing horizon includes day 70. The shared planner's 10 weeks
     // ends at day 69; plan 11 weeks and explicitly clip to preserve that contract.
-    const plan = planOccurrences({ offering: basis.offering, timezone: basis.timezone, today, horizonWeeks: 11, maxOccurrences: 100, existing: basis.existing });
+    if (restoring && !basis.offering.archivedAt) throw Object.assign(Error('Class is not archived'),{code:'STCLS'});
+    const plan = planOccurrences({ offering: restoring ? {...basis.offering,archivedAt:null} : basis.offering, timezone: basis.timezone, today, horizonWeeks: 11, maxOccurrences: 100, existing: restoring ? basis.existing.filter(x=>x.status==='scheduled') : basis.existing });
     if (!plan.ok) throw Object.assign(Error('Class cannot be generated'), { code: 'STVAL' });
     const until = addLocalDays(today, 70);
     const create = plan.create.filter(x => x.date <= until);
     const skipped = plan.skipped.filter(x => x.date <= until);
     try {
-      const result = await this.sql.query<{ result: GenerationResult }>('SELECT scheduling_coaching_generate_classes($1,$2,$3::date,$4,$5::jsonb,$6::jsonb,$7,$8) result',
+      const result = await this.sql.query<{ result: T }>(restoring ? 'SELECT scheduling_coaching_restore_class($1,$2,$3::date,$4,$5::jsonb,$6::jsonb,$7,$8) result' : 'SELECT scheduling_coaching_generate_classes($1,$2,$3::date,$4,$5::jsonb,$6::jsonb,$7,$8) result',
         [tenant.organisationId, offeringId, today, basis.token, JSON.stringify(create), JSON.stringify(skipped), key, tenant.actor.userId]);
       if (result.length !== 1) throw Error('Class generation outcome unavailable');
       return result[0].result;

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { publicTennisBooking } from '@/lib/scheduling/runtime'
 
 const ORG_ID = process.env.LD_TENNIS_ORG_ID
 
@@ -7,6 +8,9 @@ export async function GET() {
   if (!ORG_ID) return NextResponse.json({ sessions: [] })
 
   try {
+    const service=publicTennisBooking();const phase=await service.phase();
+    if(phase==='frozen')return NextResponse.json({error:'Bookings are briefly paused for a system handover.'},{status:503,headers:{'cache-control':'no-store'}});
+    if(phase==='scheduling')return NextResponse.json({sessions:await service.sessions()},{headers:{'cache-control':'no-store'}});
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const todayStr   = today.toISOString().split('T')[0]
@@ -35,6 +39,6 @@ export async function GET() {
     return NextResponse.json({ sessions: instances })
   } catch (err) {
     console.error('[tennis/sessions GET]', err)
-    return NextResponse.json({ sessions: [] })
+    return NextResponse.json({ error: 'Session availability could not be loaded.' },{status:503,headers:{'cache-control':'no-store'}})
   }
 }
