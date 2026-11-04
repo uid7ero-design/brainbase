@@ -117,6 +117,13 @@ describe('the pure contract does no I/O and takes no organisation from the calle
     const request = core.slice(core.indexOf('export interface HireRequest'), core.indexOf('export const HIRE_FAILURE_CODES'));
     expect(request).not.toMatch(/organisation|tenant/i);
   });
+  it('there is no booking-specific grid policy: the request has no step option and the grid is the offering duration', () => {
+    const coreCode = noTsComments(core);
+    const repoCode = noTsComments(read('packages/scheduling-postgres/src/hireRepository.ts'));
+    expect(coreCode).not.toMatch(/stepMinutes|gridMinutes|slotMinutes/);
+    expect(repoCode).not.toMatch(/request\.(step|grid)/i);
+    expect(repoCode).toMatch(/stepMinutes: duration,/);
+  });
   it('the postgres package stays free of BrainBase application imports', () => {
     const files = walk('packages/scheduling-postgres/src');
     expect(files.filter(f => /from '(@\/|\.\.\/\.\.\/(lib|app|components))/.test(read(f)))).toEqual([]);

@@ -47,8 +47,6 @@ export interface HireRequest {
   start: { date: LocalDate; time: LocalTime };
   /** Optional. When present it must equal the offering's configured duration: there is no manual duration override. */
   durationMinutes?: number;
-  /** Optional spacing of the start-time grid; defaults to the duration. Must divide the duration and be at least 5: it can only refine the calendar's grid, never leave it. */
-  stepMinutes?: number;
   partySize: number;
   customer: { name: string; email?: string | null; phone?: string | null };
   notes?: string | null;
@@ -172,7 +170,6 @@ export function validateHireRequest(request: HireRequest): string[] {
   if (!request.start || !isLocalDate(request.start.date)) bad('start.date');
   if (!request.start || !isLocalTime(request.start.time)) bad('start.time');
   if (request.durationMinutes !== undefined && (!Number.isInteger(request.durationMinutes) || request.durationMinutes < 1 || request.durationMinutes > 24 * 60)) bad('durationMinutes');
-  if (request.stepMinutes !== undefined && (!Number.isInteger(request.stepMinutes) || request.stepMinutes < 5 || request.stepMinutes > 24 * 60)) bad('stepMinutes');
   if (!Number.isInteger(request.partySize) || request.partySize < 1 || request.partySize > HIRE_PARTY_MAX) bad('partySize');
   const customer = request.customer;
   const name = typeof customer?.name === 'string' ? customer.name.trim() : '';

@@ -18,11 +18,11 @@ The seven owner decisions, and where each lives:
 | 4 | kill switch and `scheduling.staff_booking` capability, default off | **not in this slice** (2C.3b, host code); a containment test pins that neither name exists anywhere yet |
 | 5 | accept the timezone-check cost for a single booking | unchanged; not optimised (series generation is not started) |
 | 6 | name required, email and phone optional, no CRM link | `customer_id` NULL, `contact_link = 'none'`; validation in core |
-| 7 | only the configured duration, only engine-generated starts | the request may state `durationMinutes` but it must equal the offering's (`duration_not_allowed`); the start must be on the engine's grid. `stepMinutes` may only **refine** the grid (at least 5, must divide the duration) so a calendar drawn at 30 minutes stays bookable; it cannot leave it |
+| 7 | only the configured duration, only engine-generated starts | the request may state `durationMinutes` but it must equal the offering's (`duration_not_allowed`); the start must be on the engine's grid. There is **no step or grid option**: the grid is the shared engine's own default for an offering, which advances by the configured duration from the start of each opening interval. (The calendar's optional `step` query parameter is a display choice, not stored offering configuration, so it is not a booking policy; if a finer stored grid is ever wanted it is a separate, explicitly approved configuration change.) |
 
 ## 2. The contract
 
-`HireRequest`: `idempotencyKey` (16 to 80 of `[A-Za-z0-9_-]`, required), `offeringId`, `resourceId`, `start {date, time}` (local wall clock in the offering's pinned zone), optional `durationMinutes`, optional `stepMinutes`, `partySize` (1 to 1000), `customer {name (1..120), email?, phone?}`, `notes?` (at most 1000), optional `basis`. There is **no organisation field**: the tenant comes from the `TenantContext` and nothing in the request can name another.
+`HireRequest`: `idempotencyKey` (16 to 80 of `[A-Za-z0-9_-]`, required), `offeringId`, `resourceId`, `start {date, time}` (local wall clock in the offering's pinned zone), optional `durationMinutes`, `partySize` (1 to 1000), `customer {name (1..120), email?, phone?}`, `notes?` (at most 1000), optional `basis`. There is **no organisation field**: the tenant comes from the `TenantContext` and nothing in the request can name another.
 
 `HireResult` is either `{ok: true, reservation, replayed, recovered?, attempts}` or a failure `{ok: false, code, family, retryable, message, problems?, basis?, attempts}`.
 
@@ -39,7 +39,7 @@ Thrown, not returned (the host answers 403/503): `permission_denied` (only **sta
 
 1. **Key first.** `findByKey`: an earlier call with this key returns its reservation (`replayed`), or `idempotency_conflict` if it was a different request. The comparison is on what was **stored** (offering, resource, local start, party size, name, normalised email, phone, notes, and the duration only if the caller stated one), so a retry still matches after the offering's duration or name has been edited.
 2. **Basis, one statement** (`HIRE_BASIS_SQL`: offering, schedule, resource, link, both versions, both zone pins, both edit tokens; one snapshot, so consistent). A foreign or missing id is `not_found`. A client-supplied `basis` that differs is `availability_changed` with the fresh one, before anything else is read.
-3. **State checks** from the basis: preset is `resource_hire`, nothing archived, resource linked and active, a configured duration, a valid step.
+3. **State checks** from the basis: preset is `resource_hire`, nothing archived, resource linked and active, a configured duration.
 4. **Inputs, read after the basis**: rules, closures and live holds of the offering and the resource (the existing batched reads).
 5. **Decision** by `evaluateSlotBooking`, the same pure engine the calendar uses.
 6. **Guarded write**: `sql.transaction([timeouts, HIRE_GUARDED_SQL])`. One row back is the reservation. Zero rows means the key now exists (replay) or the basis went stale (`availability_changed` with a fresh basis).
@@ -106,13 +106,13 @@ Nothing new is needed and nothing is bypassed: `PostgresReservationRepository.ca
 | Environment | Suite | Result |
 | --- | --- | --- |
 | LOCAL PostgreSQL 16 and 17 (Docker, disposable) | `hireRepository` (90), `hireLockOrder` (2); plus the whole Phase 2C set run unchanged: `availabilityVersions` 15, `availabilityAtCommit` 18, `offeringConfigAtCommit` 14, `bookingReads` 24, overlay 30 | **PG16: 193 of 193; PG17: 193 of 193** (the hire suites re-run on both after the last source edit: 92 of 92 each) |
-| NEON-DISPOSABLE `br-patient-haze-a7ynj7wy`, real `@neondatabase/serverless` driver, role `rehearsal_037`, synthetic organisations only | `neonHttpHire` (17) | **17 of 17, twice** |
-| core | `hire.test.ts` (pure contract) | passing |
-| repository | containment `schedulingPhase2c3aContainment` (14): no caller, no route, no flag, no migration, no role change, SQL tenant-scoped, lock order | passing |
+| NEON-DISPOSABLE `br-patient-haze-a7ynj7wy`, real `@neondatabase/serverless` driver, role `rehearsal_037`, synthetic organisations only | `neonHttpHire` (18, including a 5-second mixed hires-versus-writers stress through the driver) | **18 of 18, twice; 0 deadlocks** |
+| core | `hire.test.ts` (pure contract); scheduling unit group | passing (1,262 of 1,262) |
+| repository | containment `schedulingPhase2c3aContainment` (15, including: no step option, grid = duration): no caller, no route, no flag, no migration, no role change, SQL tenant-scoped, lock order | passing |
 
 The existing gate-proof suites (`neonHttpAvailabilityVersions`, `neonHttpBookingGates`, `neonHttpBookingCost`) are unchanged and remain committed and reproducible.
 
-What the repository tests cover: concurrency (8 parallel same window, 16 overlapping starts, 10 same key, mixed-writer stress), resource conflicts (exact, partial overlap, adjacent windows allowed), stale edits (12 kinds of change landing between decision and write, plus a client basis, plus three real lock interleavings observed through `pg_stat_activity`), DST (Adelaide spring-forward gap refused, instants either side of the gap, fall-back ambiguity taking the earlier instant and replaying), idempotency (replay, 8 variants of a different request, other resource, parallel, cancelled), lost responses (reply lost, request dropped, read also failing), timeouts (lock timeout with retry bounds and with a retry that succeeds, statement timeout not retried, nothing leaking to the pool), tenant isolation (foreign ids, the statement itself handed foreign ids, tenant-scoped keys), permissions (five actors refused for each of the three methods).
+What the repository tests cover: concurrency (8 parallel same window, partially overlapping starts across two grids, 10 same key, mixed-writer stress), resource conflicts (exact, partial overlap, adjacent windows allowed), stale edits (12 kinds of change landing between decision and write, plus a client basis, plus three real lock interleavings observed through `pg_stat_activity`), DST (Adelaide spring-forward gap refused, instants either side of the gap, fall-back ambiguity taking the earlier instant and replaying), idempotency (replay, 8 variants of a different request, other resource, parallel, cancelled), lost responses (reply lost, request dropped, read also failing), timeouts (lock timeout with retry bounds and with a retry that succeeds, statement timeout not retried, nothing leaking to the pool), tenant isolation (foreign ids, the statement itself handed foreign ids, tenant-scoped keys), permissions (five actors refused for each of the three methods).
 
 ## 9. Not done, and what 2C.3b still needs
 
@@ -120,8 +120,8 @@ Not done, by design: HTTP routes, the staff form, the kill switch and capability
 
 Open items for 2C.3b: the executor wrapper must forward `transaction`; the routes must map failures to the stable codes (`contention_timeout` and `outcome_unknown` as 503/504 with `Retry-After`; `availability_changed` carrying the fresh basis); audit after commit, best effort; the calendar read should return the `basis` (`readHireBasis` exists for it).
 
-Known limits: bookings of one resource serialise for milliseconds (4); the timezone check costs about 11 ms per inserted row (fine for one hire, blocks series generation until optimised); `stepMinutes` is a small, bounded extension beyond the literal wording of decision 7 and can be removed without touching anything else.
+Known limits: bookings of one resource serialise for milliseconds (4); the timezone check costs about 11 ms per inserted row (fine for one hire, blocks series generation until optimised); an earlier draft carried an optional `stepMinutes`, which was removed at the release gate (no separate booking-grid policy).
 
 ## 10. Corrections to earlier documents
 
-* `scheduling-phase2c3-facility-hire-design.md` section 4.1 and the header comment of `tests/support/guardedBooking.ts` describe the old lock order. Section 4 above supersedes them; the fixture carries a warning and is kept only because the regression test needs the old shape to characterise the cycle.
+* `scheduling-phase2c3-facility-hire-design.md` section 4.1 (PR #532), `scheduling-phase2c3-preflight-evidence.md` and `scheduling-phase2c3-offering-config-at-commit.md` (PR #531), the comment in `neonHttpBookingCost.integration.test.ts` and the header of `tests/support/guardedBooking.ts` described the old lock order. **They were corrected at the release gate** (#531 `650803e7`, #532 `9edb7c15`): each now carries a notice that section 4 above supersedes the order, keeps its version/token/timeout/cost evidence, and states that deadlock freedom was never proved by it. The fixture statement itself is unchanged and kept only because the regression test needs the old shape to reproduce the cycle (failing first: the old shape deadlocks with `40P01`; the corrected statement cannot).

@@ -155,11 +155,11 @@ suite('createHire through the REAL Neon HTTP driver', () => {
     expect([await total(f), await holds(f)]).toEqual([1, 1]);
   });
 
-  it('B: eight parallel requests for overlapping windows on one court: exactly one wins, the rest are resource_conflict, one hold', async () => {
+  it('B: eight parallel requests for the same window on one court: exactly one wins, the rest are resource_conflict, one hold', async () => {
     const f = await fixture();
-    const results = await Promise.all(['10:00', '10:30', '10:15', '10:45', '10:00', '10:30', '10:20', '10:40'].map(time => hire.createHire(tenant, req(f, { start: { date: DAY, time }, stepMinutes: 5 }))));
+    const results = await Promise.all(['10:00', '10:00', '10:00', '10:00', '10:00', '10:00', '10:00', '10:00'].map(time => hire.createHire(tenant, req(f, { start: { date: DAY, time } }))));
     expect(results.filter(r => r.ok)).toHaveLength(1);
-    for (const r of results.filter(r => !r.ok)) expect(['resource_conflict', 'off_grid']).toContain(fail(r).code); // 10:15 etc. are on a 5-minute grid: only the exclusion decides
+    for (const r of results.filter(r => !r.ok)) expect(['resource_conflict']).toContain(fail(r).code);
     expect([await total(f), await holds(f)]).toEqual([1, 1]);
   });
 
@@ -272,11 +272,43 @@ suite('createHire through the REAL Neon HTTP driver', () => {
       if (!r.ok) throw new Error(`sunday rule: ${JSON.stringify(r)}`);
     }
     const early = new PostgresHireRepository({ sql: exec, clock: new FixedClock(new Date('2026-09-01T00:00:00Z')), sleep: async () => undefined });
-    expect(fail(await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '02:30' }, stepMinutes: 30 }))).code).toBe('nonexistent_local_time');
+    expect(fail(await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '02:30' } }))).code).toBe('nonexistent_local_time');
     const after = ok(await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '04:00' } })));
     expect(after.reservation.instants.startsAt).toBe(resolveLocalTime('2026-10-04', '04:00', TZ).instant);
     expect(after.reservation.instants.startsAt).toBe('2026-10-03T17:30:00Z');
   });
+
+  it('M: mixed stress through the driver - hires racing configuration writers (closures, link toggles, rename, deactivate): zero deadlocks, no overlapping live holds, one reservation and one hold per successful key', async () => {
+    const f = await fixture();
+    const end = Date.now() + 5000;
+    const errors: string[] = [];
+    const wins = new Map<string, string>();
+    const days = ['2026-11-16', '2026-11-23', '2026-11-30'];
+    const hours9 = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+    const loop = (fn: (i: number) => Promise<void>, pauseMs = 40) => (async () => { for (let i = 0; Date.now() < end; i++) { try { await fn(i); } catch (e) { errors.push(String((e as { code?: string }).code ?? (e as Error).message)); } await sleep(pauseMs); } })();
+    const hirers = [0, 1, 2, 3, 4, 5].map(h => loop(async i => {
+      const r = req(f, { start: { date: days[(h + i) % 3], time: hours9[(h * 3 + i) % 8] } });
+      const res = await hire.createHire(tenant, r);
+      if (res.ok) wins.set(r.idempotencyKey, res.reservation.id);
+    }));
+    const writers = [
+      loop(async i => { const c = await avail.createException(tenant, { kind: 'resource', id: f.court }, { fromDate: `2027-0${(i % 9) + 1}-01`, toDate: `2027-0${(i % 9) + 1}-01`, kind: 'closed', reason: 'stress' }, TZ); if (c.ok) await avail.deleteException(tenant, c.value.id, c.value.updatedAt); }, 200),
+      loop(async i => { const c = await avail.createException(tenant, { kind: 'offering', id: f.offering }, { fromDate: `2027-0${(i % 9) + 1}-02`, toDate: `2027-0${(i % 9) + 1}-02`, kind: 'closed', reason: 'stress' }, TZ); if (c.ok) await avail.deleteException(tenant, c.value.id, c.value.updatedAt); }, 250),
+      loop(async i => { await sql.query('UPDATE scheduling_offerings SET name = $3 WHERE organisation_id = $1 AND id = $2', [ORG, f.offering, `neon hire ${i}`]); }, 500),
+      loop(async () => { await sql.query('DELETE FROM scheduling_offering_resources WHERE organisation_id = $1 AND offering_id = $2 AND resource_id = $3', [ORG, f.offering, f.court]); await sql.query('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [ORG, f.offering, f.court]); }, 600),
+      loop(async () => { await sql.query('UPDATE scheduling_resources SET active = false WHERE organisation_id = $1 AND id = $2', [ORG, f.court]); await sql.query('UPDATE scheduling_resources SET active = true WHERE organisation_id = $1 AND id = $2', [ORG, f.court]); }, 600),
+    ];
+    await Promise.all([...hirers, ...writers]);
+    console.log(`[neon hire stress] wins=${wins.size} errors=${JSON.stringify(errors.reduce<Record<string, number>>((m, c) => ({ ...m, [c]: (m[c] ?? 0) + 1 }), {}))}`);
+    expect(errors.filter(c => c === '40P01')).toEqual([]);
+    expect(wins.size).toBeGreaterThan(0);
+    const overlapping = await rows(`SELECT count(*)::int AS n FROM scheduling_resource_holds a JOIN scheduling_resource_holds b ON a.organisation_id = b.organisation_id AND a.resource_id = b.resource_id AND a.id < b.id WHERE a.organisation_id = $1 AND a.resource_id = $2 AND a.released_at IS NULL AND b.released_at IS NULL AND a.during && b.during`, [ORG, f.court]);
+    expect(Number(overlapping[0].n)).toBe(0);
+    const perKey = await rows(`SELECT idempotency_key, count(*)::int AS n FROM scheduling_reservations WHERE organisation_id = $1 AND offering_id = $2 GROUP BY 1`, [ORG, f.offering]);
+    for (const r of perKey) expect(Number(r.n)).toBe(1);
+    expect(perKey.length).toBe(wins.size);
+    expect(await holds(f)).toBe(wins.size);
+  }, 60_000);
 
   it('L: every other organisation on the branch (the Production-data copy, pilot included) is identical after all of the above; the named pilot too, if one is given', async () => {
     expect((await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0]).toEqual(othersBefore);

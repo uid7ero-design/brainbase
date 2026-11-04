@@ -231,8 +231,8 @@ export class PostgresHireRepository implements HireRepository {
     const duration: number | null = row.duration_minutes === null ? null : Number(row.duration_minutes);
     if (duration === null || duration < 1) return hireFailure('duration_not_allowed', 'the offering has no configured duration');
     if (request.durationMinutes !== undefined && request.durationMinutes !== duration) return hireFailure('duration_not_allowed', `only the configured duration of ${duration} minutes can be booked`);
-    const step = request.stepMinutes ?? duration;
-    if (duration % step !== 0) return hireFailure('validation', 'stepMinutes must divide the duration', { problems: ['stepMinutes'] });
+    // The grid is the engine's own default for an offering: it advances by the configured duration (the calendar's `step` is a display parameter, not stored configuration).
+    // There is no booking-specific grid policy here.
 
     const offeringZone = (row.offering_zone ?? row.schedule_timezone ?? tenant.timezone) as IanaTimezone;
     const resourceZone = (row.resource_zone ?? tenant.timezone) as IanaTimezone;
@@ -272,7 +272,7 @@ export class PostgresHireRepository implements HireRepository {
             holds,
           },
         ],
-        stepMinutes: step,
+        stepMinutes: duration,
         now: this.clock.now().toISOString(),
         presetKey: 'resource_hire',
         resourceDetails: new Map([[request.resourceId, { capacity: Number(row.resource_capacity), kind: row.resource_kind }]]),

@@ -223,7 +223,6 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
       ['an impossible date', () => ({ start: { date: '2026-02-30', time: '10:00' } }), 'start.date'],
       ['a malformed time', () => ({ start: { date: DAY, time: '25:00' } }), 'start.time'],
       ['a fractional duration', () => ({ durationMinutes: 59.5 }), 'durationMinutes'],
-      ['a step below five minutes', () => ({ stepMinutes: 4 }), 'stepMinutes'],
     ])('%s -> validation, naming the field and never echoing the value', async (_name, build, field) => {
       const f = await fixture();
       const r = fail(await hire.createHire(tenant, req(f, build(f))));
@@ -250,14 +249,21 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
       await nothing(f);
     });
 
-    it('starts must be on the grid: 09:30 is off the hourly grid, but allowed when the staff grid is 30 minutes (a refinement of the duration)', async () => {
+    it('starts must be on the engine grid, which advances by the configured duration from the start of the opening interval: there is no booking-specific grid and no step option', async () => {
       const f = await fixture();
-      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:30' } }))).code).toBe('off_grid');
-      const r = ok(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:30' }, stepMinutes: 30 })));
-      expect(r.reservation.span).toMatchObject({ startTime: '09:30', durationMinutes: 60 });
-      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:07' }, stepMinutes: 7 }))).code).toBe('validation');
-      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:00' }, stepMinutes: 25 }))).code).toBe('validation'); // 25 does not divide 60
-      expect(await live(f)).toBe(1);
+      for (const time of ['09:30', '09:07', '10:15']) expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time } }))).code).toBe('off_grid');
+      // an unknown extra field is not a way to widen the grid
+      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:30' }, ...({ stepMinutes: 30 } as object) }))).code).toBe('off_grid');
+      await nothing(f);
+      const r = ok(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '10:00' } })));
+      expect(r.reservation.span).toMatchObject({ startTime: '10:00', durationMinutes: 60 });
+    });
+
+    it('every start of the calendar default grid (09:00-17:00, 60 minutes: 09:00 to 16:00) is bookable; the first start past the hours is not (the same engine decides both)', async () => {
+      const f = await fixture();
+      for (const time of ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00']) ok(await hire.createHire(tenant, req(f, { start: { date: DAY, time } })));
+      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '17:00' } }))).code).toBe('outside_availability');
+      expect(await live(f)).toBe(8);
     });
   });
 
@@ -323,9 +329,13 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
       const f = await fixture();
       const first = ok(await hire.createHire(tenant, req(f)));
       expect(fail(await hire.createHire(tenant, req(f))).code).toBe('resource_conflict');
-      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:30' }, stepMinutes: 30 }))).code).toBe('resource_conflict'); // partial overlap
       expect((await reservations.getById(tenant, first.reservation.id))?.status).toBe('confirmed');
       expect(await holdsOf(f)).toBe(1);
+      // A PARTIAL overlap cannot come from one grid, but it can after the hours are edited: both owners' Monday hours now open at 09:30, so the grid is 09:30, 10:30, ...
+      await q(`UPDATE scheduling_availability_rules SET start_time = '09:30' WHERE organisation_id = $1 AND (offering_id = $2 OR resource_id = $3)`, [ORG, f.offering, f.court]);
+      expect(fail(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:30' } }))).code).toBe('resource_conflict'); // 09:30-10:30 against the held 09:00-10:00
+      expect(await holdsOf(f)).toBe(1);
+      await q(`UPDATE scheduling_availability_rules SET start_time = '09:00' WHERE organisation_id = $1 AND (offering_id = $2 OR resource_id = $3)`, [ORG, f.offering, f.court]);
       // adjacent windows do not overlap ([start, end) is half open)
       ok(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '09:00' } })));
       ok(await hire.createHire(tenant, req(f, { start: { date: DAY, time: '11:00' } })));
@@ -448,11 +458,16 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
       expect(await holdsOf(f)).toBe(1);
     });
 
-    it('overlapping 30-minute-grid starts racing: never two live holds that overlap', async () => {
+    it('partially overlapping starts racing (two grids, 30 minutes apart): never two live holds that overlap', async () => {
       const f = await fixture();
-      const times = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30'];
-      const results = await Promise.all(times.flatMap(time => [0, 1].map(() => hire.createHire(tenant, req(f, { start: { date: DAY, time }, stepMinutes: 30 })))));
-      for (const r of results) if (!r.ok) expect(['resource_conflict']).toContain(r.code);
+      const shift = (to: string) => q(`UPDATE scheduling_availability_rules SET start_time = $4 WHERE organisation_id = $1 AND (offering_id = $2 OR resource_id = $3)`, [ORG, f.offering, f.court, to]);
+      const race = (times: string[]) => Promise.all(times.flatMap(time => [0, 1].map(() => hire.createHire(tenant, req(f, { start: { date: DAY, time } })))));
+      const first = await race(['09:00', '10:00', '11:00', '12:00']); // hourly grid from 09:00
+      await shift('09:30'); // the hours now open at 09:30: the grid is 09:30, 10:30, ...
+      const second = await race(['09:30', '10:30', '11:30', '12:30']);
+      expect(first.filter(r => r.ok).length).toBeGreaterThan(0);
+      for (const r of [...first, ...second]) if (!r.ok) expect(['resource_conflict']).toContain(r.code);
+      expect(second.filter(r => r.ok)).toHaveLength(0); // every 09:30-grid window straddles a 09:00-grid booking made first
       const overlapping = await q<{ n: number }>(
         `SELECT count(*)::int AS n FROM scheduling_resource_holds a JOIN scheduling_resource_holds b ON a.organisation_id = b.organisation_id AND a.resource_id = b.resource_id AND a.id < b.id
           WHERE a.organisation_id = $1 AND a.resource_id = $2 AND a.released_at IS NULL AND b.released_at IS NULL AND a.during && b.during`,
@@ -755,7 +770,7 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
 
     it('spring forward 2026-10-04: 02:30 does not exist -> nonexistent_local_time; a start before and after the gap books at the right instants', async () => {
       const f = await sundayFixture();
-      const gap = fail(await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '02:30' }, stepMinutes: 30 })));
+      const gap = fail(await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '02:30' } })));
       expect(gap.code).toBe('nonexistent_local_time');
       expect(gap.family).toBe('invalid');
       await nothing(f);
@@ -768,7 +783,7 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
 
     it('a booking across the gap lasts the configured 60 real minutes, not 60 wall-clock minutes', async () => {
       const f = await sundayFixture();
-      const r = await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '01:30' }, stepMinutes: 30 }));
+      const r = await early.createHire(tenant, req(f, { start: { date: '2026-10-04', time: '01:00' } }));
       if (r.ok) {
         const ms = Date.parse(r.reservation.instants.endsAt) - Date.parse(r.reservation.instants.startsAt);
         expect(ms).toBe(3_600_000);
@@ -781,7 +796,7 @@ suite('createHire (Phase 2C.3a) on real PostgreSQL', () => {
     it('fall back 2027-04-04: an ambiguous 02:00 takes the earlier instant, deterministically, and the same request replays', async () => {
       const f = await sundayFixture();
       const lateClock = new PostgresHireRepository({ sql: pg(), clock: new FixedClock(new Date('2027-03-01T00:00:00Z')), sleep: async () => undefined });
-      const request = req(f, { start: { date: '2027-04-04', time: '02:00' }, stepMinutes: 30 });
+      const request = req(f, { start: { date: '2027-04-04', time: '02:00' } });
       const a = await lateClock.createHire(tenant, request);
       if (a.ok) {
         expect(a.reservation.instants.startsAt).toBe(resolveLocalTime('2027-04-04', '02:00', TZ).instant);

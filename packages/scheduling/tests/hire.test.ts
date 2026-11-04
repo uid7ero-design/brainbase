@@ -51,8 +51,11 @@ describe('validateHireRequest', () => {
     expect(validateHireRequest({ ...base, notes: 'n'.repeat(1001) })).toContain('notes');
     expect(validateHireRequest({ ...base, partySize: 1000 })).toEqual([]);
     expect(validateHireRequest({ ...base, partySize: 1001 })).toContain('partySize');
-    expect(validateHireRequest({ ...base, stepMinutes: 5 })).toEqual([]);
-    expect(validateHireRequest({ ...base, stepMinutes: 4 })).toContain('stepMinutes');
+  });
+  it('the request has no grid or step option: the type does not name one and the repository ignores any extra field', () => {
+    const keys: string[] = ['idempotencyKey', 'offeringId', 'resourceId', 'start', 'durationMinutes', 'partySize', 'customer', 'notes', 'basis'];
+    const sample: HireRequest = { ...base, durationMinutes: 60, notes: null, basis: null };
+    expect(Object.keys(sample).sort()).toEqual([...keys].sort());
   });
   it('keys: 16-80 of [A-Za-z0-9_-]', () => {
     for (const ok of ['a'.repeat(16), 'a'.repeat(80), 'AB-cd_12-34567890']) expect(HIRE_KEY_PATTERN.test(ok)).toBe(true);
