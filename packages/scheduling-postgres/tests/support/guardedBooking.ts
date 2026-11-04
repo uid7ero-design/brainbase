@@ -1,5 +1,10 @@
-// TEST FIXTURE ONLY. The guarded booking statement of docs/architecture/scheduling-phase2c-availability-at-commit.md (option C), as the 2C.3 repository will have to write it.
+// TEST FIXTURE ONLY. The guarded booking statement of docs/architecture/scheduling-phase2c-availability-at-commit.md (option C), as the 2C.3 preflight proved its VERSION semantics.
 // It is NOT application code, no route calls it, and nothing in app/, lib/ or packages/*/src imports this file (a containment test pins that).
+//
+// WARNING (Phase 2C.3a): the LOCK ORDER below is wrong for production use. It locks the version rows before the per-resource advisory lock (which the reservation insert trigger
+// takes later), while every resource and link writer takes the advisory lock first and the version row after: a cycle, PostgreSQL kills one with 40P01. hireLockOrder.integration.test.ts
+// reproduces it deterministically with this very statement. The application statement is HIRE_GUARDED_SQL (packages/scheduling-postgres/src/hireRepository.ts), which takes the
+// advisory lock before any version row. This file is kept only so that the regression stays characterised and the older gate proofs keep asserting what they assert.
 //
 // ONE statement, because one statement is the only atomic unit the Neon HTTP driver offers: take FOR SHARE on the offering's version row, the offering, the resource's version row
 // and the resource (offering first, then resource: the order every version bump uses), require the versions the application read, then insert the reservation and its hold.

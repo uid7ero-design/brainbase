@@ -76,11 +76,14 @@ describe('the shared schema is exactly the approved one', () => {
     expect((sql.match(/DROP FUNCTION IF EXISTS/g) ?? []).length).toBe(5);
     expect(sql).toMatch(/DELETE FROM scheduling_schema_migrations WHERE version = '2c\.3\.1'/);
   });
-  it('the old prototype fixture is gone and no booking code reads the version table yet', () => {
+  it('the old prototype fixture is gone and exactly one file reads the version table: the 2C.3a hire repository (nothing in the application or the core does)', () => {
     expect(() => read('packages/scheduling-postgres/tests/support/prototype038AvailabilityVersion.sql')).toThrow();
-    for (const dir of ['app', 'lib', 'packages/scheduling/src', 'packages/scheduling-postgres/src']) {
+    for (const dir of ['app', 'lib', 'packages/scheduling/src']) {
       const offenders = walk(dir).filter(f => /\.(ts|tsx)$/.test(f)).filter(f => /scheduling_availability_versions/.test(read(f)));
       expect(offenders, dir).toEqual([]);
     }
+    // Phase 2C.3a (reviewed change to this pin): createHire is the one reader; the migration-037 trigger functions are SQL, not TypeScript.
+    const readers = walk('packages/scheduling-postgres/src').filter(f => /\.(ts|tsx)$/.test(f)).filter(f => /scheduling_availability_versions/.test(read(f)));
+    expect(readers).toEqual(['packages/scheduling-postgres/src/hireRepository.ts']);
   });
 });
