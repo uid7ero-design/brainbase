@@ -1,5 +1,7 @@
 # Scheduling Phase 2C.3 preflight: offering configuration at commit
 
+> **CORRECTION (Phase 2C.3a, PR #536).** The offering-token decision (A) and its proofs are unaffected. The statement's lock ORDER shown by the fixture is not the production order: resource and link writers take the per-resource advisory lock before the version row, so a statement that locks version rows first can deadlock (`40P01`). The production statement takes schedule, offering, resource (`FOR SHARE`), then the advisory lock, then the offering and resource version rows; see `scheduling-phase2c3a-createhire.md` section 4 in PR #536. The row "Overlap ... per-resource advisory lock" below describes the lock the insert trigger takes; the corrected statement takes the same lock earlier.
+
 Status: **decision and proof only.** No application code, no migration, nothing applied anywhere. The guarded booking statement still exists only as a test fixture.
 Baseline: `main` `e490f4ba`; migration 037 (`2c.3.1`) is applied to Production and verified.
 Companions: `scheduling-phase2c-availability-at-commit.md` (option C), `scheduling-migration-037-completion-record.md`, `scheduling-phase2c-booking-architecture.md`.
