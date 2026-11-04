@@ -169,9 +169,9 @@ describe('overview', () => {
     for (const item of within(steps).getAllByRole('listitem')) expect(item).toHaveTextContent('(done)');
   });
 
-  it('says plainly that taking reservations is not part of this release', async () => {
+  it('describes current Scheduling capabilities', async () => {
     open();
-    expect(await screen.findByText(/Taking reservations is not part of this release/)).toBeInTheDocument();
+    expect(await screen.findByText(/Manage schedules, offerings, resources and booking availability/)).toBeInTheDocument();
   });
 
   it('a failed load is reported with a retry', async () => {

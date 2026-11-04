@@ -144,12 +144,12 @@ export default function ScheduleDetail({ scheduleId, canManage }: { scheduleId: 
                       <span className={styles.actionButtons}>
                         {schedule.id === 'tennis-coaching' && canEdit && <CoachingClassLifecycle id={o.id} name={o.name} archived onChanged={reload} />}
                         <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
-                        <Link href={`/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${o.name}`}>Calendar</Link>
+                        <Link href={schedule.id === 'tennis-coaching' ? '/scheduling/coaching' : `/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`${schedule.id === 'tennis-coaching' ? 'Schedule and history' : 'Calendar'} for ${o.name}`}>{schedule.id === 'tennis-coaching' ? 'Schedule and history' : 'Calendar'}</Link>
                       </span>
                     ) : (
                       <span className={styles.actionButtons}>
                         <Link href={`/scheduling/offerings/${seg(o.id)}/availability`} {...buttonProps('secondary', 'sm')} aria-label={`Hours for ${o.name}`}>Hours</Link>
-                        <Link href={`/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`Calendar for ${o.name}`}>Calendar</Link>
+                        <Link href={schedule.id === 'tennis-coaching' ? '/scheduling/coaching' : `/scheduling/offerings/${seg(o.id)}/calendar`} {...buttonProps('secondary', 'sm')} aria-label={`${schedule.id === 'tennis-coaching' ? 'Schedule and history' : 'Calendar'} for ${o.name}`}>{schedule.id === 'tennis-coaching' ? 'Schedule and history' : 'Calendar'}</Link>
                         <Button size="sm" onClick={() => setMode({ kind: 'assign', offering: o })} aria-label={`${canEdit ? 'Assign' : 'View'} ${words.resourcePlural.toLowerCase()} for ${o.name}`}>
                           {words.resourcePlural}
                         </Button>

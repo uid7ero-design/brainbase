@@ -54,7 +54,7 @@ export default function Overview({ canManage }: { canManage: boolean }) {
     // `activeKey` stands for the list of active schedule ids
   }, [schedulesData.state, activeKey, active]);
 
-  const header = <PageHeader title="Scheduling" description="Set up what you offer, then the resources it uses. Taking reservations is not part of this release." />;
+  const header = <PageHeader title="Scheduling" description="Manage schedules, offerings, resources and booking availability." />;
   const failed = schedulesData.state === 'error' ? schedulesData.problem : resourcesData.state === 'error' ? resourcesData.problem : offeringsProblem;
   if (failed) {
     return (
@@ -78,6 +78,7 @@ export default function Overview({ canManage }: { canManage: boolean }) {
     <div className={styles.page}>
       {header}
       {!canManage && <p className={styles.notice} role="note">You have view-only access to Scheduling. Ask a manager to make changes.</p>}
+      {canManage && active.some(s => s.id === 'tennis-coaching') && <p><Link href="/scheduling/coaching">Coaching schedule, bookings and previous schedules</Link></p>}
       <SetupSummary setup={setup} canManage={canManage} />
     </div>
   );

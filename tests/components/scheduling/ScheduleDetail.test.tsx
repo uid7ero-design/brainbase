@@ -285,3 +285,11 @@ describe('accessibility', () => {
     await expectNoAxeViolations(document.body);
   });
 });
+
+it('routes Tennis class calendars to schedule history while keeping other calendars unchanged',async()=>{
+  const s=api.addSchedule({id:'tennis-coaching'});
+  api.addOffering(s.id,{name:'Junior class'});
+  open(s.id);
+  expect(await screen.findByRole('link',{name:'Schedule and history for Junior class'})).toHaveAttribute('href','/scheduling/coaching');
+  expect(screen.queryByRole('link',{name:'Calendar for Junior class'})).not.toBeInTheDocument();
+});
