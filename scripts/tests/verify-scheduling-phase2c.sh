@@ -9,6 +9,7 @@
 #   packages/scheduling-postgres/tests/hireRepository.integration.test.ts        Phase 2C.3a: createHire (guarded batch, idempotency, retries, unknown outcomes, DST, deadlock stress)
 #   packages/scheduling-postgres/tests/bookingReads.integration.test.ts           Phase 2C.2: tenant-scoped range reads, viewer-reduced shape, read-only proof (a READ ONLY connection)
 #   scripts/tests/schedulingBookingOverlay2c2.integration.test.ts                  Phase 2C.2: the guarded overlay API (permissions, redaction, bounds)
+#   scripts/tests/schedulingStaffBooking2c3b.integration.test.ts                   Phase 2C.3b: the staff booking API through the real chain (gates, permissions, isolation, idempotency, concurrency, cancel, lost replies)
 # Suites that do not exist on the current branch are skipped, so the same script serves the 2C.1 and 2C.2 branches.
 #
 # USAGE   bash scripts/tests/verify-scheduling-phase2c.sh [PG_MAJOR]      (default 17; run it for 16 and 17)
@@ -84,6 +85,7 @@ run packages/scheduling-postgres/tests/hireRepository.integration.test.ts
 run packages/scheduling-postgres/tests/hireLockOrder.integration.test.ts
 run packages/scheduling-postgres/tests/bookingReads.integration.test.ts
 run scripts/tests/schedulingBookingOverlay2c2.integration.test.ts
+run scripts/tests/schedulingStaffBooking2c3b.integration.test.ts
 
 if [ "${SCHED_KEEP:-0}" = "1" ]; then echo "KEPT $NAME  $URL"; fi
 if [ "$RC" -eq 0 ]; then echo "SCHEDULING 2C PROOF (PG $PG_MAJOR): PASS"; else echo "SCHEDULING 2C PROOF (PG $PG_MAJOR): FAIL"; fi

@@ -260,6 +260,8 @@ export default defineConfig({
       'scripts/tests/schedulingCalendarPerf2b3e.integration.test.ts',
       'scripts/tests/schedulingCalendarAccess2b3e.integration.test.ts',
       'scripts/tests/schedulingBookingOverlay2c2.integration.test.ts',
+      'scripts/tests/schedulingStaffBooking2c3b.integration.test.ts',
+      'scripts/tests/schedulingStaffBooking2c3bNeon.integration.test.ts',
       'scripts/tests/bookingCapacityConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,

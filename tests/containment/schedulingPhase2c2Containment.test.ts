@@ -111,7 +111,8 @@ describe('nothing else was added', () => {
     const names = readdirSync(path.join(ROOT, 'packages/scheduling/sql'));
     expect(names.filter(n => /^0(3[8-9]|[4-8]\d)_/.test(n))).toEqual([]);
     const routes = walk('app/api/scheduling').filter(f => /route\.ts$/.test(f));
-    expect(routes.filter(f => /reservation|occurrence|series|booking|enrol|attendance/i.test(f)).filter(f => /export const (POST|PUT|PATCH|DELETE)\b/.test(code(f)))).toEqual([]);
+    const hire = ['app/api/scheduling/reservations/route.ts', 'app/api/scheduling/reservations/[reservationId]/cancel/route.ts']; // 2C.3b: the two reviewed staff facility-hire writes
+    expect(routes.filter(f => /reservation|occurrence|series|booking|enrol|attendance/i.test(f)).filter(f => !hire.includes(f)).filter(f => /export const (POST|PUT|PATCH|DELETE)\b/.test(code(f)))).toEqual([]);
   });
   it('nothing in the application writes a reservation, occurrence or series (no repository write is reachable from a route)', () => {
     const routes = walk('app/api/scheduling').filter(f => /route\.ts$/.test(f));

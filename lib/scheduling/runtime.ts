@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
-import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, type SqlExecutor } from '@scheduling/postgres';
+import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, PostgresHireRepository, type SqlExecutor, type SqlStatement } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 import { CoachingClasses, type GenerationResult, type RestorationResult } from './compatibility/tennis/coachingClasses';
@@ -49,6 +49,8 @@ export interface SchedulingRuntime {
   availability: SchedulingAvailabilityRepository;
   /** Phase 2C.2: READ-ONLY range reads of occurrences, reservations (viewer-reduced) and holds, and the booking overlay. Single SELECTs; writes nothing. */
   bookingReads: PostgresBookingReadRepository;
+  /** Phase 2C.3b: the staff facility-hire repository (createHire, findHireByKey, readHireBasis). Built lazily with no query; only the booking routes call it, and only behind the staff-booking gate. */
+  hire: PostgresHireRepository;
   settings: SchedulingSettings;
   timezone: ResolvedTimezone;
 }
@@ -76,7 +78,7 @@ export function createSchedulingExecutor(signal?: AbortSignal, recorder?: Statem
     signal ? { queryOptions: { fetchOptions: { signal } } } : {},
   );
   if (!recorder) return inner;
-  return {
+  const recorded: SqlExecutor = {
     async query<Row>(text: string, params: readonly unknown[] = []) {
       const started = performance.now();
       try {
@@ -87,6 +89,22 @@ export function createSchedulingExecutor(signal?: AbortSignal, recorder?: Statem
       }
     },
   };
+  // Phase 2C.3b: the recorder used to return an object with `query` only, which silently dropped `transaction()` and made createHire refuse every call. The transaction is forwarded
+  // as it is, never emulated: it exists on the recorded executor if and only if the underlying driver has one, so a driver without a transaction still fails closed
+  // (createHire throws HireNotReadyError and nothing is written). It is ONE round trip, so its time is recorded once; its statements are counted individually (numbers only, never SQL).
+  const innerTransaction = inner.transaction;
+  if (typeof innerTransaction === 'function') {
+    recorded.transaction = async (statements: readonly SqlStatement[]) => {
+      const started = performance.now();
+      try {
+        return await innerTransaction.call(inner, statements);
+      } finally {
+        recorder.statements += statements.length;
+        recorder.dbMs += performance.now() - started;
+      }
+    };
+  }
+  return recorded;
 }
 
 /** Public Tennis bridge: configuration only, never a request-supplied tenant. */
@@ -100,6 +118,7 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
   const persistence = createPostgresScheduling({ sql: executor, clock: systemClock });
   const availability = new PostgresAvailabilityRepository({ sql: executor });
   const bookingReads = new PostgresBookingReadRepository({ sql: executor });
+  const hire = new PostgresHireRepository({ sql: executor, clock: systemClock });
   // The organisation's zone and its settings row are independent reads, so they are asked together (one round trip, not two). The settings read only needs the
   // organisation and the caller's permission, and the stored settings never carry a zone (the host owns it), so it is made with a tenant built on the platform
   // fallback zone; the tenant handed to the handler is built on the resolved zone below. Failure order is unchanged: an unusable zone is reported before a
@@ -129,5 +148,5 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
     generateClasses: (offeringId: string, key: string) => classes.generateLive(tenant, offeringId, systemClock.today(tenant.timezone), key),
     savedGeneration: (offeringId: string, key: string) => classes.savedGeneration(tenant, offeringId, key),
   };
-  return { tenant, persistence, availability, bookingReads, settings, timezone, coaching, coachingRoster, coachingLifecycle };
+  return { tenant, persistence, availability, bookingReads, hire, settings, timezone, coaching, coachingRoster, coachingLifecycle };
 }

@@ -27,6 +27,16 @@ import {
 export const SCHEDULING_CAPABILITY_KEY = 'scheduling' as const;
 
 /**
+ * Phase 2C.3b: the SECOND, independent entitlement of staff facility-hire booking. Registered for nobody: no migration in this repository adds it to `modules`, so an unknown key
+ * is denied by requireCapability exactly like an organisation without a row. An owner-run, separately approved statement registers it and entitles one organisation.
+ */
+export const SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY = 'scheduling.staff_booking' as const;
+
+/** The global kill switch of staff booking. Must equal 'on'; unset, empty or anything else is off, in every environment. Read on every call, never cached at import. */
+export const SCHEDULING_STAFF_BOOKING_ENV = 'SCHEDULING_STAFF_BOOKING' as const;
+export const staffBookingKillSwitchOn = (env: Readonly<Record<string, string | undefined>> = process.env): boolean => env[SCHEDULING_STAFF_BOOKING_ENV] === 'on';
+
+/**
  * The timezone BrainBase uses when neither a schedule nor its organisation has
  * one configured. The core takes the fallback as a parameter (it hard-codes no
  * region), so existing organisations that never set a timezone resolve to this

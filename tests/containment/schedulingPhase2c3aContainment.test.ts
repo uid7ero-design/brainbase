@@ -24,15 +24,15 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const HIRE_API = ['PostgresHireRepository', 'createHire', 'findHireByKey', 'readHireBasis', 'HireRepository', 'HIRE_GUARDED_SQL', 'HIRE_BASIS_SQL', 'HireRequest'];
 
-describe('createHire is reachable from nowhere in the application', () => {
+describe('createHire is reachable from exactly the 2C.3b wiring and nowhere else in the application', () => {
   const files = [...walk('app'), ...walk('lib'), ...walk('components')].filter(f => /\.(ts|tsx)$/.test(f));
-  it('no application file mentions the hire repository, its contract or its SQL', () => {
+  it('only the runtime (which builds it) and the reservation handlers (which call it) mention the hire repository, its contract or its SQL', () => {
     const users = files.filter(f => HIRE_API.some(n => new RegExp(`\\b${n}\\b`).test(noTsComments(read(f)))));
-    expect(users).toEqual([]);
+    expect(users).toEqual(['lib/scheduling/booking/reservations.ts', 'lib/scheduling/runtime.ts']);
   });
-  it('no route exists for reservations, bookings or hires, and no scheduling route calls a reservation write', () => {
+  it('the only reservation, booking or hire routes are the three of 2C.3b, and no route file itself calls a reservation write', () => {
     const routes = walk('app/api/scheduling').filter(f => /route\.ts$/.test(f));
-    expect(routes.filter(f => /reservation|booking|hire/i.test(f))).toEqual([]);
+    expect(routes.filter(f => /reservation|booking|hire/i.test(f)).sort()).toEqual(['app/api/scheduling/reservations/[reservationId]/cancel/route.ts', 'app/api/scheduling/reservations/[reservationId]/route.ts', 'app/api/scheduling/reservations/route.ts']);
     expect(routes.filter(f => /reservations\.(create|createAssigned|cancel)\(|createHire\(/.test(noTsComments(read(f))))).toEqual([]);
   });
   it('no screen, page or component renders a booking form', () => {
@@ -43,8 +43,9 @@ describe('createHire is reachable from nowhere in the application', () => {
 
 describe('no flag, no entitlement row, no migration, no role change', () => {
   const code = [...walk('app'), ...walk('lib'), ...walk('components'), ...walk('packages/scheduling/src'), ...walk('packages/scheduling-postgres/src'), ...walk('packages/scheduling/sql')].filter(f => /\.(ts|tsx|sql)$/.test(f));
-  it('the kill switch and the capability key of 2C.3b are not defined anywhere yet', () => {
-    expect(code.filter(f => /SCHEDULING_STAFF_BOOKING|scheduling\.staff_booking/.test(noTsComments(read(f))))).toEqual([]);
+  it('the kill switch and the capability key of 2C.3b are named only by the access gate and the BrainBase adapter, and no SQL file registers the capability for anyone', () => {
+    expect(code.filter(f => /SCHEDULING_STAFF_BOOKING|scheduling\.staff_booking/.test(noTsComments(read(f))))).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts']);
+    expect(code.filter(f => /\.sql$/.test(f) && /staff_booking/.test(read(f)))).toEqual([]);
   });
   it('the shared schema is still exactly the approved one: no migration beyond 037, no rollback beyond 098', () => {
     const names = readdirSync(path.join(ROOT, 'packages/scheduling/sql'));

@@ -113,7 +113,7 @@ describe('the guard itself', () => {
   const guard = noTsComments(read('lib/scheduling/route.ts'));
 
   it('authorises first, then builds the runtime, then calls the handler, in that order', () => {
-    const a = guard.indexOf('await authorizeSchedulingRequest(permission)');
+    const a = guard.indexOf('await authorizeSchedulingRequest(permission');
     const r = guard.indexOf('await loadSchedulingRuntime(');
     const h = guard.indexOf('await handler(');
     expect(a).toBeGreaterThan(-1);

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireSession, unauthorized, forbidden, type OrgSession } from '@/lib/org';
 import { requireCapability, CapabilityAccessError } from '@/lib/capabilities/requireCapability';
 import type { SchedulingPermission, TenantContext } from '@scheduling/core';
-import { SCHEDULING_CAPABILITY_KEY, permissionsForRole, staffTenantContext } from './adapters/brainbase';
+import { SCHEDULING_CAPABILITY_KEY, SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY, permissionsForRole, staffBookingKillSwitchOn, staffTenantContext } from './adapters/brainbase';
 import { getUserPermissions } from '@/lib/organisationUsers/access';
 
 // The fail-closed gate for every Scheduling route. Routes never call it directly: they are built with schedulingRoute()
@@ -38,8 +38,19 @@ const KNOWN_PERMISSIONS: ReadonlySet<string> = new Set<SchedulingPermission>([
   'scheduling.audit.identity',
 ]);
 
-export async function authorizeSchedulingRequest(permission: SchedulingPermission): Promise<SchedulingAuthResult> {
+/** Phase 2C.3b: a route that belongs to a gated feature. Today only 'staff_booking'. */
+export interface SchedulingAuthOptions {
+  feature?: 'staff_booking';
+}
+
+/** A disabled feature is indistinguishable from a route that does not exist. Same body for the kill switch and for an organisation that is not entitled. */
+const featureOff = (): Response => NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+export async function authorizeSchedulingRequest(permission: SchedulingPermission, options: SchedulingAuthOptions = {}): Promise<SchedulingAuthResult> {
   if (!KNOWN_PERMISSIONS.has(permission)) return { ok: false, response: forbidden() };
+  // Staff booking, gate 1: the environment kill switch. Checked before the session is even read: with the switch off the route does not exist for anyone, signed in or not,
+  // and nothing (session store, capability table, database) is touched.
+  if (options.feature === 'staff_booking' && !staffBookingKillSwitchOn()) return { ok: false, response: featureOff() };
 
   let session: OrgSession;
   try {
@@ -48,6 +59,16 @@ export async function authorizeSchedulingRequest(permission: SchedulingPermissio
     return { ok: false, response: unauthorized() };
   }
   if (!session || !session.organisationId || !session.userId) return { ok: false, response: unauthorized() };
+
+  // Staff booking, gate 2: the organisation's own entitlement. Absent, disabled, inactive or unregistered all answer 404 like the kill switch; only a failure to DETERMINE it is a 503.
+  if (options.feature === 'staff_booking') {
+    try {
+      await requireCapability(session.organisationId, SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY);
+    } catch (err) {
+      if (err instanceof CapabilityAccessError) return { ok: false, response: featureOff() };
+      return { ok: false, response: NextResponse.json({ error: 'Unable to verify Scheduling access.' }, { status: 503 }) };
+    }
+  }
 
   try {
     await requireCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY);

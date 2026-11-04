@@ -188,7 +188,9 @@ describe('the TypeScript modules are staged, not wired', () => {
 
   it('the access gate takes no organisation parameter and reads only the session organisation', () => {
     const src = noTsComments(read('lib/scheduling/access.ts'));
-    expect(src).toMatch(/export async function authorizeSchedulingRequest\(permission: SchedulingPermission\)/);
+    // 2C.3b: one optional second parameter names a feature gate (staff_booking); it carries no organisation either.
+    expect(src).toMatch(/export async function authorizeSchedulingRequest\(permission: SchedulingPermission(, options: SchedulingAuthOptions = \{\})?\)/);
+    expect(src).not.toMatch(/SchedulingAuthOptions\s*\{[^}]*organi[sz]ation/);
     expect(src).toContain('requireCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY)');
     expect(src).not.toMatch(/headers\(|cookies\(|req\.|request\.|searchParams|\.json\(\)/);
   });
