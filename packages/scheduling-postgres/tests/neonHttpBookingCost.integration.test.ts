@@ -126,7 +126,7 @@ suite('booking cost through the real Neon HTTP driver (disposable branch)', () =
     expect(stats(wall).median).toBeLessThan(3000);
   }, 120_000);
 
-  it('contention: 8 parallel bookings on ONE court at distinct times (they share the version rows FOR SHARE; the hold advisory lock serialises only the insert) versus 8 courts', async () => {
+  it('contention: 8 parallel bookings on ONE court at distinct times (fixture order: they share the version rows FOR SHARE and the hold advisory lock serialises only the insert; the production statement takes the advisory lock BEFORE the version rows, see the correction in scheduling-phase2c3-preflight-evidence.md) versus 8 courts', async () => {
     const f = await fixture();
     const r = await reads(f);
     const t1 = performance.now();

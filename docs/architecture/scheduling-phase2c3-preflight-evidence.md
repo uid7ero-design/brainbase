@@ -1,6 +1,9 @@
 # Scheduling Phase 2C.3 preflight: evidence
 
 Date: 2026-11-03. Baseline: `main` `e490f4ba` (migration 037 / `2c.3.1` applied to Production and verified; completion record in PR #528).
+> **CORRECTION (Phase 2C.3a, PR #536).** This document, and the design in PR #532, described the guarded statement's lock order as "offering before resource, the order every version bump uses: no lock cycle". That is wrong for resource and link writers. They take the per-resource advisory lock first and the version row after; the statement proved here took the version rows first and reached the advisory lock only inside the reservation insert trigger. That is a cycle, and a stress test that races bookings against every kind of configuration writer produced `40P01` (34 to 41 deadlocks per 6-second run). What this document proves about **version semantics, offering-token semantics, timeouts, abort behaviour and cost remains valid**. What it does not prove is deadlock freedom: the 60-way stress it cites used bump-only writers that never took the advisory lock. The corrected order is: schedule, offering, resource (row locks `FOR SHARE`), the resource advisory lock, offering version, resource version, insert. The deterministic failing-first regression (old shape deadlocks, corrected shape cannot) is `hireLockOrder.integration.test.ts` in PR #536; the fixture in `tests/support/guardedBooking.ts` is kept unchanged so that regression can reproduce the cycle, and carries a warning.
+> The measured numbers below are for the old shape. The corrected statement takes one more lock call (the advisory lock) before the version rows; that has not been re-measured on Neon.
+
 Status: evidence only. No booking-writing route, no flag, no Production SQL, no Production booking, no change to LD Tennis or Eve, no new migration applied anywhere.
 
 **Where each number comes from.** Three kinds of environment are kept apart throughout:
@@ -48,7 +51,7 @@ Final run, medians in ms (n in brackets). A `SELECT 1` costs 29.8 (20): that is 
 | Guarded booking, booked, round trip | 44.6 (12); p95 51.7 |
 | Guarded booking, stale version (refused at the lock CTE) | 29.8 (8): no more than the floor |
 | Guarded statement, server-side `EXPLAIN ANALYZE` | ~12-13 ms execution, of which ~11 ms is the timezone check; the individual integrity-trigger times in the plan were 0.002-0.105 ms each |
-| 8 parallel bookings, one court, distinct times | 215 ms wall (one alone: 67 ms): they share the version rows `FOR SHARE`; only the hold insert serialises |
+| 8 parallel bookings, one court, distinct times | 215 ms wall (one alone: 67 ms): in the old statement shape they share the version rows `FOR SHARE` and only the hold insert serialises; in the corrected shape the resource advisory lock is taken before the version rows, so bookings of ONE resource serialise from that point (see the correction at the top) |
 | 8 parallel bookings, 8 courts | 146 ms wall |
 | Lock waiters left behind | 0 |
 

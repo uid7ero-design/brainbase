@@ -7,7 +7,7 @@
 // advisory lock before any version row. This file is kept only so that the regression stays characterised and the older gate proofs keep asserting what they assert.
 //
 // ONE statement, because one statement is the only atomic unit the Neon HTTP driver offers: take FOR SHARE on the offering's version row, the offering, the resource's version row
-// and the resource (offering first, then resource: the order every version bump uses), require the versions the application read, then insert the reservation and its hold.
+// and the resource (offering first, then resource; it does NOT account for the advisory lock - see the WARNING above), require the versions the application read, then insert the reservation and its hold.
 // A stale version, an inactive resource, an archived offering or a wrong organisation makes a CTE empty and the statement inserts nothing (zero rows, no error).
 // An idempotency key that already exists inserts nothing either (zero rows): the caller then reads the existing reservation by key.
 //
