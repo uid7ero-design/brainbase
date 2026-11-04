@@ -7,12 +7,12 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 function open(canManage:boolean){vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));render(<CalendarScreen kind="offering" id="class" canManage={canManage} organisationTimezone="Australia/Adelaide"/>);}
 it('hands old Tennis calendar links to authoritative coaching dates instead of false no-availability warnings',()=>{
  open(true);
- expect(screen.getByRole('link',{name:'Open Tennis schedule, bookings and previous schedules'})).toHaveAttribute('href','/scheduling/coaching');
+ expect(screen.getByRole('link',{name:'Open coaching schedule, bookings and previous schedules'})).toHaveAttribute('href','/scheduling/coaching');
  expect(screen.queryByText(/nothing can be booked/i)).not.toBeInTheDocument();
  expect(screen.queryByTestId('calendar-screen')).not.toBeInTheDocument();
 });
 it('does not expose roster navigation to view-only users',()=>{
  open(false);
- expect(screen.queryByRole('link',{name:/Open Tennis schedule/})).not.toBeInTheDocument();
+ expect(screen.queryByRole('link',{name:/Open coaching schedule/})).not.toBeInTheDocument();
  expect(screen.getByText(/Ask a coaching manager/)).toBeInTheDocument();
 });

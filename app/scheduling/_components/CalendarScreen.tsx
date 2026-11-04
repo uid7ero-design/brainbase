@@ -144,10 +144,10 @@ export default function CalendarScreen({ kind, id, canManage, organisationTimezo
   // Coaching occurrences and enrolments are authoritative; generic availability hours are not their calendar.
   if (kind === 'offering' && view.offering?.scheduleId === 'tennis-coaching') {
     return <div className={styles.page}>
-      <PageHeader title={`Class dates: ${name}`} description="Tennis uses scheduled class dates. Availability hours do not describe its bookings." />
-      {canManage ? <Link href="/scheduling/coaching">Open Tennis schedule, bookings and previous schedules</Link>
-        : <p>Ask a coaching manager to view class dates and player rosters.</p>}
-      <p><Link href="/scheduling/schedules/tennis-coaching">Back to Tennis classes</Link></p>
+      <PageHeader title={`Class dates: ${name}`} description="Coaching uses scheduled class dates. Availability hours do not describe its bookings." />
+      {canManage ? <Link href="/scheduling/coaching">Open coaching schedule, bookings and previous schedules</Link>
+        : <p>Ask a coaching manager to view class dates and participant rosters.</p>}
+      <p><Link href="/scheduling/schedules/tennis-coaching">Back to coaching classes</Link></p>
     </div>;
   }
 

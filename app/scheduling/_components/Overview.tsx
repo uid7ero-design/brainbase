@@ -78,7 +78,7 @@ export default function Overview({ canManage }: { canManage: boolean }) {
     <div className={styles.page}>
       {header}
       {!canManage && <p className={styles.notice} role="note">You have view-only access to Scheduling. Ask a manager to make changes.</p>}
-      {canManage && active.some(s => s.id === 'tennis-coaching') && <p><Link href="/scheduling/coaching">Tennis schedule, bookings and previous schedules</Link></p>}
+      {canManage && active.some(s => s.id === 'tennis-coaching') && <p><Link href="/scheduling/coaching">Coaching schedule, bookings and previous schedules</Link></p>}
       <SetupSummary setup={setup} canManage={canManage} />
     </div>
   );
