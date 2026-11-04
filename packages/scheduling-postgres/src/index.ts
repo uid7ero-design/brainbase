@@ -17,3 +17,4 @@ export function createPostgresScheduling(options: { sql: SqlExecutor; clock: Clo
   };
 }
 export { PostgresBookingReadRepository, type BookingReadRepositoryOptions, type ReducedReservation } from './bookingReadRepository';
+export { PostgresHireRepository, classifyWriteError, HIRE_BASIS_SQL, HIRE_GUARDED_SQL, DEFAULT_HIRE_ATTEMPTS, DEFAULT_HIRE_LOCK_TIMEOUT_MS, DEFAULT_HIRE_STATEMENT_TIMEOUT_MS, type HireRepositoryOptions } from './hireRepository';
