@@ -20,9 +20,18 @@ export default function CoachingWorkspaceScreen({today}:{today:string}) {
   const [from,setFrom]=useState(today); const [until,setUntil]=useState(plusDays(today,28));
   const [range,setRange]=useState({from:today,until:plusDays(today,28)});
   const [after,setAfter]=useState<string|null>(null); const [selected,setSelected]=useState<string|null>(null);
+  function showRange(nextFrom:string,nextUntil:string) {
+    setFrom(nextFrom);setUntil(nextUntil);setAfter(null);setSelected(null);setRange({from:nextFrom,until:nextUntil});
+  }
   const data=useSchedulingData<Dates>(`/coaching?from=${range.from}&until=${range.until}${after ? `&after=${encodeURIComponent(after)}`:''}`);
   return <div className={styles.page}>
     <h1>Coaching roster</h1><p><Link href="/scheduling/schedules/tennis-coaching">Manage classes and restore archived classes</Link></p><p>Class dates, players and attendance. Manual paid markers do not record a Commercial payment.</p>
+    <nav aria-label="Tennis schedule periods">
+      <Button onClick={()=>showRange(plusDays(range.from,-28),plusDays(range.from,-1))}>Previous schedule</Button>{' '}
+      <Button onClick={()=>showRange(plusDays(range.until,1),plusDays(range.until,28))}>Next schedule</Button>{' '}
+      <Button onClick={()=>showRange(today,plusDays(today,28))}>Upcoming schedule</Button>
+    </nav>
+    <p role="status">Showing {range.from} to {range.until}. Previous schedules keep their original bookings and attendance.</p>
     <form onSubmit={e=>{e.preventDefault();setAfter(null);setSelected(null);setRange({from,until});}}>
       <label>From <input type="date" required value={from} onChange={e=>setFrom(e.target.value)} /></label>{' '}
       <label>Until <input type="date" required min={from} max={plusDays(from || today,70)} value={until} onChange={e=>setUntil(e.target.value)} /></label>{' '}

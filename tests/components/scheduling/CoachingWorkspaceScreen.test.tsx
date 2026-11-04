@@ -37,3 +37,18 @@ it('hides stale personal rows after a revoked refresh and blocks further changes
   await waitFor(()=>expect(screen.queryByText('Synthetic player')).not.toBeInTheDocument());
   expect(screen.queryByRole('button',{name:'Here'})).not.toBeInTheDocument();
 });
+
+it('loads previous schedules, clears the selected roster and returns to upcoming dates without writes',async()=>{
+  const fetch=vi.fn(async(url:string)=>Response.json(url.includes('/roster/')?roster:dates));
+  vi.stubGlobal('fetch',fetch);
+  render(<CoachingWorkspaceScreen today="2099-11-03"/>);
+  await userEvent.click(await screen.findByRole('button',{name:/2099-11-03 16:00/}));
+  await screen.findByRole('button',{name:'Here'});
+  await userEvent.click(screen.getByRole('button',{name:'Previous schedule'}));
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('from=2099-10-06&until=2099-11-02'))).toBe(true));
+  expect(screen.queryByRole('button',{name:'Here'})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button',{name:'Previous schedule'}));
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('from=2099-09-08&until=2099-10-05'))).toBe(true));
+  await userEvent.click(screen.getByRole('button',{name:'Upcoming schedule'}));
+  expect(screen.getByRole('status')).toHaveTextContent('2099-11-03 to 2099-12-01');
+});
