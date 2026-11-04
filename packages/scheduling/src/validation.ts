@@ -267,7 +267,7 @@ export function validateReservationForPreset(
   if (preset.resources.requirement === 'none' && r.resourceId !== null) {
     problems.push(`${preset.key} reservations do not take a resource`);
   }
-  if (!Number.isInteger(r.price.amountCents) || r.price.amountCents < 0) {
+  if (r.price === null ? !(options.asSnapshotted && r.presetKey === 'classes_coaching') : !Number.isInteger(r.price.amountCents) || r.price.amountCents < 0) {
     problems.push('price must be a non-negative integer number of cents');
   }
   if (r.status === 'cancelled' && r.attendance !== null) problems.push('a cancelled reservation cannot carry attendance');

@@ -29,6 +29,7 @@ const importsOf = (src: string) => [...noTsComments(src).matchAll(/(?:^|\n)\s*(?
 
 const PAGES = [
   'app/scheduling/page.tsx',
+  'app/scheduling/coaching/page.tsx',
   'app/scheduling/schedules/page.tsx',
   'app/scheduling/schedules/[scheduleId]/page.tsx',
   'app/scheduling/resources/page.tsx',
@@ -48,7 +49,7 @@ const CLIENT_ALLOWED = [
   /^@\/components\/ui\/app$/,
   /^@\/lib\/layout\/headerOffset$/,
   /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability|calendar)$/,
-  /^@\/lib\/scheduling\/configurable$/,
+  /^@\/lib\/scheduling\/(configurable|coachingContract)$/,
   /^@scheduling\/core$/,
   /^\.\.?\/[\w./-]*$/, // siblings inside the dashboard / the pure libraries
   /\.module\.css$/,
@@ -82,14 +83,14 @@ describe('the dashboard is exactly the configuration screens', () => {
 });
 
 describe('nothing server-side reaches the browser', () => {
-  const clientFiles = () => [...dashboardFiles(), ...walk(path.join(ROOT, 'lib/scheduling/dashboard'), /\.ts$/).map(rel), 'lib/scheduling/configurable.ts'].filter(f => /\.(ts|tsx)$/.test(f));
+  const clientFiles = () => [...dashboardFiles(), ...walk(path.join(ROOT, 'lib/scheduling/dashboard'), /\.ts$/).map(rel), 'lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].filter(f => /\.(ts|tsx)$/.test(f));
 
   it('every "use client" file, and the pure libraries they use, import only from the allow-list', () => {
     const checked: string[] = [];
     for (const f of clientFiles()) {
       const src = read(f);
       const isClient = /^\s*['"]use client['"]/.test(src);
-      const isPureLib = f.startsWith('lib/scheduling/dashboard/') || f === 'lib/scheduling/configurable.ts';
+      const isPureLib = f.startsWith('lib/scheduling/dashboard/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
       if (!isClient && !isPureLib) continue;
       checked.push(f);
       for (const spec of importsOf(src)) expect(CLIENT_ALLOWED.some(re => re.test(spec)), `${f} imports ${spec}`).toBe(true);
@@ -99,7 +100,7 @@ describe('nothing server-side reaches the browser', () => {
   });
 
   it('no client file imports a server module by name (db, session, capability, guard, audit, runtime, repositories)', () => {
-    const isBrowserSide = (f: string) => /^\s*['"]use client['"]/.test(read(f)) || f.startsWith('lib/scheduling/dashboard/') || f === 'lib/scheduling/configurable.ts';
+    const isBrowserSide = (f: string) => /^\s*['"]use client['"]/.test(read(f)) || f.startsWith('lib/scheduling/dashboard/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
     for (const f of clientFiles().filter(isBrowserSide)) {
       for (const spec of importsOf(read(f))) {
         expect(spec, f).not.toMatch(/@\/lib\/(db|org|session|capabilities)|lib\/scheduling\/(pageAccess|route|access|runtime|audit|crmLink|adapters|config)|@scheduling\/postgres|server-only|next\/headers/);
@@ -119,8 +120,14 @@ describe('the dashboard talks only to the Scheduling API, and never books', () =
   it('every request goes through schedulingApi() to /api/scheduling; no other fetch, no database, no payment', () => {
     for (const f of sources()) {
       const src = noTsComments(read(f));
-      if (f !== 'lib/scheduling/dashboard/api.ts') expect(src, f).not.toMatch(/\bfetch\s*\(/);
-      expect(src, f).not.toMatch(/\bsql\b\s*[`(]|stripe|checkout|payment/i);
+      const operational = ['app/scheduling/_components/ClassDatesAction.tsx','app/scheduling/_components/CoachingClassLifecycle.tsx','app/scheduling/_components/CoachingWorkspaceScreen.tsx'].includes(f);
+      if (f !== 'lib/scheduling/dashboard/api.ts' && !operational) expect(src, f).not.toMatch(/\bfetch\s*\(/);
+      if (operational) {
+        expect(src, f).toContain('/api/scheduling/');
+        expect(src, f).not.toMatch(/https?:|sendBeacon|XMLHttpRequest|WebSocket/);
+        expect(src, f).toContain("cache:'no-store'");
+      }
+      expect(src, f).not.toMatch(/\bsql\b\s*[`(]|stripe|checkout|paymentIntent|payment_status/i);
       expect(src, f).not.toMatch(/\/api\/(?!scheduling)/);
     }
     expect(noTsComments(read('lib/scheduling/dashboard/api.ts'))).toMatch(/fetch\(`\/api\/scheduling\$\{path\}`/);
@@ -133,7 +140,7 @@ describe('the dashboard talks only to the Scheduling API, and never books', () =
       for (const m of read(f).matchAll(/useSchedulingData<[^(]*\(\s*[`']\/([a-z]+)/g)) paths.add(m[1]);
     }
     // Phase 2B.3c (deliberate, reviewed change): 'availability' is the rule and closure routes (/availability-rules/<id>, /availability-exceptions/<id>).
-    expect([...paths].sort()).toEqual(['availability', 'offerings', 'resources', 'schedules', 'status']);
+    expect([...paths].sort()).toEqual(['availability', 'coaching', 'offerings', 'resources', 'schedules', 'status']);
   });
 
   it('exposes no booking, reservation, occurrence, customer, payment or public-slug control', () => {
@@ -148,7 +155,12 @@ describe('the dashboard talks only to the Scheduling API, and never books', () =
 describe('wording and scope', () => {
   it('names no sport or business: wording comes from the preset', () => {
     for (const f of [...dashboardFiles().filter(x => /\.(tsx?|css)$/.test(x)), ...walk(path.join(ROOT, 'lib/scheduling/dashboard'), /\.ts$/).map(rel), 'lib/scheduling/configurable.ts', 'lib/scheduling/pageAccess.ts']) {
-      expect(noTsComments(read(f)), f).not.toMatch(/tennis|squad|\bplayer\b|\bcoach(es)?\b(?!ing)|racket|\bLD\b/i);
+      const src = noTsComments(read(f));
+      if (f === 'app/scheduling/_components/CoachingWorkspaceScreen.tsx' || f === 'app/scheduling/coaching/page.tsx') {
+        expect(src, f).not.toMatch(/squad|racket|\bLD\b/i);
+        continue;
+      }
+      expect(src.replaceAll('tennis-coaching','classes'), f).not.toMatch(/tennis|squad|\bplayer\b|\bcoach(es)?\b(?!ing)|racket|\bLD\b/i);
     }
   });
 

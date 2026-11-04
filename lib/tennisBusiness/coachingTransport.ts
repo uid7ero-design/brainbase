@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { coachingAccess } from './coachingAccess';
 import sql from '@/lib/db';
 import { coachingCapacityReady } from './coachingSafety';
+import { coachingAuthority } from './coachingAuthority';
 import * as sessions from '@/app/api/dashboard/sessions/route';
 import * as session from '@/app/api/dashboard/sessions/[id]/route';
 import * as instances from '@/app/api/dashboard/sessions/instances/route';
@@ -49,6 +50,10 @@ export async function handleCoaching(request: NextRequest, segments: string[]) {
   const write = !['GET', 'HEAD'].includes(request.method);
   const access = await coachingAccess(write);
   if (!access.ok) return NextResponse.json({ error: 'Coaching timetable unavailable.' }, { status: access.status, headers });
+  try {
+    const phase=await coachingAuthority(access.session.organisationId);
+    if(phase!=='legacy')return NextResponse.json({error:phase==='frozen' ? 'Coaching is paused for its handover.' : 'Coaching has moved to Scheduling.',code:'COACHING_MOVED',href:'/scheduling/coaching'},{status:409,headers});
+  } catch {return NextResponse.json({error:'The active coaching timetable could not be confirmed.'},{status:503,headers});}
   if (write) {
     // Next can expose its internal HTTP origin behind TLS. Host is the public
     // request authority, matching organisation administration's proxy handling.

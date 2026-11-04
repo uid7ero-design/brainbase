@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const requireSession = vi.fn();
 const requireCapability = vi.fn();
+vi.mock('@/lib/organisationUsers/access',()=>({getUserPermissions:async()=>null}));
 
 class CapabilityAccessError extends Error {
   reason: string;

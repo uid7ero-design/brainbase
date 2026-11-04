@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useSyncExternalStore } from 'react'
 import Nav from '../components/Nav'
 import Footer from '../components/Footer'
 
@@ -58,7 +58,14 @@ function groupByDate(sessions: SessionSlot[]): Map<string, SessionSlot[]> {
   return map
 }
 
+const pendingEvent='tennis-public-pending'
+const subscribePending=(fn:()=>void)=>{window.addEventListener(pendingEvent,fn);window.addEventListener('storage',fn);return()=>{window.removeEventListener(pendingEvent,fn);window.removeEventListener('storage',fn);};}
+const serverPending=()=>undefined
+
 export default function BookPage() {
+  const pending=useSyncExternalStore(subscribePending,()=>{try{return sessionStorage.getItem('tennis-public-booking');}catch{return ':unavailable:';}},serverPending)
+  const flight=useRef(false)
+  const savePending=(key:string|null)=>{if(key)sessionStorage.setItem('tennis-public-booking',key);else sessionStorage.removeItem('tennis-public-booking');window.dispatchEvent(new Event(pendingEvent));}
   const [slots, setSlots]         = useState<SessionSlot[]>([])
   const [loading, setLoading]     = useState(true)
   const [selected, setSelected]   = useState<SessionSlot | null>(null)
@@ -72,29 +79,37 @@ export default function BookPage() {
 
   useEffect(() => {
     fetch('/api/tennis/sessions')
-      .then(r => r.json())
+      .then(r => {if(!r.ok)throw Error();return r.json()})
       .then(d => { setSlots(d.sessions ?? []); setLoading(false) })
-      .catch(() => setLoading(false))
+      .catch(() => {setErr('Session availability could not be loaded. Reload this page to check again.');setLoading(false)})
   }, [])
 
+  async function checkSaved() {
+    if(!pending || pending===':unavailable:' || flight.current)return
+    flight.current=true;setSubmitting(true)
+    try {
+      const response=await fetch(`/api/tennis/book?key=${encodeURIComponent(pending)}`,{cache:'no-store'})
+      const data=await response.json()
+      if(response.ok && data.result?.success && data.result.booking){savePending(null);setDone(data.result.booking);setSelected(null);setErr(null)}
+      else setErr('Your booking is not confirmed yet. Check again or contact Luke before making another booking.')
+    }catch{setErr('The saved booking could not be checked. Please check again before booking again.')}
+    finally{flight.current=false;setSubmitting(false)}
+  }
   async function book() {
-    if (!selected || !name.trim() || !email.trim() || submitting) return
-    setSubmitting(true); setErr(null)
-
-    const res = await fetch('/api/tennis/book', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_instance_id: selected.id, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined }),
-    })
-    const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string; booking?: { session_name: string; date: string; start_time: string } }
-    setSubmitting(false)
-
-    if (data.success && data.booking) {
-      setDone(data.booking)
-      setSelected(null)
-    } else {
-      setErr(data.error ?? 'Something went wrong — please try again.')
-    }
+    if (!selected || !name.trim() || !email.trim() || flight.current || pending!==null) return
+    flight.current=true;setSubmitting(true);setErr(null)
+    try {
+      const key=crypto.randomUUID();savePending(key)
+      const res = await fetch('/api/tennis/book', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_instance_id: selected.id, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined,idempotencyKey:key }),
+      })
+      const data=await res.json()
+      if(res.ok && data.success && data.booking){savePending(null);setDone(data.booking);setSelected(null)}
+      else if([400,404,409,429].includes(res.status) || data.code==='HANDOVER_PAUSED') {savePending(null);setErr(data.error ?? 'This booking was refused. Reload availability before trying again.')}
+      else setErr('The booking result is not confirmed. Check your saved request before booking again.')
+    }catch{setErr('The booking result is not confirmed. Check your saved request before booking again.')}
+    finally{flight.current=false;setSubmitting(false)}
   }
 
   const grouped = groupByDate(slots.filter(s => s.enrolled_count < s.max_capacity || selected?.id === s.id))
@@ -118,6 +133,9 @@ export default function BookPage() {
             </p>
           </div>
 
+          {err && <p role="alert" className="text-red-400 mb-4">{err}</p>}
+          {pending && pending!==':unavailable:' && <button className="text-green-400 mb-6" disabled={submitting} onClick={checkSaved}>Check saved booking</button>}
+          {pending===':unavailable:' && <p role="alert">Your browser cannot preserve this booking request. Please contact Luke to book.</p>}
           {/* Success state */}
           {done && (
             <div className="rounded-2xl border border-green-500/25 bg-green-500/8 p-8 text-center mb-12">
@@ -145,7 +163,7 @@ export default function BookPage() {
           )}
 
           {/* No sessions */}
-          {!loading && !hasSessions && !done && (
+          {!loading && !hasSessions && !done && !err && (
             <div className="rounded-2xl border border-white/6 bg-white/2 p-12 text-center">
               <p className="text-zinc-500 text-sm mb-4">No sessions scheduled yet.</p>
               <a href="#contact" className="text-green-400 hover:text-green-300 text-sm underline underline-offset-4 transition-colors">
@@ -219,29 +237,32 @@ export default function BookPage() {
 
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                                 <div>
-                                  <label className={labelClass}>Full Name *</label>
+                                  <label htmlFor="tennis-book-name" className={labelClass}>Full Name *</label>
                                   <input
                                     className={inputClass}
+                                    id="tennis-book-name"
                                     placeholder="Your name"
                                     value={name}
                                     onChange={e => setName(e.target.value)}
                                   />
                                 </div>
                                 <div>
-                                  <label className={labelClass}>Email *</label>
+                                  <label htmlFor="tennis-book-email" className={labelClass}>Email *</label>
                                   <input
                                     className={inputClass}
                                     type="email"
+                                    id="tennis-book-email"
                                     placeholder="your@email.com"
                                     value={email}
                                     onChange={e => setEmail(e.target.value)}
                                   />
                                 </div>
                                 <div className="sm:col-span-2">
-                                  <label className={labelClass}>Phone (optional)</label>
+                                  <label htmlFor="tennis-book-phone" className={labelClass}>Phone (optional)</label>
                                   <input
                                     className={inputClass}
                                     type="tel"
+                                    id="tennis-book-phone"
                                     placeholder="04xx xxx xxx"
                                     value={phone}
                                     onChange={e => setPhone(e.target.value)}
@@ -262,7 +283,7 @@ export default function BookPage() {
                                 </button>
                                 <button
                                   onClick={book}
-                                  disabled={!name.trim() || !email.trim() || submitting}
+                                  disabled={!name.trim() || !email.trim() || submitting || pending!==null}
                                   className="flex-[2] text-sm font-bold py-3 rounded-xl bg-green-500 text-black hover:bg-green-400 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
                                 >
                                   {submitting ? 'Booking…' : 'Confirm Booking'}

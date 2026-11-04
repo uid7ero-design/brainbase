@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const requireSession = vi.fn();
 const requireCapability = vi.fn();
+const userPermissions = vi.fn();
+vi.mock('@/lib/organisationUsers/access',()=>({getUserPermissions:(...args:unknown[])=>userPermissions(...args)}));
 
 class CapabilityAccessError extends Error {
   reason: string;
@@ -48,6 +50,7 @@ const ALL = ['scheduling.view', 'scheduling.manage', 'scheduling.reserve', 'sche
 beforeEach(() => {
   requireSession.mockReset();
   requireCapability.mockReset();
+  userPermissions.mockReset();userPermissions.mockResolvedValue(null);
 });
 
 describe('authorizeSchedulingRequest: order and fail-closed behaviour', () => {
@@ -174,5 +177,20 @@ describe('authorizeSchedulingRequest: role matrix (entitled organisation)', () =
     requireSession.mockResolvedValue(session('admin'));
     const r = await authorizeSchedulingRequest('scheduling.view');
     expect(r.ok && r.tenant.timezone).toBe('Australia/Adelaide');
+  });
+});
+
+
+describe('managed Scheduling permissions at the route authority',()=>{
+  it('allows view reads but denies roster disclosure and writes to managed view-only managers',async()=>{
+    requireSession.mockResolvedValue(session('manager'));requireCapability.mockResolvedValue({key:'scheduling',config:{}});userPermissions.mockResolvedValue({scheduling:'view'});
+    expect((await authorizeSchedulingRequest('scheduling.view')).ok).toBe(true);
+    for(const permission of ['scheduling.reserve','scheduling.manage','scheduling.attendance','scheduling.audit.identity'] as const)expect((await authorizeSchedulingRequest(permission)).ok).toBe(false);
+    expect(userPermissions).toHaveBeenCalledWith('org-1','u1');
+  });
+  it('fails closed on permission read errors or explicit none',async()=>{
+    requireSession.mockResolvedValue(session('manager'));requireCapability.mockResolvedValue({key:'scheduling',config:{}});userPermissions.mockRejectedValueOnce(Error('private error'));
+    const failure=await authorizeSchedulingRequest('scheduling.reserve');expect(failure.ok).toBe(false);if(!failure.ok)expect(failure.response.status).toBe(503);
+    userPermissions.mockResolvedValue({scheduling:'none'});expect((await authorizeSchedulingRequest('scheduling.view')).ok).toBe(false);
   });
 });

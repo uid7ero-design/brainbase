@@ -160,14 +160,15 @@ describe('LD Tennis baseline: GET /api/tennis/sessions (public, org fixed by LD_
     expect(text).toMatch(/si\.status\s*=\s*'scheduled'/);
   });
 
-  it('a database failure degrades to an empty list with status 200, not an error (existing behaviour)', async () => {
+  it('a database failure is unavailable, never a misleading empty calendar', async () => {
     vi.stubEnv('LD_TENNIS_ORG_ID', 'org-ld');
     sqlMock.mockRejectedValueOnce(new Error('db down'));
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { GET } = await import('@/app/api/tennis/sessions/route');
     const res = await GET();
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sessions: [] });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'Session availability could not be loaded.' });
     spy.mockRestore();
   });
 });

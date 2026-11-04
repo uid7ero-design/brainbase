@@ -70,7 +70,7 @@ interface ReservationRow {
   status: Reservation['status'];
   attendance: AttendanceStatus | null;
   payment_status: Reservation['paymentStatus'];
-  price_cents: number;
+  price_cents: number | null;
   currency: string;
   notes: string | null;
 }
@@ -112,7 +112,7 @@ export function toReservation(row: ReservationRow): Reservation {
     status: row.status,
     attendance: row.attendance,
     paymentStatus: row.payment_status,
-    price: { amountCents: row.price_cents, currency: row.currency },
+    price: row.price_cents === null ? null : { amountCents: row.price_cents, currency: row.currency },
     seriesId: row.series_id,
     notes: row.notes,
   };

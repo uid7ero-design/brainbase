@@ -42,14 +42,38 @@ describe('Phase 2A wires nothing into the application', () => {
         return /scheduling_[a-z_]+|010_shared_schema|110_brainbase_host/.test(text);
       })
       .map(rel);
-    expect(offenders).toEqual([]);
+    // Tennis integration rehearsal: these exact injected-executor services are
+    // still unreachable from application entry points. No general SQL exemption.
+    expect(offenders.sort()).toEqual([
+      'lib/scheduling/compatibility/tennis/coachingBookings.ts',
+      'lib/scheduling/compatibility/tennis/coachingClasses.ts',
+      'lib/scheduling/compatibility/tennis/coachingCommands.ts',
+      'lib/scheduling/compatibility/tennis/coachingHistory.ts',
+      'lib/scheduling/compatibility/tennis/coachingRosterActions.ts',
+      'lib/scheduling/compatibility/tennis/coachingWorkspace.ts',
+      'lib/scheduling/compatibility/tennis/importHistory.ts',
+      'lib/scheduling/compatibility/tennis/migrationSnapshot.ts',
+      'lib/scheduling/compatibility/tennis/publicBooking.ts',
+      'lib/tennisBusiness/coachingAuthority.ts',
+      'lib/tennisBusiness/overview.ts',
+    ]);
+    for (const name of ['lib/tennisBusiness/coachingAuthority.ts','lib/tennisBusiness/overview.ts']) expect(read(name)).not.toMatch(/\b(?:INSERT INTO|UPDATE|DELETE FROM|CREATE TABLE|ALTER TABLE|DROP TABLE)\b/i);
+    for (const f of sources) {
+      const name = rel(f); const text = readFileSync(f, 'utf8');
+      if (name.startsWith('lib/scheduling/compatibility/tennis/')) {
+        expect(text, name).not.toMatch(/from\s+['"](?:@\/lib\/db|pg|@neondatabase\/serverless)['"]/);
+      } else {
+        const checked = name === 'lib/scheduling/runtime.ts' ? text.replace("from './compatibility/tennis/coachingClasses'", '').replace("from './compatibility/tennis/coachingWorkspace'", '').replace("from './compatibility/tennis/coachingRosterActions'", '').replace("from './compatibility/tennis/publicBooking'", '') : text;
+        expect(checked, name).not.toMatch(/(?:from\s*|import\s*\(|require\s*\()\s*['"][^'"]*compatibility\/tennis\/(?:coachingBookings|coachingClasses|coachingCommands|coachingHistory|coachingRosterActions|coachingWorkspace|publicBooking|importHistory|migrationSnapshot)/);
+      }
+    }
   });
 
   it('no scheduling route, page or navigation entry exists', () => {
     // Phase 2B.1 (deliberate, reviewed change): app/api/scheduling holds exactly the status and audit foundation routes.
     for (const p of ['app/dashboard/scheduling', 'app/book']) expect(existsSync(path.join(ROOT, p)), p).toBe(false);
     // Phase 2B.2b (deliberate, reviewed change): the configuration API adds offerings, resources and schedules.
-    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'calendar-overlay', 'offerings', 'resources', 'schedules', 'status']);
+    expect(readdirSync(path.join(ROOT, 'app/api/scheduling')).sort()).toEqual(['audit', 'availability-exceptions', 'availability-rules', 'calendar-overlay', 'coaching', 'offerings', 'resources', 'schedules', 'status']);
     // Phase 2B.2c (deliberate, reviewed change): one capability-gated navigation entry exists; schedulingPhase2b2cContainment.test.ts pins it.
     expect((read('components/nav/navModel.ts').match(/scheduling/gi) ?? []).length).toBeGreaterThan(0);
   });
@@ -79,6 +103,13 @@ describe('Phase 2A SQL package is exactly what was reviewed', () => {
       '191_brainbase_capability_rollback.sql',
       '192_brainbase_crm_link_rollback.sql',
       'manual',
+      'tennis-activate-cutover.sql',
+      'tennis-canonical-import.sql',
+      'tennis-class-restoration.sql',
+      'tennis-coaching-operations.sql',
+      // Staged Tennis source barrier/history only; no writer activation. Rehearsed on disposable Postgres.
+      'tennis-history-cutover.sql',
+      'tennis-public-booking.sql',
     ]);
   });
 

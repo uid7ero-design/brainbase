@@ -364,7 +364,8 @@ export interface Reservation {
   status: ReservationStatus;
   attendance: AttendanceStatus | null;
   paymentStatus: PaymentStatus;
-  price: Money;
+  /** Null for migrated bookings whose historical price was not recorded; never means free. New bookings require a quote. */
+  price: Money | null;
   /** Shared by every reservation in one recurring series (legacy recurring_group_id). */
   seriesId: string | null;
   notes: string | null;
