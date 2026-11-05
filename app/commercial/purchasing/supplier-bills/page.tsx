@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { SupplierBillStatusBadge } from '../_billStatus';
@@ -29,12 +29,20 @@ export default function SupplierBillsPage() {
   const searchParams = useSearchParams();
   const [supplierBills, setSupplierBills] = useState<SupplierBill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const requestNumber = useRef(0);
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? 'ALL');
 
   async function load() {
-    const res = await fetch('/api/commercial/supplier-bills');
-    if (res.ok) setSupplierBills((await res.json()).supplierBills ?? []);
-    setLoading(false);
+    const request = ++requestNumber.current;
+    setLoading(true); setError(''); setSupplierBills([]);
+    try {
+      const res = await fetch('/api/commercial/supplier-bills', { cache:'no-store', signal:AbortSignal.timeout(30000) });
+      const data = res.ok ? await res.json() : null;
+      if (!Array.isArray(data?.supplierBills)) throw new Error();
+      if (request === requestNumber.current) setSupplierBills(data.supplierBills);
+    } catch { if (request === requestNumber.current) setError('Supplier bills could not be loaded. Retry before creating another.'); }
+    finally { if (request === requestNumber.current) setLoading(false); }
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -46,11 +54,12 @@ export default function SupplierBillsPage() {
     <div style={{ maxWidth: 1100 }}>
       <PageHeader
         title="Supplier Bills"
-        description={`${supplierBills.length} total`}
+        description={loading ? 'Loading saved bills…' : error ? 'Saved bills unavailable' : `${supplierBills.length} total`}
         actions={<Link href="/commercial/purchasing/supplier-bills/new" {...buttonProps('primary')}>+ New Supplier Bill</Link>}
       />
 
-      <WorkToolbar count={statusFilter !== 'ALL' && !loading ? `${filtered.length} of ${supplierBills.length}` : undefined}>
+      {error && <p role="alert">{error} <button type="button" onClick={load}>Retry supplier bills</button></p>}
+      <WorkToolbar count={statusFilter !== 'ALL' && !loading && !error ? `${filtered.length} of ${supplierBills.length}` : undefined}>
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
@@ -77,7 +86,7 @@ export default function SupplierBillsPage() {
           </thead>
           <tbody>
             {loading && <TableStateRow colSpan={7} kind="loading">Loading supplier bills…</TableStateRow>}
-            {!loading && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No supplier bills yet.</TableStateRow>}
+            {!loading && !error && filtered.length === 0 && <TableStateRow colSpan={7} kind="empty">No supplier bills yet.</TableStateRow>}
             {filtered.map(b => (
               <tr key={b.id}>
                 <td className={tableStyles.primary} style={{ whiteSpace: 'nowrap' }}>

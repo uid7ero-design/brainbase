@@ -17,7 +17,7 @@ export async function setupTennisBusiness(q) {
   }
 }
 
-export async function verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password}) {
+export async function verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password,financeOnly=false}) {
   page.setDefaultTimeout(30000);
   const date=(await q("SELECT to_char(now() AT TIME ZONE 'Australia/Adelaide','YYYY-MM-DD') AS date")).rows[0].date;
   const post=async(path,data={},headers={})=>{
@@ -56,7 +56,24 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   console.log('PASS: real CRM create and explicit billing link; lost customer response recovers without a repeated write.');
 
   // Actual commercial HTTP transitions. Their individual form affordances are not certified by this API portion.
-  const invoice=(await post('/api/commercial/invoices',{customerId:customer.id,currency:'AUD',dueDate:'2099-12-31'})).invoice;
+  let invoice;
+  if(financeOnly) {
+    let writes=0;
+    await page.goto(origin+'/commercial/invoices/new');
+    await page.getByRole('combobox',{name:/Customer/}).selectOption(customer.id);
+    await page.getByLabel('Due Date',{exact:true}).fill('2099-12-31');
+    await page.route('**/api/commercial/invoices',async route=>{
+      if(route.request().method()!=='POST')return route.continue();
+      writes++;const response=await route.fetch();assert.equal(response.status(),201);invoice=(await response.json()).invoice;await route.abort();
+    });
+    await page.getByRole('button',{name:/Create Draft/}).click();
+    await page.getByRole('region',{name:'Review uncertain draft'}).waitFor();
+    await page.reload();await page.getByRole('region',{name:'Review uncertain draft'}).waitFor();
+    await expect(page.getByRole('button',{name:/Create Draft/})).toBeDisabled();assert.equal(writes,1);
+    assert.equal((await q('SELECT count(*)::int AS n FROM commercial_invoices WHERE customer_id=$1',[customer.id])).rows[0].n,1);
+    await page.unroute('**/api/commercial/invoices');
+    await page.goto(origin+'/commercial/invoices');await page.getByRole('link',{name:'Draft',exact:true}).waitFor();
+  } else invoice=(await post('/api/commercial/invoices',{customerId:customer.id,currency:'AUD',dueDate:'2099-12-31'})).invoice;
   await post(`/api/commercial/invoices/${invoice.id}/lines`,{description:'Synthetic lesson',quantity:1,unitPriceCents:6000});
   await post(`/api/commercial/invoices/${invoice.id}/issue`);
   await post(`/api/commercial/invoices/${invoice.id}/payments`,{amount_cents:2000,method:'CASH',reference:'SYNTHETIC ONLY'});
@@ -67,7 +84,29 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   const receipt=(await post('/api/commercial/purchase-receipts',{purchaseOrderId:po.id,deliveryReference:'SYNTHETIC ONLY'})).purchaseReceipt;
   await post(`/api/commercial/purchase-receipts/${receipt.id}/lines`,{sourcePurchaseOrderLineId:line.id,quantityReceived:1});
   await post(`/api/commercial/purchase-receipts/${receipt.id}/post`);
-  const bill=(await post('/api/commercial/supplier-bills',{purchaseOrderId:po.id,supplierInvoiceNumber:'SYNTHETIC-1',billDate:date})).supplierBill;
+  let bill;
+  if(financeOnly) {
+    let writes=0;
+    await page.goto(origin+'/commercial/purchasing/supplier-bills/new');
+    await page.getByRole('combobox',{name:/Purchase Order/}).selectOption(po.id);
+    await page.getByLabel(/Supplier Invoice Number/).fill('SYNTHETIC-1');
+    await page.getByLabel('Bill Date',{exact:true}).fill(date);
+    await page.route('**/api/commercial/supplier-bills',async route=>{
+      if(route.request().method()!=='POST')return route.continue();
+      writes++;const response=await route.fetch();assert.equal(response.status(),201);bill=(await response.json()).supplierBill;await route.abort();
+    });
+    await page.getByRole('button',{name:/Create Draft/}).click();await page.getByRole('region',{name:'Review uncertain draft'}).waitFor();
+    await page.reload();await page.getByRole('region',{name:'Review uncertain draft'}).waitFor();
+    await expect(page.getByRole('button',{name:/Create Draft/})).toBeDisabled();assert.equal(writes,1);
+    assert.equal((await q('SELECT count(*)::int AS n FROM commercial_supplier_bills WHERE source_purchase_order_id=$1',[po.id])).rows[0].n,1);
+    await page.unroute('**/api/commercial/supplier-bills');
+    await page.route('**/api/commercial/supplier-bills',route=>route.fulfill({status:503,json:{error:'Synthetic unavailable'}}));
+    await page.goto(origin+'/commercial/purchasing/supplier-bills');await page.getByRole('button',{name:'Retry supplier bills',exact:true}).waitFor();
+    assert.equal(await page.getByText('No supplier bills yet.',{exact:true}).count(),0);
+    await page.unroute('**/api/commercial/supplier-bills');
+    await page.getByRole('button',{name:'Retry supplier bills',exact:true}).click();await page.getByText('SYNTHETIC-1',{exact:true}).waitFor();
+
+  } else bill=(await post('/api/commercial/supplier-bills',{purchaseOrderId:po.id,supplierInvoiceNumber:'SYNTHETIC-1',billDate:date})).supplierBill;
   await post(`/api/commercial/supplier-bills/${bill.id}/lines`,{sourcePurchaseOrderLineId:line.id,quantity:1,unitPriceCents:1500});
   await post(`/api/commercial/supplier-bills/${bill.id}/post`);
   await post(`/api/commercial/supplier-bills/${bill.id}/payments`,{amount_cents:1500,method:'CASH',reference:'SYNTHETIC ONLY'},{'Idempotency-Key':randomUUID()});
@@ -77,6 +116,7 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   assert.deepEqual(summary.costs.value,[{currency:'AUD',billed_cents:'1500',paid_cents:'1500'}]);
   console.log('PASS: actual invoice issue/payment and purchase order/bill/payment routes reconcile to exact workspace totals.');
 
+  if(!financeOnly) {
   const day=new Date(date+'T12:00:00Z').getUTCDay();
   const session=(await post('/api/business/tennis/coaching/sessions',{name:'Synthetic coaching',session_type:'SYNTHETIC',day_of_week:day,start_time:'15:00',max_capacity:2,start_date:date,end_mode:'after_weeks',end_after_weeks:1})).session;
   const instance=(await q('SELECT id FROM session_instances WHERE session_id=$1 ORDER BY date LIMIT 1',[session.id])).rows[0];assert.ok(instance);
@@ -102,12 +142,15 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   await page.getByRole('button',{name:'Review saved timetable',exact:true}).click();await page.getByRole('heading',{name:'Sessions',exact:true}).waitFor();assert.equal(coachingWrites,1);
   console.log('PASS: actual coaching creation/enrolment and rendered attendance lost-response recovery, without remount writes.');
 
+  }
+
   // Managed staff login, current grant revocation, and tenant denial use real middleware/session paths.
   await q("UPDATE users SET role='MANAGER' WHERE id='local-manager'");
   await q("INSERT INTO organisation_user_access(user_id,organisation_id,permissions,updated_by) VALUES('local-manager','local-hr','{\"crm\":\"view\"}','local-admin')");
   const guest=await browser.newContext(contextOptions);const staff=await guest.newPage();
   await guest.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await staff.goto(origin+'/login');await staff.getByLabel('Username',{exact:true}).fill('local-manager');await staff.getByLabel('Password',{exact:true}).fill(password);await staff.getByRole('button',{name:'Sign in',exact:true}).click();await staff.waitForURL('**/workspace');
+  if(financeOnly){await staff.goto(origin+'/business/tennis/finance');await staff.getByText('Invoicing or Purchasing access is required.').waitFor();}
   await staff.goto(origin+'/business/tennis');await staff.getByRole('link',{name:'Open CRM contacts',exact:true}).waitFor();
   assert.equal(await staff.getByRole('link',{name:'Manage billing customers',exact:true}).count(),0);
   assert.equal((await guest.request.get(origin+'/api/business/tennis/coaching/sessions')).status(),403);
@@ -115,7 +158,8 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   await staff.getByRole('button',{name:'Refresh saved figures',exact:true}).click();await staff.getByRole('alert').waitFor();assert.equal(await staff.getByRole('link',{name:'Open CRM contacts',exact:true}).count(),0);await guest.close();
   await q("UPDATE organisations SET slug='synthetic-other' WHERE id='local-hr'");assert.equal((await context.request.get(origin+'/api/business/tennis')).status(),404);await q("UPDATE organisations SET slug='ld-tennis' WHERE id='local-hr'");
   for(const width of [390,768,1440]){
-    await page.setViewportSize({width,height:900});await page.goto(origin+'/business/tennis');await page.getByRole('link',{name:'Manage billing customers',exact:true}).waitFor();
+    await page.setViewportSize({width,height:900});await page.goto(origin+(financeOnly?'/business/tennis/finance':'/business/tennis'));await page.getByRole('link',{name:'Manage billing customers',exact:true}).waitFor();
+    if(financeOnly) {await page.getByRole('link',{name:'Create a lesson invoice',exact:true}).waitFor();await page.screenshot({path:'.tennis-finance-'+width+'.png',fullPage:true});}
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Overflow at ${width}`);
   }
   await expect(page.getByRole('link',{name:'Workspace help and setup checklist',exact:true})).toBeVisible();
