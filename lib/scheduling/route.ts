@@ -47,6 +47,8 @@ export interface SchedulingRouteOptions {
    * for routes that write nothing: a write must never be answered "timed out" while it may still commit.
    */
   deadlineMs?: () => number;
+  /** Phase 2C.3b: the feature gate the route belongs to. 'staff_booking' answers 404 unless the kill switch is on AND the session's organisation holds the capability. */
+  feature?: 'staff_booking';
 }
 
 /** The answer when a bounded read ran out of time. Generic on purpose: no route, query, organisation or SQL. */
@@ -90,7 +92,7 @@ export function schedulingRoute(permission: SchedulingPermission, handler: Sched
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     };
 
-    const auth = await authorizeSchedulingRequest(permission);
+    const auth = options.feature ? await authorizeSchedulingRequest(permission, { feature: options.feature }) : await authorizeSchedulingRequest(permission);
     if (!auth.ok) return finish(withNoStore(auth.response), 'denied');
 
     const controller = options.deadlineMs ? new AbortController() : null;

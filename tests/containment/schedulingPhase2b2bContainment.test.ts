@@ -34,6 +34,10 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   'app/api/scheduling/coaching/actions/route.ts': [['POST', 'scheduling.reserve', 'changeCoachingRoster'], ['GET', 'scheduling.reserve', 'savedRosterAction']],
   'app/api/scheduling/offerings/[offeringId]/generate-classes/route.ts': [['POST', 'scheduling.manage', 'generateCoachingClasses'], ['GET', 'scheduling.manage', 'savedClassGeneration']],
   'app/api/scheduling/audit/route.ts': [['GET', 'scheduling.view', '']],
+  // Phase 2C.3b (deliberate, reviewed change): staff facility hire. Gated twice (kill switch + organisation capability); pinned in schedulingPhase2c3bContainment.test.ts.
+  'app/api/scheduling/reservations/route.ts': [['POST', 'scheduling.reserve', 'createReservation'], ['GET', 'scheduling.reserve', 'findReservationByKey']],
+  'app/api/scheduling/reservations/[reservationId]/route.ts': [['GET', 'scheduling.reserve', 'getReservation']],
+  'app/api/scheduling/reservations/[reservationId]/cancel/route.ts': [['POST', 'scheduling.reserve', 'cancelReservation']],
   'app/api/scheduling/status/route.ts': [['GET', 'scheduling.view', '']],
   'app/api/scheduling/schedules/route.ts': [['GET', 'scheduling.view', 'listSchedules'], ['POST', 'scheduling.manage', 'createSchedule']],
   'app/api/scheduling/schedules/[scheduleId]/route.ts': [['GET', 'scheduling.view', 'getSchedule'], ['PATCH', 'scheduling.manage', 'updateSchedule']],
@@ -78,12 +82,14 @@ describe('the route set is exactly the configuration API: no booking, public or 
       expect(exported.map(e => `${e.method} ${e.permission}`).sort(), file).toEqual(methods.map(m => `${m[0]} ${m[1]}`).sort());
       for (const [method, , handler] of methods) if (handler) expect(exported.find(e => e.method === method)?.handler, `${file} ${method}`).toBe(handler);
       expect(src, file).toMatch(/export const dynamic = 'force-dynamic'/);
-      for (const m of methods) if (m[0] !== 'GET') expect(m[1], `${file} ${m[0]}`).toBe(file === 'app/api/scheduling/coaching/actions/route.ts' ? 'scheduling.reserve' : 'scheduling.manage');
+      for (const m of methods) if (m[0] !== 'GET') expect(m[1], `${file} ${m[0]}`).toBe(file === 'app/api/scheduling/coaching/actions/route.ts' || file.startsWith('app/api/scheduling/reservations/') ? 'scheduling.reserve' : 'scheduling.manage');
     }
   });
 
   it('no route accepts PUT/HEAD/OPTIONS, and no route path names booking, payment, checkout or public access', () => {
     for (const f of routeFiles()) {
+      // 2C.3b: the three reservation routes are the one reviewed exception, pinned by name in EXPECTED_ROUTES and in schedulingPhase2c3bContainment.test.ts.
+      if (f.startsWith('app/api/scheduling/reservations/')) { expect(noTsComments(read(f)), f).not.toMatch(/export\s+const\s+(PUT|HEAD|OPTIONS|PATCH|DELETE)\b/); continue; }
       expect(f === 'app/api/scheduling/coaching/roster/[occurrenceId]/route.ts' ? f.replace('[occurrenceId]', '[id]') : f, f).not.toMatch(/book|payment|checkout|public|stripe|reservation|occurrence|customer|attendance/i);
       expect(noTsComments(read(f)), f).not.toMatch(/export\s+const\s+(PUT|HEAD|OPTIONS)\b/);
     }
@@ -175,7 +181,7 @@ describe('the central guard passes dynamic params without deriving an organisati
   });
 
   it('resolves params after authorisation and the runtime, so a denied or unconfigured caller never reaches them', () => {
-    const a = guard.indexOf('await authorizeSchedulingRequest(permission)');
+    const a = guard.indexOf('await authorizeSchedulingRequest(permission');
     const r = guard.indexOf('await loadSchedulingRuntime(');
     const p = guard.indexOf('await resolveParams(');
     expect(a).toBeGreaterThan(-1);
