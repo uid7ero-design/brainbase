@@ -38,6 +38,28 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
   await page.waitForURL('**/scheduling/coaching');await page.getByRole('heading',{name:'Coaching roster',exact:true}).waitFor();
   await page.getByRole('button',{name:new RegExp(`${fixture.day} 16:00`)}).click();
   await page.getByText('Synthetic Cancelled',{exact:true}).waitFor();
+  const billingRow=page.getByRole('listitem').filter({has:page.getByText('Synthetic Original',{exact:true})});
+  await billingRow.getByRole('link',{name:'Review for invoicing',exact:true}).click();
+  await page.getByRole('heading',{name:'Review booking for invoicing',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Use booking reference in internal notes',exact:true}).click();
+  await expect(page.getByLabel('Notes (internal)',{exact:true})).toHaveValue(/Coaching booking reference: fixture-player/);
+  await expect(page.getByRole('combobox',{name:/^Customer/})).toHaveValue('');
+  assert.equal((await q('SELECT count(*)::int n FROM commercial_invoices WHERE organisation_id=$1',[org])).rows[0].n,0);
+  await page.getByRole('link',{name:'Back to roster',exact:true}).click();
+  await page.getByRole('button',{name:new RegExp(`${fixture.day} 16:00`)}).click();
+  await page.getByText('Synthetic Cancelled',{exact:true}).waitFor();
+  for(const width of [390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    await expect(page.getByRole('button',{name:new RegExp(`${fixture.day} 16:00`)})).toHaveAttribute('aria-pressed','true');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,`Coaching layout overflows at ${width}px`);
+    await page.getByRole('heading',{name:'Coaching roster',exact:true}).scrollIntoViewIfNeeded();
+    if(process.env.TENNIS_LAYOUT_SCREENSHOTS==='1')await page.screenshot({path:`.tennis-layout-${width}.png`,fullPage:true});
+  }
+  await page.getByRole('button',{name:'Previous schedule',exact:true}).click();
+  await expect(page.getByRole('region',{name:'Class roster',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Upcoming schedule',exact:true}).click();
+  await page.getByRole('button',{name:new RegExp(`${fixture.day} 16:00`)}).click();
+  await page.getByText('Synthetic Cancelled',{exact:true}).waitFor();
   await page.getByLabel('Name',{exact:true}).fill('Synthetic Weekly');
   await page.getByLabel('Email',{exact:true}).fill('weekly@example.invalid');
   await page.getByLabel('Weekly enrolment',{exact:true}).check();

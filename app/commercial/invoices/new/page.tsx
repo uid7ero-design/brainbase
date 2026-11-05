@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import CustomerForm from '../../_components/CustomerForm';
+import CoachingInvoicePreparation from '../../_components/CoachingInvoicePreparation';
 import { Field } from '../../_components/CustomerForm';
 import { Field as AppField, FormActions, FormError, PageHeader, buttonProps, fieldControlClassName } from '@/components/ui/app';
 
@@ -80,6 +81,11 @@ export default function NewInvoicePage() {
   return (
     <div style={{ maxWidth: 600 }}>
       <PageHeader eyebrow={<Link href="/commercial/invoices">← Invoices</Link>} title="New Invoice" />
+
+      {(searchParams.has('coachingDate') || searchParams.has('coachingBooking')) && <CoachingInvoicePreparation
+        key={`${searchParams.get('coachingDate')}:${searchParams.get('coachingBooking')}:${searchParams.get('coachingAfter')}`}
+        occurrenceId={searchParams.get('coachingDate') ?? ''} bookingId={searchParams.get('coachingBooking') ?? ''}
+        after={searchParams.get('coachingAfter')} onUseNotes={value=>setNotes(current=>current ? `${current}\n\n${value}`:value)} />}
 
       <form onSubmit={submit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <AppField label="Customer" required>

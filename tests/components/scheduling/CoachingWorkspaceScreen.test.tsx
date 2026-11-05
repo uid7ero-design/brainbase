@@ -5,6 +5,20 @@ import CoachingWorkspaceScreen from '@/app/scheduling/_components/CoachingWorksp
 const dates={phase:'scheduling',dates:[{id:'i',name:'Juniors',date:'2099-11-03',startTime:'16:00',status:'scheduled',archived:false,enrolled:1,capacity:3}],next:null};
 const roster={occurrence:{name:'Juniors',date:'2099-11-03',startTime:'16:00',status:'scheduled'},rows:[{id:'b',name:'Synthetic player',email:'synthetic@example.invalid',status:'confirmed',attendance:null,attendanceVersion:0,paidMarker:false,markerVersion:0,historyOnly:false,priceCents:null,currency:'AUD'}],next:null};
 beforeEach(()=>sessionStorage.clear());afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+it('groups dates chronologically and exposes selection to keyboard and assistive technology',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.includes('/roster/')?roster:{...dates,dates:[
+    {...dates.dates[0],id:'late',startTime:'18:00',name:'Evening'},dates.dates[0],
+  ]})));
+  render(<CoachingWorkspaceScreen today="2099-11-03"/>);
+  const first=await screen.findByRole('button',{name:/2099-11-03 16:00/});
+  const later=screen.getByRole('button',{name:/2099-11-03 18:00/});
+  expect(first.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(first).toHaveAttribute('aria-pressed','false');
+  first.focus();await userEvent.keyboard('{Enter}');
+  expect(first).toHaveAttribute('aria-pressed','true');
+  await screen.findByRole('button',{name:'Here'});
+  expect(screen.queryByRole('region',{name:'Roster selection'})).not.toBeInTheDocument();
+});
 it('retains a lost-response request across remount and recovers without another mutation',async()=>{
   const fetch=vi.fn(async(url:string,options?:RequestInit)=>{
     if(options?.method==='POST')throw Error('lost response');

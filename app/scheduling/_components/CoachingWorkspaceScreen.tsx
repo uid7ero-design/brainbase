@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/app';
 import type { CoachingAction } from '@/lib/scheduling/coachingContract';
 import { useSchedulingData } from './useSchedulingData';
 import styles from './scheduling.module.css';
+import layout from './coaching.module.css';
 
 interface ClassDate { id:string; name:string; date:string; startTime:string; status:string; archived:boolean; enrolled:number; capacity:number }
 interface Dates { phase:'legacy'|'frozen'|'scheduling'; dates:ClassDate[]; next:string|null }
@@ -15,6 +16,9 @@ const event='coaching-roster-pending';
 const subscribe=(fn:()=>void)=>{window.addEventListener(event,fn);window.addEventListener('storage',fn);return()=>{window.removeEventListener(event,fn);window.removeEventListener('storage',fn);};};
 const serverSnapshot=()=>undefined;
 function plusDays(date:string,days:number) { const value=new Date(`${date}T12:00:00Z`); value.setUTCDate(value.getUTCDate()+days);return value.toISOString().slice(0,10); }
+function dayLabel(date:string) {
+  return new Intl.DateTimeFormat('en-AU',{weekday:'long',day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(`${date}T12:00:00Z`));
+}
 
 export default function CoachingWorkspaceScreen({today}:{today:string}) {
   const [from,setFrom]=useState(today); const [until,setUntil]=useState(plusDays(today,28));
@@ -24,31 +28,49 @@ export default function CoachingWorkspaceScreen({today}:{today:string}) {
     setFrom(nextFrom);setUntil(nextUntil);setAfter(null);setSelected(null);setRange({from:nextFrom,until:nextUntil});
   }
   const data=useSchedulingData<Dates>(`/coaching?from=${range.from}&until=${range.until}${after ? `&after=${encodeURIComponent(after)}`:''}`);
-  return <div className={styles.page}>
-    <h1>Coaching roster</h1><p><Link href="/scheduling/schedules/tennis-coaching">Manage classes and restore archived classes</Link></p><p>Class dates, players and attendance. Manual paid markers do not record a Commercial payment.</p>
-    <nav aria-label="Tennis schedule periods">
+  const days=new Map<string,ClassDate[]>();
+  for(const date of [...(data.data?.dates ?? [])].sort((a,b)=>(a.date+a.startTime+a.id).localeCompare(b.date+b.startTime+b.id))) {
+    days.set(date.date,[...(days.get(date.date) ?? []),date]);
+  }
+  return <div className={`${styles.page} ${layout.workspace}`}>
+    <header className={layout.header}><div><p className={layout.eyebrow}>SCHEDULE & ATTENDANCE</p><h1>Coaching roster</h1><p>Choose a class date to view players and manage attendance.</p></div><Link href="/scheduling/schedules/tennis-coaching">Manage classes and restore archived classes</Link></header>
+    <section className={layout.period} aria-label="Schedule dates">
+    <nav className={layout.toolbar} aria-label="Tennis schedule periods">
       <Button onClick={()=>showRange(plusDays(range.from,-28),plusDays(range.from,-1))}>Previous schedule</Button>{' '}
       <Button onClick={()=>showRange(plusDays(range.until,1),plusDays(range.until,28))}>Next schedule</Button>{' '}
       <Button onClick={()=>showRange(today,plusDays(today,28))}>Upcoming schedule</Button>
     </nav>
-    <p role="status">Showing {range.from} to {range.until}. Previous schedules keep their original bookings and attendance.</p>
-    <form onSubmit={e=>{e.preventDefault();setAfter(null);setSelected(null);setRange({from,until});}}>
+    <p role="status" className={layout.range}>Showing {range.from} to {range.until}. Previous schedules keep their original bookings and attendance.</p>
+    <form className={layout.dateForm} onSubmit={e=>{e.preventDefault();setAfter(null);setSelected(null);setRange({from,until});}}>
       <label>From <input type="date" required value={from} onChange={e=>setFrom(e.target.value)} /></label>{' '}
       <label>Until <input type="date" required min={from} max={plusDays(from || today,70)} value={until} onChange={e=>setUntil(e.target.value)} /></label>{' '}
       <Button type="submit">Show dates</Button>
     </form>
+    </section>
     {data.problem ? <div role="alert">Class dates could not be refreshed. <Button onClick={data.reload}>Try again</Button></div> : data.state==='loading' ? <p role="status">Loading class dates…</p> : null}
     {data.data?.phase==='legacy' && <p>Coaching is still using its current workspace. <Link href="/business/tennis/coaching">Open Tennis coaching</Link>.</p>}
     {data.data?.phase==='frozen' && <p role="status">Coaching is paused for its handover. History is available; changes are disabled.</p>}
-    {!data.problem && data.data?.phase!=='legacy' && <>
-      <ul>{[...(data.data?.dates ?? [])].sort((a,b)=>(a.date+a.startTime+a.id).localeCompare(b.date+b.startTime+b.id)).map(d=><li key={d.id}>
-        <Button onClick={()=>setSelected(d.id)}>{d.date} {d.startTime} — {d.name}</Button>{' '}{d.enrolled}/{d.capacity} places{d.archived ? ' · Archived class':''}{d.status!=='scheduled' ? ` · ${d.status}`:''}
-      </li>)}</ul>
-      {data.data?.dates.length===0 && <p>No class dates in this range.</p>}
-      {after && <Button onClick={()=>{setAfter(null);setSelected(null);}}>First dates</Button>}
-      {data.data?.next && <Button onClick={()=>{setAfter(data.data!.next);setSelected(null);}}>More dates</Button>}
-    </>}
-    {selected && !data.problem && <RosterScreen key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />}
+    {!data.problem && data.data?.phase!=='legacy' && <div className={layout.columns}>
+      <section aria-label="Class dates" className={layout.agenda} aria-busy={data.refreshing}>
+      <div className={layout.agendaHead}><h2>Class dates</h2><span>{data.data?.dates.length ?? 0} on this page</span></div>
+      {[...days].map(([date,dates])=><section key={date} className={layout.day} aria-label={dayLabel(date)}>
+        <h3><time dateTime={date}>{dayLabel(date)}</time>{date===today && <span className={layout.badge}>Today</span>}</h3>
+        <ul className={layout.sessionList}>{dates.map(d=><li key={d.id}>
+          <button type="button" className={layout.session} aria-pressed={selected===d.id} aria-label={`${d.date} ${d.startTime} — ${d.name}`} onClick={()=>setSelected(d.id)}>
+            <time dateTime={`${d.date}T${d.startTime}`}>{d.startTime}</time><span className={layout.sessionName}>{d.name}<small>{d.archived ? 'Archived class · ':''}{d.status!=='scheduled' ? d.status:'Scheduled'}</small></span>
+            <span className={layout.capacity}>{d.enrolled}/{d.capacity}<small>{d.enrolled>=d.capacity ? 'Full':'places'}</small></span>
+          </button>
+        </li>)}</ul>
+      </section>)}
+      {data.data?.dates.length===0 && <p className={layout.empty}>No class dates in this range. Choose another period above.</p>}
+      <div className={layout.toolbar}>{after && <Button onClick={()=>{setAfter(null);setSelected(null);}}>First dates</Button>}
+      {data.data?.next && <Button onClick={()=>{setAfter(data.data!.next);setSelected(null);}}>More dates</Button>}</div>
+      </section>
+      <div className={layout.rosterColumn}>
+      {selected ? <RosterScreen key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />
+        : <section className={layout.empty} aria-label="Roster selection"><h2>Select a class date</h2><p>Choose a session to see its players, attendance and weekly enrolments.</p></section>}
+      </div>
+    </div>}
   </div>;
 }
 
@@ -89,7 +111,7 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
     finally{flight.current=false;setBusy(false);}
   }
   const key=()=>crypto.randomUUID();
-  return <section aria-label="Class roster">
+  return <section aria-label="Class roster" className={layout.roster}>
     <h2>{roster?.occurrence.name ?? 'Class roster'}</h2>
     {data.problem && <div role="alert">The roster could not be refreshed. Saved rows are hidden until access and the current state are confirmed. <Button onClick={data.reload}>Reload roster</Button></div>}
     {!storageReady && <p role="alert">Your browser cannot preserve this request. Changes are disabled.</p>}
@@ -97,10 +119,11 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
     {message && <p role="status">{message}</p>}
     {!data.problem && roster && <>
       <p>{roster.occurrence.date} {roster.occurrence.startTime} · {roster.occurrence.status}</p>
-      <ul>{roster.rows.map(row=><li key={row.id}>
+      <p className={layout.note}>Manual paid markers do not record a Commercial payment.</p>
+      <ul className={layout.players}>{roster.rows.map(row=><li key={row.id}>
         <strong>{row.name}</strong>{row.email ? ` · ${row.email}`:''} · {row.status} · {row.attendance ?? 'Attendance not marked'} · {row.paidMarker ? 'Marked paid':'Not marked paid'}
         {row.priceCents===null && <span> · Historical price not recorded</span>}
-        {row.historyOnly ? <span> · Original history (read only)</span> : row.status!=='cancelled' && <div>
+        {row.historyOnly ? <span> · Original history (read only)</span> : row.status!=='cancelled' && <div className={layout.playerActions}>
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:'attended',expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Here</Button>{' '}
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:'absent',expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Absent</Button>{' '}
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:null,expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Clear attendance</Button>{' '}
@@ -108,11 +131,12 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
           <Button disabled={disabled || row.paidMarker || row.attendance!==null} onClick={()=>{if(window.confirm(`Cancel ${row.name}'s booking for this date?`))void act({kind:'cancel',bookingId:row.id,idempotencyKey:key()});}}>Cancel booking</Button>
         </div>}
         {!row.historyOnly && <WeeklyControls row={row} disabled={disabled} today={today} bookingDate={roster.occurrence.date} act={act} />}
+        {!disabled && !row.historyOnly && row.status!=='cancelled' && roster.occurrence.status==='scheduled' && <p><Link href={`/commercial/invoices/new?${new URLSearchParams({coachingDate:id,coachingBooking:row.id,...(after ? {coachingAfter:after}:{})})}`}>Review for invoicing</Link></p>}
       </li>)}</ul>
       {roster.rows.length===0 && <p>No players on this date.</p>}
       {after && <Button onClick={()=>setAfter(null)}>First players</Button>}
       {roster.next && <Button onClick={()=>setAfter(roster!.next)}>More players</Button>}
-      <form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void act({kind:'enrol',occurrenceId:id,idempotencyKey:key(),name:String(f.get('name')),email:String(f.get('email'))||null,phone:String(f.get('phone'))||null,notes:null,weekly:f.get('weekly')==='on',until:String(f.get('until'))});}}>
+      <form className={layout.enrolForm} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void act({kind:'enrol',occurrenceId:id,idempotencyKey:key(),name:String(f.get('name')),email:String(f.get('email'))||null,phone:String(f.get('phone'))||null,notes:null,weekly:f.get('weekly')==='on',until:String(f.get('until'))});}}>
         <fieldset disabled={disabled || roster.occurrence.status!=='scheduled' || roster.occurrence.date<today}>
           <legend>Add a player</legend>
           <label>Name <input name="name" required maxLength={200} /></label>{' '}
