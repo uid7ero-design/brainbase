@@ -259,8 +259,8 @@ describe('Manage menu', () => {
     ['viewer', null],
     ['analyst', null],
     ['manager', ['Integrations']],
-    ['admin', ['Organisation users', 'Integrations', 'Branding']],
-    ['super_admin', ['Organisation users', 'Integrations', 'Branding']],
+    ['admin', ['Organisation users', 'Integrations', 'Branding', 'Eve']],
+    ['super_admin', ['Organisation users', 'Integrations', 'Branding', 'Eve']],
   ] as const)('%s → %j', async (role, expected) => {
     const { user } = renderNav(persona(role));
     if (expected === null) {
@@ -272,6 +272,7 @@ describe('Manage menu', () => {
     expect(linkNames(menu)).toEqual(expected);
     if ((expected as readonly string[]).includes('Branding')) {
       expect(within(menu).getByRole('link', { name: item('Branding') })).toHaveAttribute('href', '/settings/branding');
+      expect(within(menu).getByRole('link', { name: item('Eve') })).toHaveAttribute('href', '/settings/eve');
     }
     expect(within(menu).getByRole('link', { name: item('Integrations') })).toHaveAttribute('href', '/dashboard/integrations');
   });

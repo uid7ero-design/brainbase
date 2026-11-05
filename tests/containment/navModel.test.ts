@@ -76,7 +76,7 @@ describe('persona matrix', () => {
     expect(summary(ctx('admin', ALL_CAPS))).toEqual({
       work: ['events', 'crm', 'commercial', 'organiser', 'people', 'data-hub'],
       requests: '/dashboard/pipeline',
-      manage: ['organisation-users', 'integrations', 'branding'],
+      manage: ['organisation-users', 'integrations', 'branding', 'eve'],
       brainbase: [],
     });
   });
@@ -85,7 +85,7 @@ describe('persona matrix', () => {
     expect(summary(ctx('super_admin', ['crm'], 'brainbase-hq'))).toEqual({
       work: ['crm', 'people', 'data-hub'],
       requests: null,
-      manage: ['organisation-users', 'integrations', 'branding'],
+      manage: ['organisation-users', 'integrations', 'branding', 'eve'],
       brainbase: FULL_BRAINBASE,
     });
   });
@@ -104,7 +104,7 @@ describe('persona matrix', () => {
     expect(summary(ctx('super_admin', ['events'], null))).toEqual({
       work: ['events', 'people', 'data-hub'],
       requests: '/dashboard/pipeline',
-      manage: ['organisation-users', 'integrations', 'branding'],
+      manage: ['organisation-users', 'integrations', 'branding', 'eve'],
       brainbase: FULL_BRAINBASE,
     });
   });
@@ -113,7 +113,7 @@ describe('persona matrix', () => {
     expect(summary(ctx('super_admin', [], 'ld-tennis'))).toEqual({
       work: ['people', 'data-hub', TENNIS],
       requests: '/dashboard/pipeline',
-      manage: ['organisation-users', 'integrations', 'branding'],
+      manage: ['organisation-users', 'integrations', 'branding', 'eve'],
       brainbase: FULL_BRAINBASE,
     });
   });
@@ -140,7 +140,7 @@ describe('persona matrix', () => {
     expect(summary(ctx('admin', ['events'], 'ld-tennis'))).toEqual({
       work: ['events', 'data-hub', TENNIS],
       requests: '/dashboard/pipeline',
-      manage: ['organisation-users', 'integrations', 'branding'],
+      manage: ['organisation-users', 'integrations', 'branding', 'eve'],
       brainbase: [],
     });
   });
@@ -248,7 +248,7 @@ describe('routes are unchanged — only their placement moved', () => {
       '/dashboard/contacts', '/dashboard/fleet', '/dashboard/integrations', '/dashboard/leads',
       '/dashboard/pipeline', '/dashboard/sessions', '/dashboard/social', '/dashboard/wste', '/dashboards',
       '/data', '/data-hub/import', '/events', '/hlna', '/onboarding', '/organiser', '/people', '/reports',
-      '/settings/branding', '/settings/users',
+      '/settings/branding', '/settings/eve', '/settings/users',
     ].sort());
     for (const href of hrefs) {
       const page = path.join(process.cwd(), 'app', href, 'page.tsx');

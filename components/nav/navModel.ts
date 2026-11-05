@@ -182,6 +182,11 @@ export const MANAGE_ITEMS: readonly NavEntry[] = [
     // app/settings/branding/page.tsx: requireRole('admin').
     gate: { minRole: 'admin' },
   },
+  {
+    kind: 'link', id: 'eve', label: 'Eve', href: '/settings/eve',
+    match: ['/settings/eve'], description: 'Enable your organisation on Eve',
+    gate: { minRole: 'admin' },
+  },
 ];
 
 const INTERNAL: NavGate = { internal: true };
