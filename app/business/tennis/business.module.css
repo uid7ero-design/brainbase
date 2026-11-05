@@ -8,3 +8,7 @@
 .page a { color: var(--text-link, var(--brand-brainbase-accent)); text-decoration: underline; text-underline-offset: 3px; }
 .page p, .page li { line-height: 1.6; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .page { padding: 16px; } .grid { grid-template-columns: minmax(0, 1fr); } .figures dl { grid-template-columns: minmax(0, 1fr); gap: 4px; } .figures dd { margin-bottom: 8px; } }
+
+.page ol { list-style: decimal; padding-left: 22px; }
+.page li + li { margin-top: 8px; }
+.figures + p { margin-top: 16px; }

@@ -23,7 +23,8 @@ if (!existsSync(path.join(root, 'scripts/create-hr-people.sql'))) throw new Erro
 const name = `hr-full-local-${randomUUID().slice(0, 8)}`;
 const crmOnly=process.argv.includes('--crm');
 const tennisSchedulingOnly=process.argv.includes('--tennis-scheduling');
-const tennisOnly=process.argv.includes('--tennis-business') || tennisSchedulingOnly;
+const tennisFinanceOnly=process.argv.includes('--tennis-finance');
+const tennisOnly=process.argv.includes('--tennis-business') || tennisSchedulingOnly || tennisFinanceOnly;
 const productionMode = process.argv.includes('--production');
 const contextOptions = productionMode ? { ignoreHTTPSErrors: true } : {};
 const nextDirectory = path.resolve(root, '.next');
@@ -250,7 +251,7 @@ try {
   }
   console.log('Real login issued its session cookie. Checking actual HR routes.');
   if(tennisSchedulingOnly){await verifyTennisScheduling({origin,context,page,q,fixture:tennisFixture});}
-  else if(tennisOnly){await verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password});}
+  else if(tennisOnly){await verifyTennisBusiness({origin,context,page,q,browser,contextOptions,password,financeOnly:tennisFinanceOnly});}
   else if(crmOnly){await verifyCrmRecovery({origin,context,page,q,browser,contextOptions,password});}
   else {
   await verifyOrganisationUsers({origin,context,page,q,emails,browser,contextOptions});

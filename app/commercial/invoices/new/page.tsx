@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
@@ -7,6 +7,8 @@ import CustomerForm from '../../_components/CustomerForm';
 import CoachingInvoicePreparation from '../../_components/CoachingInvoicePreparation';
 import { Field } from '../../_components/CustomerForm';
 import { Field as AppField, FormActions, FormError, PageHeader, buttonProps, fieldControlClassName } from '@/components/ui/app';
+
+import { useDraftCreation } from '../../_components/useDraftCreation';
 
 type Customer = { id: string; name: string; active: boolean };
 
@@ -34,17 +36,27 @@ export default function NewInvoicePage() {
   const [notes, setNotes] = useState('');
   const [terms, setTerms] = useState('');
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const draft = useDraftCreation('invoice');
+  const { saving, error, setError } = draft;
+  const [readError, setReadError] = useState('');
+  const [reading, setReading] = useState(true);
+  const requestNumber = useRef(0);
 
   async function loadCustomers() {
-    const res = await fetch('/api/commercial/customers');
-    if (res.ok) setCustomers((await res.json()).customers.filter((c: Customer) => c.active));
+    const request = ++requestNumber.current;
+    setReading(true); setReadError(''); setCustomers([]);
+    try {
+      const res = await fetch('/api/commercial/customers', { cache: 'no-store', signal: AbortSignal.timeout(30000) });
+      const data = res.ok ? await res.json() : null;
+      if (!Array.isArray(data?.customers)) throw new Error();
+      if (request === requestNumber.current) setCustomers(data.customers.filter((c: Customer) => c.active));
+    } catch { if (request === requestNumber.current) setReadError('Saved choices could not be loaded. Retry before creating a draft.'); }
+    finally { if (request === requestNumber.current) setReading(false); }
   }
 
   // Mirrors app/commercial/quotes/new/page.tsx's identical, pre-existing pattern.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadCustomers(); }, []);
+  useEffect(() => { loadCustomers(); const currentRequest = requestNumber; return () => { currentRequest.current++; }; }, []);
 
   // Suggests (never silently sets) a due date from "today + N days" —
   // the resulting value lands in the same editable due-date field the
@@ -61,21 +73,13 @@ export default function NewInvoicePage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!customerId) { setError('Select or create a customer first.'); return; }
-    setSaving(true); setError('');
-    const res = await fetch('/api/commercial/invoices', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customerId,
-        dueDate: dueDate || null,
-        paymentTermsDays: paymentTermsDays ? Number(paymentTermsDays) : null,
-        notes: notes || null,
-        terms: terms || null,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? 'Failed to create invoice.'); setSaving(false); return; }
-    router.push(`/commercial/invoices/${data.invoice.id}`);
+    if (draft.blocked || reading || readError) return;
+    if (!customers.some(row => row.id === customerId)) { setError('Select or create a customer first.'); return; }
+    await draft.create('/api/commercial/invoices', {
+      customerId, dueDate: dueDate || null,
+      paymentTermsDays: paymentTermsDays ? Number(paymentTermsDays) : null,
+      notes: notes || null, terms: terms || null,
+    }, id => router.push(`/commercial/invoices/${id}`));
   }
 
   return (
@@ -87,11 +91,13 @@ export default function NewInvoicePage() {
         occurrenceId={searchParams.get('coachingDate') ?? ''} bookingId={searchParams.get('coachingBooking') ?? ''}
         after={searchParams.get('coachingAfter')} onUseNotes={value=>setNotes(current=>current ? `${current}\n\n${value}`:value)} />}
 
+      {readError && <p role="alert">{readError} <button type="button" disabled={reading} onClick={loadCustomers}>Retry saved choices</button></p>}
+      {draft.recovery}
       <form onSubmit={submit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <AppField label="Customer" required>
           {control => (
             <div style={{ display: 'flex', gap: 8 }}>
-              <select {...control} value={customerId} onChange={e => setCustomerId(e.target.value)} className={fieldControlClassName}>
+              <select {...control} disabled={draft.blocked || reading || !!readError} value={customerId} onChange={e => setCustomerId(e.target.value)} className={fieldControlClassName}>
                 <option value="">— Select a customer —</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -128,7 +134,7 @@ export default function NewInvoicePage() {
         </AppField>
         {error && <FormError>{error}</FormError>}
         <FormActions align="stretch">
-          <button type="submit" disabled={saving} {...buttonProps('primary')}>
+          <button type="submit" disabled={draft.blocked || reading || !!readError} {...buttonProps('primary')}>
             {saving ? 'Creating…' : 'Create Draft — add line items next'}
           </button>
         </FormActions>

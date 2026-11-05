@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { StatusBadge, OverdueBadge } from './_status';
@@ -41,18 +41,27 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customersById, setCustomersById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const requestNumber = useRef(0);
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? 'ALL');
 
   async function load() {
-    const [invoicesRes, customersRes] = await Promise.all([
-      fetch('/api/commercial/invoices'),
-      fetch('/api/commercial/customers'),
-    ]);
-    const invoicesData = await invoicesRes.json();
-    const customersData = await customersRes.json();
-    setInvoices(invoicesData.invoices ?? []);
-    setCustomersById(Object.fromEntries((customersData.customers ?? []).map((c: Customer) => [c.id, c.name])));
-    setLoading(false);
+    const request = ++requestNumber.current;
+    setLoading(true); setError(''); setInvoices([]); setCustomersById({});
+    try {
+      const [invoicesRes, customersRes] = await Promise.all([
+        fetch('/api/commercial/invoices', { cache: 'no-store', signal: AbortSignal.timeout(30000) }),
+        fetch('/api/commercial/customers', { cache: 'no-store', signal: AbortSignal.timeout(30000) }),
+      ]);
+      if (!invoicesRes.ok || !customersRes.ok) throw new Error();
+      const invoicesData = await invoicesRes.json();
+      const customersData = await customersRes.json();
+      if (!Array.isArray(invoicesData.invoices) || !Array.isArray(customersData.customers)) throw new Error();
+      if (request !== requestNumber.current) return;
+      setInvoices(invoicesData.invoices);
+      setCustomersById(Object.fromEntries(customersData.customers.map((c: Customer) => [c.id, c.name])));
+    } catch { if (request === requestNumber.current) setError('Invoices could not be loaded. Retry before creating or recording anything.'); }
+    finally { if (request === requestNumber.current) setLoading(false); }
   }
 
   // Mirrors the identical, pre-existing load()-in-effect pattern already
@@ -68,11 +77,12 @@ export default function InvoicesPage() {
     <div style={{ maxWidth: 1150 }}>
       <PageHeader
         title="Invoices"
-        description={`${invoices.length} total`}
+        description={loading ? 'Loading saved invoices…' : error ? 'Saved invoices unavailable' : `${invoices.length} total`}
         actions={<Link href="/commercial/invoices/new" {...buttonProps('primary')}>+ New Invoice</Link>}
       />
 
-      <WorkToolbar count={statusFilter !== 'ALL' && !loading ? `${filtered.length} of ${invoices.length}` : undefined}>
+      {error && <p role="alert">{error} <button type="button" onClick={load}>Retry invoices</button></p>}
+      <WorkToolbar count={statusFilter !== 'ALL' && !loading && !error ? `${filtered.length} of ${invoices.length}` : undefined}>
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
@@ -102,7 +112,7 @@ export default function InvoicesPage() {
           </thead>
           <tbody>
             {loading && <TableStateRow colSpan={8} kind="loading">Loading invoices…</TableStateRow>}
-            {!loading && filtered.length === 0 && (
+            {!loading && !error && filtered.length === 0 && (
               <TableStateRow colSpan={8} kind="empty">
                 {invoices.length === 0 ? 'No invoices yet.' : 'No invoices with this status.'}
               </TableStateRow>
