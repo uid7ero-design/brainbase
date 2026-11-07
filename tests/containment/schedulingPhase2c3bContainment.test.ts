@@ -103,6 +103,14 @@ describe('the handlers take the organisation from the tenant and decide no booki
     expect(handlers).not.toMatch(/identity|ipAddress|userAgent|customerName|customerEmail|customerPhone/);
     expect(handlers.indexOf('await context.hire.createHire(')).toBeLessThan(handlers.indexOf("await audit(context, 'scheduling.reservation.created'"));
   });
+  it('an unexpected error on create is reconciled by the ORIGINAL key: no new key, no second createHire, no bare rethrow (2C.3c-A)', () => {
+    expect(handlers).not.toMatch(/randomUUID|newId|crypto\.|Math\.random/); // a key is only ever the client's
+    expect((handlers.match(/context\.hire\.createHire\(/g) ?? []).length).toBe(1);
+    expect(handlers).toMatch(/return reconcileCreate\(context, parsed\.request\)/);
+    expect(handlers).toMatch(/findHireByKey\(context\.tenant, request\.idempotencyKey\)/);
+    const create = handlers.slice(handlers.indexOf('export async function createReservation'), handlers.indexOf('async function reconcileCreate'));
+    expect(create).not.toMatch(/throw err/); // the only rethrow the old handler had
+  });
   it('error bodies are fixed sentences: no repository message is ever copied into a response', () => {
     expect(handlers).not.toMatch(/failure\.message|err\.message|error\.message|\.message\b/);
   });

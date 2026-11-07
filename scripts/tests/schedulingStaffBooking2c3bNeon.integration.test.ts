@@ -20,7 +20,7 @@ const suite = URL_ !== '' ? describe : describe.skip;
 const ORG = 'neon-route-a';
 const OTHER = 'neon-route-b';
 
-const state = vi.hoisted(() => ({ loseNextReply: false, failNextBeforeSend: false, batches: 0, session: null as null | { userId: string; organisationId: string; role: string }, noCapability: false }));
+const state = vi.hoisted(() => ({ loseNextReply: false, failNextBeforeSend: false, unexpectedBefore: false, unexpectedAfter: false, batches: 0, session: null as null | { userId: string; organisationId: string; role: string }, noCapability: false }));
 
 vi.mock('@/lib/org', () => ({
   requireSession: async () => {
@@ -61,7 +61,15 @@ vi.mock('@/lib/db', async () => {
         state.failNextBeforeSend = false;
         throw Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' }); // nothing reaches the database
       }
+      if (state.unexpectedBefore) {
+        state.unexpectedBefore = false;
+        throw Object.assign(new Error('internal error'), { code: 'XX000' }); // an unclassified server error: nothing was written
+      }
       const out = await real.transaction(queries, opts); // the REAL commit
+      if (state.unexpectedAfter) {
+        state.unexpectedAfter = false;
+        return [...out.slice(0, -1), [null]]; // committed, but the reply cannot be read: the repository throws although the booking IS written
+      }
       if (state.loseNextReply) {
         state.loseNextReply = false;
         throw Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' }); // ... and the reply is lost
@@ -179,6 +187,8 @@ suite('Staff booking routes through the REAL Neon HTTP driver', () => {
     state.noCapability = false;
     state.loseNextReply = false;
     state.failNextBeforeSend = false;
+    state.unexpectedBefore = false;
+    state.unexpectedAfter = false;
     as('neon-u1', ORG);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -293,6 +303,27 @@ suite('Staff booking routes through the REAL Neon HTTP driver', () => {
     expect(await total(f)).toBe(1);
     expect((await create(body(f, { start: { date: MONDAY, time: '13:00' } }), key)).status).toBe(201);
     expect(await total(f)).toBe(2);
+  });
+
+  it('G2 (2C.3c-A): an UNEXPECTED error before the batch is OUTCOME_UNKNOWN with nothing written; one after the real commit is reconciled by the original key (201 recovered, once)', async () => {
+    const f = await fixture();
+    const key = newKey();
+    state.unexpectedBefore = true;
+    const before = await create(body(f, { start: { date: MONDAY, time: '15:00' } }), key);
+    expect(before.status).toBe(504);
+    expect(before.json).toMatchObject({ code: 'OUTCOME_UNKNOWN', retryable: true });
+    expect(JSON.stringify(before.json)).not.toMatch(/XX000|internal error/i);
+    expect(await total(f)).toBe(0);
+    expect((await getByKey(key)).status).toBe(404);
+
+    state.unexpectedAfter = true;
+    const after = await create(body(f, { start: { date: MONDAY, time: '15:00' } }), key); // the SAME key
+    expect(after.status).toBe(201);
+    expect(after.json).toMatchObject({ replayed: false, recovered: true });
+    expect([await total(f), await holds(f)]).toEqual([1, 1]);
+    const again = await create(body(f, { start: { date: MONDAY, time: '15:00' } }), key);
+    expect([again.status, again.json.replayed]).toEqual([200, true]);
+    expect(await total(f)).toBe(1);
   });
 
   it('H: the hour that does not exist on the spring-forward Sunday is NONEXISTENT_LOCAL_TIME', async () => {
