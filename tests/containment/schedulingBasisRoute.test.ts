@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
 import { HireNotReadyError, SchedulingError } from '@scheduling/core';
 
 // Phase 2C.3c-B: GET /api/scheduling/reservations/basis through the REAL guard (route.ts + access.ts), the REAL handler and the REAL audit module. Replaced: the session, the capability lookup, the
@@ -261,3 +263,49 @@ describe('refusals of the repository are stable, fixed sentences', () => {
     expect(world.audit).toEqual([]); // a read writes no audit entry
   });
 });
+
+describe('EVERY booking endpoint on disk is 404 while the switch is absent (discovered, not listed by hand)', () => {
+  const walkRoutes = (dir: string): string[] => readdirSync(dir).flatMap(name => {
+    const full = path.join(dir, name);
+    return statSync(full).isDirectory() ? walkRoutes(full) : name === 'route.ts' ? [full] : [];
+  });
+  const root = path.resolve(__dirname, '../..');
+  const files = walkRoutes(path.join(root, 'app/api/scheduling/reservations')).map(f => path.relative(root, f).split(path.sep).join('/')).sort();
+
+  it('finds the four route files of the reservations API (so the loop below cannot pass by finding nothing)', () => {
+    expect(files).toEqual([
+      'app/api/scheduling/reservations/[reservationId]/cancel/route.ts',
+      'app/api/scheduling/reservations/[reservationId]/route.ts',
+      'app/api/scheduling/reservations/basis/route.ts',
+      'app/api/scheduling/reservations/route.ts',
+    ]);
+  });
+
+  for (const value of [undefined, '', 'off', 'ON', 'true', '1']) {
+    it(`SCHEDULING_STAFF_BOOKING=${JSON.stringify(value)}: every exported method of every route answers 404 not_found before the session, the capability table or the database`, async () => {
+      if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
+      else process.env.SCHEDULING_STAFF_BOOKING = value;
+      let called = 0;
+      for (const file of files) {
+        const mod = (await import(/* @vite-ignore */ `@/${file.replace(/\.ts$/, '')}`)) as Record<string, unknown>;
+        const methods = Object.keys(mod).filter(k => /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(k));
+        expect(methods.length, file).toBeGreaterThan(0);
+        for (const method of methods) {
+          const r = await (mod[method] as (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>)(
+            new Request('http://bb.test/api/scheduling/reservations/x?offeringId=o&resourceId=r&from=2026-11-16&to=2026-11-16', { method, headers: { 'idempotency-key': 'hire-key-000001-abcdefgh', 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) }),
+            { params: Promise.resolve({ reservationId: 'x' }) },
+          );
+          expect(r.status, `${method} ${file}`).toBe(404);
+          expect(JSON.parse(await r.text()), `${method} ${file}`).toEqual({ error: 'not_found' });
+          called += 1;
+        }
+      }
+      expect(called).toBeGreaterThanOrEqual(5); // POST+GET, GET, POST (cancel), GET (basis)
+      expect(requireSession).not.toHaveBeenCalled();
+      expect(requireCapability).not.toHaveBeenCalled();
+      expect(world.runtimeLoads).toBe(0);
+      expect(repo.readHireOffer).not.toHaveBeenCalled();
+    });
+  }
+});
+
