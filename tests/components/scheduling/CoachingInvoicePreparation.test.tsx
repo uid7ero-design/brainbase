@@ -8,6 +8,7 @@ it('reads the authorized page, requires an explicit notes action and never write
   const fetch=vi.fn(async()=>Response.json(source));vi.stubGlobal('fetch',fetch);const useNotes=vi.fn();
   render(<CoachingInvoicePreparation occurrenceId="date" bookingId="booking" after="cursor" onUseNotes={useNotes}/>);
   await screen.findByText(/AUD recorded booking price/);
+  expect(screen.getByRole('link', {name: /Find invoices for this booking/})).toHaveAttribute('href', '/commercial/invoices?coachingBooking=booking&coachingDate=date');
   expect(useNotes).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Use booking reference in internal notes'}));
   expect(useNotes).toHaveBeenCalledWith(expect.stringContaining('Coaching booking reference: booking'));
