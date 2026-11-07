@@ -237,7 +237,7 @@ describe('the Book button exists only when the server says so (static)', () => {
     };
     for (const dir of ['app', 'lib', 'components']) walk(dir);
     expect(importers).toEqual(['app/scheduling/resources/[resourceId]/calendar/page.tsx']);
-  });
+  }, 60_000); // walks every source file; under the full parallel suite it exceeded the 5 s default (found in the final release review)
 
   it('the visibility gate checks the switch before it reads a session', () => {
     const src = strip(read('lib/scheduling/staffBookingVisibility.ts'));

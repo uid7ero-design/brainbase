@@ -266,6 +266,48 @@ suite('Scheduling 2C.3c UI slice 1: visibility gate and the dialog’s read path
       expect(await hashAll()).toEqual(before);
     });
 
+    it('the offering discovery chain is bounded and its request count is exactly schedules + offerings-per-schedule + resources-per-offering (measured; nothing is optimised without this evidence)', async () => {
+      const timed = async (label: string) => {
+        requests.length = 0;
+        const t0 = performance.now();
+        const r = await loadBookableOfferings('a-court-1');
+        const ms = Math.round(performance.now() - t0);
+        const n = requests.length;
+        console.warn(`[discovery] ${label}: ${n} requests, ${ms} ms wall (${(ms / n).toFixed(1)} ms/request, local PostgreSQL, middleware + route + SQL each)`);
+        if (!r.ok) throw new Error('discovery failed');
+        return { n, ms, r: r.data };
+      };
+      // 1 schedule, 1 offering (the fixture): schedules(1) + offerings(1) + resources(1)
+      const one = await timed('1 schedule x 1 offering');
+      expect(one.n).toBe(3);
+      expect(requests.every(r => r.method === 'GET')).toBe(true);
+      // 9 more facility-hire schedules with 4 offerings each, all linking the court: 10 schedules, 37 offerings
+      for (let s = 0; s < 9; s += 1) {
+        await seedSchedule('org-a', `x${s}-hire`, 'resource_hire');
+        for (let o = 0; o < 4; o += 1) {
+          await seedOffering('org-a', `x${s}-off${o}`, `x${s}-hire`, { capacity: null, durationMinutes: 60 });
+          await q('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3)', ['org-a', `x${s}-off${o}`, 'a-court-1']);
+        }
+      }
+      const many = await timed('10 schedules x 37 offerings');
+      expect(many.r.offerings).toHaveLength(37);
+      expect(many.r.truncated).toBe(false);
+      expect(many.n).toBe(1 + 10 + 37);
+      // beyond the bound: 4 more offerings in one schedule -> 41 candidates, only 40 are checked and the list says so
+      for (let o = 4; o < 8; o += 1) {
+        await seedOffering('org-a', `x0-off${o}`, 'x0-hire', { capacity: null, durationMinutes: 60 });
+        await q('INSERT INTO scheduling_offering_resources (organisation_id, offering_id, resource_id) VALUES ($1, $2, $3)', ['org-a', `x0-off${o}`, 'a-court-1']);
+      }
+      const capped = await timed('10 schedules x 41 offerings (cap)');
+      expect(capped.r.truncated).toBe(true);
+      expect(capped.r.offerings.length).toBeLessThanOrEqual(40);
+      expect(capped.n).toBe(1 + 10 + 40);
+      // the schedules of other kinds and other organisations add no requests: org-b has its own, and a non-hire schedule is never walked
+      await seedSchedule('org-a', 'y-classes', 'classes_coaching');
+      const withClasses = await timed('plus one non-hire schedule');
+      expect(withClasses.n).toBe(1 + 10 + 40);
+    });
+
     it('every start the dialog would offer is one the booking API accepts (a spot check of the first and last through the real create route)', async () => {
       const basis = await fetchBasis({ offeringId: 'a-off', resourceId: 'a-court-1', from: MONDAY, to: MONDAY });
       if (!basis.ok) throw new Error('basis');
