@@ -125,6 +125,8 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2C.3b (deliberate, reviewed change): the disposable proofs of the staff booking API (PostgreSQL via SCHEDULING_TEST_DATABASE_URL; the Neon one only on NEON_REHEARSAL_URL with its host/role guard, synthetic
         // organisations removed afterwards). They name scheduling_* tables to seed and compare fixtures and create none.
         if (rel(full) === 'scripts/tests/schedulingStaffBooking2c3b.integration.test.ts' || rel(full) === 'scripts/tests/schedulingStaffBooking2c3bNeon.integration.test.ts') continue;
+        // Phase 2C.3c-B (deliberate, reviewed change): the same disposable proofs for the staff availability basis read. They name scheduling_* tables to seed and compare fixtures and create none.
+        if (rel(full) === 'scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts' || rel(full) === 'scripts/tests/schedulingStaffBookingBasis2c3cNeon.integration.test.ts') continue;
         // Scheduling browser harness (deliberate, reviewed change): it applies the committed Scheduling SQL to a DISPOSABLE Docker
         // database and seeds one scheduling_settings row per fixture organisation (the application never creates settings). Its
         // network guard refuses every non-loopback request and every non-fixture SQL connection; it creates no scheduling_* table itself.

@@ -16,3 +16,4 @@ export * from './occurrencePlanning';
 export * from './bookingEvaluation';
 export * from './seriesPlanning';
 export * from './hire';
+export * from './hireOffer';

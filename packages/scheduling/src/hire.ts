@@ -2,6 +2,7 @@ import type { TenantContext } from './contracts';
 import { bookingRefusal, type BookingRefusalCode } from './bookingErrors';
 import { isLocalDate, isLocalTime, normaliseEmail } from './validation';
 import type { LocalDate, LocalTime, Reservation } from './types';
+import type { HireOfferRequest, HireOfferResult } from './hireOffer';
 
 // Phase 2C.3a: the contract of a STAFF FACILITY HIRE. Pure data and pure functions, no I/O: a standalone host implements `HireRepository` over its own database.
 //
@@ -246,4 +247,9 @@ export interface HireRepository {
   findHireByKey(tenant: TenantContext, idempotencyKey: string): Promise<Reservation | null>;
   /** The state a booking decision would be based on now (a form hands it back). Null when the offering or the resource is missing in this organisation. */
   readHireBasis(tenant: TenantContext, offeringId: string, resourceId: string): Promise<HireBasis | null>;
+  /**
+   * Phase 2C.3c-B: the basis AND the starts the shared engine offers for one (offering, resource) pair over a bounded range of local dates, read basis-first so that anything that moves
+   * in between makes the booking refuse (AVAILABILITY_CHANGED), never accept. Read-only. Needs the same staff permissions as createHire.
+   */
+  readHireOffer(tenant: TenantContext, request: HireOfferRequest): Promise<HireOfferResult>;
 }

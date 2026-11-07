@@ -3,6 +3,10 @@ import {
   calendarExceptions,
   calendarRules,
   evaluateSlotBooking,
+  groupOfferedStarts,
+  offeredHireStarts,
+  validateHireOfferRange,
+  HIRE_OFFER_MAX_STARTS,
   hireFailure,
   hireFailureFromRefusal,
   hireRequestMatches,
@@ -15,11 +19,15 @@ import {
   type Clock,
   type HireBasis,
   type HireFailure,
+  type HireOfferFailureCode,
+  type HireOfferRequest,
+  type HireOfferResult,
   type HireRepository,
   type HireRequest,
   type HireResult,
   type IanaTimezone,
   type Reservation,
+  type SlotBookingContext,
   type TenantContext,
 } from '@scheduling/core';
 import { PostgresAvailabilityRepository } from './availabilityRepository';
@@ -182,6 +190,91 @@ export class PostgresHireRepository implements HireRepository {
   async readHireBasis(tenant: TenantContext, offeringId: string, resourceId: string): Promise<HireBasis | null> {
     this.authorise(tenant);
     return basisOf(await this.readBasisRow(tenant, offeringId, resourceId));
+  }
+
+  /**
+   * Phase 2C.3c-B. READ-ONLY. The booking basis and the starts the shared engine offers for one linked, active resource over [from, to] (local dates in the offering's pinned zone).
+   *
+   * CONSISTENCY. Exactly the order createHire uses: (1) the basis row, ONE statement (so its versions and tokens agree with each other); (2) every input of the engine (rules, closures,
+   * live holds) AFTERWARDS. Reads here are separate statements: the existing SQL executor offers no read-only repeatable-read snapshot (its transaction() takes only statements, and a
+   * batch in READ COMMITTED gives each statement its own snapshot), so the inputs are NOT one snapshot with the basis. They do not need to be: anything that changes after (1) moves a
+   * version or an edit token, and the guarded booking statement then inserts nothing (AVAILABILITY_CHANGED with a fresh basis). A change between (1) and (2) can only make the offer
+   * NEWER than its basis, so a stale basis is refused at commit; an offer older than its basis cannot be produced. The starts are advice; the commit decides.
+   */
+  async readHireOffer(tenant: TenantContext, request: HireOfferRequest): Promise<HireOfferResult> {
+    this.authorise(tenant);
+    const failure = (code: HireOfferFailureCode, message: string, problems?: string[]): HireOfferResult => ({ ok: false, code, message, ...(problems ? { problems } : {}) });
+    const problems = validateHireOfferRange(request.from, request.to);
+    if (typeof request.offeringId !== 'string' || request.offeringId === '') problems.push('offeringId');
+    if (typeof request.resourceId !== 'string' || request.resourceId === '') problems.push('resourceId');
+    if (problems.length > 0) return failure('validation', 'the request is not valid', problems);
+
+    // (1) basis
+    const row = await this.readBasisRow(tenant, request.offeringId, request.resourceId);
+    if (!row || !row.resource_id) return failure('not_found', 'the offering or the resource was not found');
+    const basis = basisOf(row);
+    if (!basis) throw new HireNotReadyError('the availability version rows are missing for this offering or resource');
+    if (row.preset_key !== 'resource_hire') return failure('preset_not_supported', 'this offering is not a facility hire');
+    if (row.offering_archived || row.schedule_archived) return failure('offering_unavailable', 'the offering is archived');
+    if (!row.linked) return failure('resource_not_eligible', 'the resource is not linked to this offering');
+    if (!row.resource_active) return failure('resource_inactive', 'the resource is not active');
+    const duration: number | null = row.duration_minutes === null ? null : Number(row.duration_minutes);
+    if (duration === null || duration < 1) return failure('duration_not_allowed', 'the offering has no configured duration');
+
+    const offeringZone = (row.offering_zone ?? row.schedule_timezone ?? tenant.timezone) as IanaTimezone;
+    const resourceZone = (row.resource_zone ?? tenant.timezone) as IanaTimezone;
+
+    // (2) inputs, read AFTER the basis, with the same window of holds createHire reads around its day, widened to the range
+    const fromMs = Date.parse(`${request.from}T00:00:00Z`);
+    const toMs = Date.parse(`${request.to}T00:00:00Z`);
+    const [offeringRules, offeringExceptions, resourceRules, resourceExceptions, holds] = await Promise.all([
+      this.availability.listRulesForOwners(tenant, 'offering', [request.offeringId]),
+      this.availability.listExceptionsForOwners(tenant, 'offering', [request.offeringId]),
+      this.availability.listRulesForOwners(tenant, 'resource', [request.resourceId]),
+      this.availability.listExceptionsForOwners(tenant, 'resource', [request.resourceId]),
+      this.config.listLiveHoldsForResources(tenant, [request.resourceId], new Date(fromMs - 48 * HOUR_MS).toISOString(), new Date(toMs + 96 * HOUR_MS).toISOString()),
+    ]);
+
+    // (3) the starts, by the same pure engine and the same context shape createHire decides with (stepMinutes = the configured duration; the grid is the engine's own)
+    const context: SlotBookingContext = {
+      timezone: offeringZone,
+      offering: { id: request.offeringId, archivedAt: null },
+      offeringRules: calendarRules(tenant, offeringRules),
+      offeringExceptions: calendarExceptions(tenant, offeringExceptions),
+      resources: [
+        {
+          resource: { id: request.resourceId, active: true },
+          timezone: resourceZone,
+          rules: calendarRules(tenant, resourceRules),
+          exceptions: calendarExceptions(tenant, resourceExceptions),
+          holds,
+        },
+      ],
+      stepMinutes: duration,
+      now: this.clock.now().toISOString(),
+      presetKey: 'resource_hire',
+      resourceDetails: new Map([[request.resourceId, { capacity: Number(row.resource_capacity), kind: row.resource_kind }]]),
+      requirePinnedZones: true,
+    };
+    const offered = offeredHireStarts(context, { resourceId: request.resourceId, durationMinutes: duration, fromDate: request.from, toDate: request.to });
+    if (!offered.ok) return failure('availability_unreadable', 'the stored hours cannot be turned into offered times');
+    if (offered.starts.length > HIRE_OFFER_MAX_STARTS) return failure('range_too_large', 'too many start times in that range; ask for fewer days');
+
+    return {
+      ok: true,
+      offer: {
+        basis,
+        offeringId: request.offeringId,
+        resourceId: request.resourceId,
+        durationMinutes: duration,
+        timezone: offeringZone,
+        resourceCapacity: Number(row.resource_capacity),
+        price: row.price_cents === null || row.price_cents === undefined ? null : { amountCents: Number(row.price_cents), currency: String(row.currency) },
+        range: { from: request.from, to: request.to },
+        generatedAt: context.now,
+        days: groupOfferedStarts(offered.starts, request.from, request.to),
+      },
+    };
   }
 
   async createHire(tenant: TenantContext, request: HireRequest): Promise<HireResult> {
