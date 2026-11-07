@@ -25,10 +25,12 @@ const ROUTES: Record<string, string[]> = {
   'app/api/scheduling/reservations/route.ts': ['POST createReservation', 'GET findReservationByKey'],
   'app/api/scheduling/reservations/[reservationId]/route.ts': ['GET getReservation'],
   'app/api/scheduling/reservations/[reservationId]/cancel/route.ts': ['POST cancelReservation'],
+  // Phase 2C.3c-B: the staff-only availability basis (a read). The viewer-level calendar API is NOT changed.
+  'app/api/scheduling/reservations/basis/route.ts': ['GET readReservationBasis'],
 };
 const handlers = noTsComments(read('lib/scheduling/booking/reservations.ts'));
 
-describe('the route set: exactly three files, every method behind both gates and scheduling.reserve', () => {
+describe('the route set: exactly four files, every method behind both gates and scheduling.reserve', () => {
   it('there are no other route files under a reservations path, and no other method is exported', () => {
     const files = walk('app/api/scheduling/reservations').filter(f => /route\.ts$/.test(f)).sort();
     expect(files).toEqual(Object.keys(ROUTES).sort());
@@ -79,7 +81,7 @@ describe('the two gates, in order, in the one guard', () => {
   it('no code, script or SQL anywhere creates, enables or seeds the capability or the switch for anyone', () => {
     const files = [...walk('scripts'), ...walk('packages/scheduling/sql'), ...walk('lib'), ...walk('app'), ...walk('prisma')].filter(f => /\.(sql|ts|tsx|sh|cjs|mjs|js|prisma)$/.test(f));
     const mentions = files.filter(f => /staff_booking/.test(read(f)) && !/\.test\.ts$|\.integration\.test\.ts$/.test(f));
-    expect(mentions.sort()).toEqual([...Object.keys(ROUTES), 'lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/booking/reservations.ts', 'lib/scheduling/route.ts'].sort()); // TypeScript only: the gate, the adapter, the guard option, the handlers' comment and the three routes
+    expect(mentions.sort()).toEqual([...Object.keys(ROUTES), 'lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/booking/basis.ts', 'lib/scheduling/booking/reservations.ts', 'lib/scheduling/route.ts'].sort()); // TypeScript only: the gate, the adapter, the guard option, the handlers' comment and the three routes
     for (const f of files.filter(f => /\.(sql|cjs|mjs|js)$/.test(f))) expect(read(f), f).not.toMatch(/staff_booking|SCHEDULING_STAFF_BOOKING/);
     expect(read('vercel.json')).not.toMatch(/SCHEDULING_STAFF_BOOKING/);
   });
@@ -134,6 +136,36 @@ describe('the proven repository and the database are untouched', () => {
     expect(runtime).toMatch(/if \(typeof innerTransaction === 'function'\)/);
     expect(runtime).not.toMatch(/transaction:\s*(undefined|null|async \(\) =>)/);
     expect(runtime).toContain('innerTransaction.call(inner, statements)');
+  });
+});
+
+describe('the availability basis handler (2C.3c-B): a read, tenant-only, allow-listed, no step', () => {
+  const basis = noTsComments(read('lib/scheduling/booking/basis.ts'));
+  it('imports no database, session, cookie, capability or Postgres package, runs no SQL and writes nothing', () => {
+    for (const forbidden of ['@/lib/db', '@/lib/org', '@/lib/session', 'next/headers', '@scheduling/postgres', '@/lib/capabilities', "/access'", "/runtime'", '../audit']) expect(basis, forbidden).not.toContain(forbidden);
+    expect(basis).not.toMatch(/\b(SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b|scheduling_[a-z_]+/);
+    expect(basis).not.toMatch(/createHire|cancel\(|\.insert|\.update|\.delete|recordSchedulingAudit/);
+  });
+  it('reads exactly offeringId, resourceId, from and to; no organisation, no step, no duration', () => {
+    expect(basis).toMatch(/const ALLOWED = \['offeringId', 'resourceId', 'from', 'to'\] as const/);
+    expect(basis).not.toMatch(/organi[sz]ation_?id|searchParams\.get\('(step|stepMinutes|duration|durationMinutes)'/i);
+    expect(basis).toMatch(/context\.hire\.readHireOffer\(context\.tenant,/);
+  });
+  it('the response is an allow-list built field by field, never the repository object', () => {
+    expect(basis).toMatch(/basis: o\.basis,/);
+    expect(basis).not.toMatch(/\.\.\.o\b|\.\.\.result/);
+  });
+  it('the viewer-level calendar API and the booking-overlay API are not changed to carry a basis, and the route has no write method', () => {
+    for (const f of ['lib/scheduling/config/calendar.ts', 'lib/scheduling/config/bookingOverlay.ts']) expect(noTsComments(read(f)), f).not.toMatch(/readHireOffer|readHireBasis|HireBasis|offeringToken|scheduleToken/);
+    expect(read('app/api/scheduling/reservations/basis/route.ts')).not.toMatch(/export const (POST|PUT|PATCH|DELETE)/);
+  });
+  it('the repository method is read-only: it never opens a transaction or writes, and the basis is read BEFORE the engine inputs', () => {
+    const repo = noTsComments(read('packages/scheduling-postgres/src/hireRepository.ts'));
+    const body = repo.slice(repo.indexOf('async readHireOffer('), repo.indexOf('async createHire('));
+    expect(body.length).toBeGreaterThan(500);
+    expect(body).not.toMatch(/transaction|INSERT|UPDATE|DELETE|pg_advisory|set_config/i);
+    expect(body.indexOf('readBasisRow')).toBeGreaterThan(-1);
+    expect(body.indexOf('readBasisRow')).toBeLessThan(body.indexOf('listRulesForOwners'));
   });
 });
 
