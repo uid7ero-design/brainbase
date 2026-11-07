@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HIRE_FAILURE_CODES, HireNotReadyError, hireFailure, type HireFailureCode, type Reservation } from '@scheduling/core';
+import { HIRE_FAILURE_CODES, HireNotReadyError, SchedulingError, hireFailure, type HireFailureCode, type Reservation } from '@scheduling/core';
 
 // Phase 2C.3b: the staff-booking routes through the REAL guard (lib/scheduling/route.ts + access.ts), the REAL handlers and the REAL audit module. Replaced: the session, the capability
 // lookup, the database (audit inserts only) and the runtime (a fake repository), so every outcome of createHire / cancel can be produced on demand. The repository's own behaviour
@@ -339,12 +339,111 @@ describe('POST /api/scheduling/reservations: the outcomes', () => {
     expect(world.audit).toEqual([]);
   });
 
-  it('an unexpected error is a generic 500 with no detail', async () => {
-    repo.createHire.mockRejectedValue(Object.assign(new Error('deadlock detected: Pat Hirer'), { code: '40P01' }));
+});
+
+// Phase 2C.3c-A: an UNEXPECTED error from createHire (anything that is not a classified HireFailure) can happen before the transaction is sent, while it runs, or after it committed.
+// The handler cannot tell which, so it must never answer "failed". It asks the database about the ORIGINAL tenant-scoped idempotency key (never a new one) and returns the booking if
+// it exists and is this request's; a different booking under the key is the stable IDEMPOTENCY_CONFLICT; anything unresolved is 504 OUTCOME_UNKNOWN with the same-key retry contract.
+describe('unexpected errors on create: reconciled by the ORIGINAL key, never reported as a definite failure, never a duplicate', () => {
+  const boom = (message: string, code?: string) => Object.assign(new Error(message), code ? { code } : {});
+  const mine = () => reservation({ span: { kind: 'slot', date: '2026-11-16', startTime: '10:00', durationMinutes: 60 } } as never);
+  const noLeak = (text: string) => { for (const s of [...SECRETS, 'deadlock', 'leaky', 'ECONNRESET', 'Internal error', '40P01']) expect(text).not.toContain(s); };
+
+  it('BEFORE the transaction (nothing found by the key): 504 OUTCOME_UNKNOWN, retryable with the SAME key - not a 500 and not "failed"; one createHire, one lookup by the original key', async () => {
+    repo.createHire.mockRejectedValue(boom('fetch failed ECONNRESET Pat Hirer leaky'));
+    repo.findHireByKey.mockResolvedValue(null);
     const r = await post(goodBody());
     const text = await r.text();
-    expect(r.status).toBe(500);
-    expect(text).not.toMatch(/deadlock|Pat|40P01/);
+    expect(r.status).toBe(504);
+    expect(JSON.parse(text)).toMatchObject({ code: 'OUTCOME_UNKNOWN', retryable: true });
+    expect(JSON.parse(text).error).toMatch(/same idempotency key/i);
+    expect(text).not.toMatch(/nothing was booked|did not|failed|not booked/i);
+    noLeak(text);
+    expect(repo.createHire).toHaveBeenCalledTimes(1);
+    expect(repo.createHire.mock.calls[0][1].idempotencyKey).toBe(KEY);
+    expect(repo.findHireByKey).toHaveBeenCalledTimes(1);
+    expect(repo.findHireByKey.mock.calls[0][1]).toBe(KEY);
+    expect(repo.findHireByKey.mock.calls[0][0].organisationId).toBe('org-a'); // tenant scoped
+    expect(world.audit).toEqual([]);
+  });
+
+  it('DURING the transaction (it committed but the reply or a later read failed): the booking is found by the key and returned as recovered, audited once, without a name or note', async () => {
+    repo.createHire.mockRejectedValue(boom('deadlock detected: Pat Hirer', '40P01'));
+    repo.findHireByKey.mockResolvedValue(mine());
+    const r = await post(goodBody());
+    expect(r.status).toBe(201);
+    const body = await json(r);
+    expect(body).toMatchObject({ replayed: false, recovered: true, reservation: { id: 'res-1', status: 'confirmed' } });
+    expect(repo.createHire).toHaveBeenCalledTimes(1);
+    expect(repo.findHireByKey.mock.calls.map(c => c[1])).toEqual([KEY]);
+    expect(world.audit).toHaveLength(1);
+    expect(world.audit[0].action).toBe('scheduling.reservation.created');
+    expect(world.audit[0].afterState.summary).toMatchObject({ recovered: true, source: 'staff_form' });
+    for (const secret of SECRETS) expect(JSON.stringify(world.audit[0])).not.toContain(secret);
+  });
+
+  it('AFTER the transaction (createHire returned a committed booking but building the response threw): 504 OUTCOME_UNKNOWN - never a 500 - and the same key resolves it', async () => {
+    repo.createHire.mockResolvedValue({ ok: true, reservation: { ...mine(), span: null, customerSnapshot: null }, replayed: false });
+    const r = await post(goodBody());
+    const text = await r.text();
+    expect(r.status).toBe(504);
+    expect(JSON.parse(text)).toMatchObject({ code: 'OUTCOME_UNKNOWN', retryable: true });
+    noLeak(text);
+    expect(repo.createHire).toHaveBeenCalledTimes(1);
+  });
+
+  it('a different booking already holds the key: IDEMPOTENCY_CONFLICT (this attempt cannot have committed), not a booking and not unknown', async () => {
+    repo.createHire.mockRejectedValue(boom('boom'));
+    repo.findHireByKey.mockResolvedValue(reservation({ partySize: 9, span: { kind: 'slot', date: '2026-11-16', startTime: '10:00', durationMinutes: 60 } } as never));
+    const r = await post(goodBody());
+    expect(r.status).toBe(409);
+    expect((await json(r)).code).toBe('IDEMPOTENCY_CONFLICT');
+    expect(world.audit).toEqual([]);
+  });
+
+  it('a lookup that itself fails, or finds a class/other-preset booking under the key, stays 504 OUTCOME_UNKNOWN (never a guess)', async () => {
+    repo.createHire.mockRejectedValue(boom('boom'));
+    repo.findHireByKey.mockRejectedValueOnce(boom('lookup down'));
+    const a = await post(goodBody());
+    expect(a.status).toBe(504);
+    repo.findHireByKey.mockResolvedValueOnce(reservation({ presetKey: 'group_class' } as never));
+    const b = await post(goodBody());
+    expect(b.status).toBe(504);
+    expect((await json(b)).code).toBe('OUTCOME_UNKNOWN');
+    expect(world.audit).toEqual([]);
+  });
+
+  it('whatever is thrown (string, undefined, plain object, a timeout) is treated the same way and leaks nothing', async () => {
+    for (const thrown of ['Pat Hirer exploded', undefined, { code: '57014', message: 'leaky' }, boom('The operation was aborted', 'ABORT_ERR')]) {
+      repo.createHire.mockReset();
+      repo.findHireByKey.mockReset();
+      repo.createHire.mockRejectedValue(thrown);
+      repo.findHireByKey.mockResolvedValue(null);
+      const r = await post(goodBody());
+      const text = await r.text();
+      expect(r.status).toBe(504);
+      expect(JSON.parse(text).code).toBe('OUTCOME_UNKNOWN');
+      noLeak(text);
+    }
+  });
+
+  it('a failing audit store after a recovered booking never changes the successful response', async () => {
+    world.auditFails = true;
+    repo.createHire.mockRejectedValue(boom('reply lost'));
+    repo.findHireByKey.mockResolvedValue(mine());
+    const r = await post(goodBody());
+    expect(r.status).toBe(201);
+    expect((await json(r)).reservation.id).toBe('res-1');
+  });
+
+  it('known outcomes are preserved and trigger NO reconciliation: not-ready is 503 and permission_denied is 403', async () => {
+    repo.createHire.mockRejectedValueOnce(new HireNotReadyError('x'));
+    expect((await post(goodBody())).status).toBe(503);
+    repo.createHire.mockRejectedValueOnce(new SchedulingError('permission_denied', 'x'));
+    expect((await post(goodBody())).status).toBe(403);
+    repo.createHire.mockResolvedValueOnce(hireFailure('resource_conflict', 'x'));
+    expect((await post(goodBody())).status).toBe(409);
+    expect(repo.findHireByKey).not.toHaveBeenCalled();
   });
 });
 
@@ -433,6 +532,15 @@ describe('POST /api/scheduling/reservations/{id}/cancel', () => {
   const cancel = (id = 'res-1', body?: unknown) =>
     cancelRoute.POST(new Request(`http://bb.test/api/scheduling/reservations/${id}/cancel`, { method: 'POST', ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) }) }), { params: Promise.resolve({ reservationId: id }) });
   const cancelled = () => reservation({ status: 'cancelled' } as never);
+
+  it('a failure AFTER the cancel committed (the re-read) is still a 200 cancelled with the booking, audited once - never a 500', async () => {
+    repo.getById.mockResolvedValueOnce(reservation()).mockRejectedValueOnce(Object.assign(new Error('read failed'), { code: '08006' }));
+    repo.cancel.mockResolvedValue({ status: 'cancelled', cancelledReservationIds: ['res-1'], charge: null });
+    const r = await cancel('res-1');
+    expect(r.status).toBe(200);
+    expect((await json(r)).reservation).toMatchObject({ id: 'res-1', status: 'cancelled' });
+    expect(world.audit).toHaveLength(1);
+  });
 
   it('cancels a future hire as staff (this occurrence only), audits it without the reason text, and returns the cancelled row', async () => {
     repo.getById.mockResolvedValueOnce(reservation()).mockResolvedValueOnce(cancelled());
