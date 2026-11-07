@@ -7,7 +7,7 @@ export type BusinessOverview = {
   month: string; timezone: 'Australia/Adelaide'; modules: BusinessModule[];
   coaching: Section<{ today: string; sessions: number; players: number }>;
   crm: Section<{ contacts: number; openDeals: number }>;
-  income: Section<MoneyRow[]>; costs: Section<CostRow[]>;
+  income: Section<MoneyRow[]>; costs: Section<CostRow[]>; receiptSpending: Section<string>;
 };
 export function businessPeriod(month: string) {
   if (!/^(20\d{2})-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Choose a month between 2000 and 2099.');

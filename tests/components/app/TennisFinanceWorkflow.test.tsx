@@ -49,7 +49,7 @@ it('never reports a failed invoice read as an empty ledger',async()=>{
   fail=false;fireEvent.click(screen.getByRole('button',{name:'Retry invoices'}));await screen.findByText('No invoices yet.');
 });
 it('shows separate revenue, receipt and cost paths without a synthetic profit or automatic payment',async()=>{
-  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({month:currentBusinessMonth(),modules:['invoicing','purchasing'],coaching:{state:'not_enabled'},crm:{state:'not_enabled'},income:{state:'ready',value:[{currency:'AUD',invoiced_cents:'10000',received_cents:'2500',outstanding_cents:'7500'}]},costs:{state:'ready',value:[{currency:'AUD',billed_cents:'1500',paid_cents:'500'}]}})));
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({month:currentBusinessMonth(),modules:['invoicing','purchasing'],coaching:{state:'not_enabled'},crm:{state:'not_enabled'},income:{state:'ready',value:[{currency:'AUD',invoiced_cents:'10000',received_cents:'2500',outstanding_cents:'7500'}]},receiptSpending:{state:'ready',value:'0'},costs:{state:'ready',value:[{currency:'AUD',billed_cents:'1500',paid_cents:'500'}]}})));
   render(<TennisBusiness financeOnly/>);await screen.findByRole('link',{name:'Create a lesson invoice'});
   expect(screen.getByText('Payments recorded this month')).toBeVisible();expect(screen.getByText('Supplier payments recorded this month')).toBeVisible();
   expect(screen.getByRole('link',{name:'Review unpaid supplier bills'})).toHaveAttribute('href','/commercial/purchasing/ap-overview');

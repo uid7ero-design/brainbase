@@ -8,7 +8,7 @@ import { capacityFixtureSql } from './tennisCapacityFixture.mjs';
 export async function setupTennisBusiness(q) {
   const contactSchema = readFileSync('scripts/migrate-tennis-production.ts','utf8').match(/CREATE TABLE IF NOT EXISTS contacts \([\s\S]*?\n    \)/)?.[0];
   assert.ok(contactSchema); await q(contactSchema);
-  for (const file of ['add-session-archive.sql','create-commercial-core.sql','create-commercial-quotes.sql','create-commercial-invoices.sql','create-commercial-payments.sql','create-commercial-purchasing.sql','create-commercial-purchase-receipts.sql','create-commercial-supplier-bills.sql','create-commercial-purchase-match-allocations.sql','create-commercial-finance-close.sql','create-commercial-supplier-payments.sql','add-commercial-supplier-payment-idempotency.sql']) await q(readFileSync(`scripts/${file}`,'utf8'));
+  for (const file of ['add-session-archive.sql','create-commercial-core.sql','create-commercial-quotes.sql','create-commercial-invoices.sql','create-commercial-payments.sql','create-commercial-purchasing.sql','create-commercial-purchase-receipts.sql','create-commercial-supplier-bills.sql','create-commercial-purchase-match-allocations.sql','create-commercial-finance-close.sql','create-commercial-supplier-payments.sql','add-commercial-supplier-payment-idempotency.sql','create-tennis-receipt-expenses.sql']) await q(readFileSync(`scripts/${file}`,'utf8'));
   await q(capacityFixtureSql());
   await q("UPDATE organisations SET slug='ld-tennis' WHERE id='local-hr'");
   for (const key of ['scheduling','crm','invoicing','purchasing']) {
@@ -133,6 +133,49 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
     await page.setViewportSize({width:390,height:900});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Unpaid invoice page overflows mobile viewport');
 
+    const expenseApi = origin+'/api/business/tennis/expenses';
+    await page.goto(origin+'/business/tennis/finance');
+    await page.getByRole('link',{name:'Open receipt expenses'}).click();
+    await page.getByText('No receipts recorded for this month.').waitFor();
+    await page.getByRole('button',{name:'Record a paid expense'}).click();
+    await page.getByLabel('Merchant',{exact:true}).fill('Synthetic sports shop');
+    await page.getByLabel('What was purchased?').fill('Tennis balls');
+    await page.getByLabel('Receipt total (AUD)').fill('24.95');
+    await page.getByLabel('Receipt number (optional)').fill('TEST-240');
+    let receipt;
+    const postReceipt = data => context.request.post(expenseApi,{data,headers:{origin}});
+    const before = await q('SELECT count(*) AS n FROM commercial_purchase_orders');
+    let saves=0;
+    await page.route(expenseApi,async route=>{
+      saves++;
+      receipt = route.request().postDataJSON();
+      assert.equal((await route.fetch()).status(),201);
+      await route.abort();
+    });
+    await page.getByRole('button',{name:'Record paid expense',exact:true}).click();
+    await page.getByRole('button',{name:'Check saved receipt'}).click();
+    await page.getByRole('heading',{name:'Saved receipt'}).waitFor();
+    assert.equal(saves,1);
+    await page.unroute(expenseApi);
+    await page.getByRole('link',{name:'View receipt expenses'}).click();
+    await page.getByText('Tennis balls',{exact:false}).waitFor();
+    await page.getByText('Receipt spending (AUD) · $24.95',{exact:true}).waitFor();
+    const replay = await postReceipt(receipt);
+    assert.equal(replay.status(),200,await replay.text());
+    assert.equal((await postReceipt({...receipt,amount:'42.00'})).status(),409);
+    assert.equal((await postReceipt({...receipt,date:'2025-02-30'})).status(),400);
+    assert.equal((await postReceipt({...receipt,amount:'0.001'})).status(),400);
+    assert.equal((await context.request.post(expenseApi,{data:receipt,headers:{origin:'https://example.invalid'}})).status(),403);
+    const hub = await (await context.request.get(origin+'/api/business/tennis')).json();
+    assert.deepEqual(hub.receiptSpending,{state:'ready',value:'2495'});
+    assert.deepEqual(hub.costs,summary.costs);
+    assert.deepEqual((await q('SELECT count(*) AS n FROM commercial_purchase_orders')).rows,before.rows);
+    const concurrent = {...receipt,id:randomUUID(),date:'2001-01-03',amount:'0.01',reference:''};
+    const statuses=await Promise.all([postReceipt(concurrent),postReceipt(concurrent)]);
+    assert.deepEqual(statuses.map(r=>r.status()).sort(),[200,201]);
+    assert.equal((await (await context.request.get(origin+'/api/business/tennis?month=2001-01')).json()).receiptSpending.value,'1');
+    console.log('PASS: direct paid receipt, lost response, replay and conflict, concurrent entry, exact monthly spending and no purchase order.');
+    await page.goto(origin+'/business/tennis/finance/unpaid');
     const finalPayment=await post(`/api/commercial/invoices/${invoice.id}/payments`,{amount_cents:4000,method:'CASH'});
     await page.reload();
     await page.getByText('No unpaid customer invoices.',{exact:true}).waitFor();
@@ -187,6 +230,16 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   await staff.goto(origin+'/login');await staff.getByLabel('Username',{exact:true}).fill('local-manager');await staff.getByLabel('Password',{exact:true}).fill(password);await staff.getByRole('button',{name:'Sign in',exact:true}).click();await staff.waitForURL('**/workspace');
   if(financeOnly){await staff.goto(origin+'/business/tennis/finance');await staff.getByText('Invoicing or Purchasing access is required.').waitFor();}
   if (financeOnly) {
+    const receiptUrl=origin+'/business/tennis/finance/expenses';
+    await staff.goto(receiptUrl);
+    await staff.getByRole('heading',{name:'Receipt expenses unavailable'}).waitFor();
+    await q("UPDATE users SET role='ADMIN' WHERE id='local-manager'");
+    await q(`UPDATE organisation_user_access SET permissions='{"purchasing":"view","crm":"use"}' WHERE user_id='local-manager'`);
+    await staff.goto(receiptUrl);
+    await staff.getByText('Tennis balls',{exact:false}).waitFor();
+    assert.equal(await staff.getByRole('button',{name:'Record a paid expense'}).count(),0);
+    assert.equal((await guest.request.post(origin+'/api/business/tennis/expenses',{data:{},headers:{origin}})).status(),403);
+    await q(`UPDATE organisation_user_access SET permissions='{"crm":"view"}' WHERE user_id='local-manager'`);
     await staff.goto(origin+'/business/tennis/finance/unpaid');
     await staff.getByRole('heading',{name:'Customer balances unavailable'}).waitFor();
     await expect(staff.getByRole('table')).toHaveCount(0);
