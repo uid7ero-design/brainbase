@@ -164,32 +164,26 @@ const root = path.resolve(__dirname, '../..');
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8');
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-const CLIENT_FILES = ['app/scheduling/_components/StaffBookDialog.tsx', 'lib/scheduling/staffBooking/basisClient.ts', 'lib/scheduling/staffBooking/key.ts', 'lib/scheduling/staffBooking/view.ts'];
+const READ_ONLY_FILES = ['lib/scheduling/staffBooking/basisClient.ts', 'lib/scheduling/staffBooking/view.ts', 'lib/scheduling/staffBooking/key.ts'];
+const CLIENT_FILES = ['app/scheduling/_components/StaffBookDialog.tsx', 'lib/scheduling/staffBooking/submitClient.ts', 'lib/scheduling/staffBooking/machine.ts', ...READ_ONLY_FILES];
+const DIALOG = 'app/scheduling/_components/StaffBookDialog.tsx';
+const SUBMIT = 'lib/scheduling/staffBooking/submitClient.ts';
+const MACHINE = 'lib/scheduling/staffBooking/machine.ts';
 
-describe('slice 1 is read only and client-safe (static)', () => {
-  it.each(CLIENT_FILES)('%s sends no write, stores nothing and imports nothing server-only', file => {
+describe('the staff booking UI is client-safe and writes in exactly one place (static)', () => {
+  it.each(CLIENT_FILES)('%s stores nothing, logs nothing and imports nothing server-only', file => {
+    const src = strip(read(file));
+    expect(src).not.toMatch(/sessionStorage|localStorage|indexedDB|document\.cookie|navigator\.sendBeacon/);
+    expect(src).not.toMatch(/server-only|@\/lib\/db|@\/lib\/org|@\/lib\/capabilities|requireSession|process\.env/);
+    expect(src).not.toMatch(/console\.(log|info|warn|error|debug)/);
+    expect(src).not.toMatch(/\/cancel/);
+  });
+
+  it.each([...READ_ONLY_FILES, DIALOG, MACHINE])('%s sends no write itself', file => {
     const src = strip(read(file));
     expect(src).not.toMatch(/['"`](POST|PATCH|PUT|DELETE)['"`]/);
     expect(src).not.toMatch(/\bmethod\s*:/);
-    expect(src).not.toMatch(/sessionStorage|localStorage|indexedDB|document\.cookie/);
-    expect(src).not.toMatch(/\/cancel|Idempotency-Key|idempotencyKey/i);
-    expect(src).not.toMatch(/server-only|@\/lib\/db|@\/lib\/org|@\/lib\/capabilities|requireSession|process\.env/);
-    expect(src).not.toMatch(/console\.(log|info|warn|error|debug)/);
-  });
-
-  it('the dialog has no customer fields, no free time or duration input, and no submit', () => {
-    const src = strip(read('app/scheduling/_components/StaffBookDialog.tsx'));
-    expect(src).not.toMatch(/type="(text|email|tel|number|time|date|datetime-local|textarea|password)"/);
-    expect(src).not.toMatch(/<textarea|<select|<form|type="submit"|onSubmit/);
-    expect([...src.matchAll(/<input\b/g)].length).toBe(2); // the two radio groups (offering, start time) are the only inputs
-    expect([...src.matchAll(/type="radio"/g)].length).toBe(2);
-  });
-
-  it('the dialog reads only through the basis client, and it only ever offers the response’s own starts', () => {
-    const src = strip(read('app/scheduling/_components/StaffBookDialog.tsx'));
     expect(src).not.toMatch(/\bfetch\(/);
-    expect(src).toMatch(/fetchBasis\(/);
-    expect(src).toMatch(/day\.starts\.map/);
   });
 
   it('the basis client calls only GET reads', () => {
@@ -199,10 +193,66 @@ describe('slice 1 is read only and client-safe (static)', () => {
     expect(new Set(methods)).toEqual(new Set(['GET']));
   });
 
+  it('the ONE write is a single POST to /api/scheduling/reservations with the Idempotency-Key header; everything else it sends is a GET', () => {
+    const src = strip(read(SUBMIT));
+    expect([...src.matchAll(/method:\s*'([A-Z]+)'/g)].map(m => m[1]).sort()).toEqual(['GET', 'POST']);
+    expect(src.match(/'Idempotency-Key': key/g)?.length).toBe(1);
+    expect(src.match(/'\/api\/scheduling\/reservations'/g)?.length).toBe(1);
+    expect(src).not.toMatch(/\b(PATCH|PUT|DELETE)\b/);
+    expect(src).not.toMatch(/\bnew Request\b|XMLHttpRequest|WebSocket|EventSource/);
+    // the lookup puts only the key in the query string
+    expect(src).toMatch(/\/api\/scheduling\/reservations\?idempotencyKey=\$\{encodeURIComponent\(key\)\}/);
+  });
+
+  it('only the dialog imports the submit client functions; no other module can write a booking', () => {
+    const importers: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walk(rel);
+        else if (/\.(ts|tsx)$/.test(entry.name) && /staffBooking\/submitClient/.test(read(rel))) importers.push(rel);
+      }
+    };
+    walk('app');
+    walk('lib');
+    expect(importers).toEqual([DIALOG]);
+    expect(read(MACHINE)).toMatch(/import type \{[^}]*\} from '\.\/submitClient';/); // the machine takes the response TYPES only, never the functions
+  }, 60_000);
+
+  it('the state machine is pure: no I/O, clock, timer or randomness, and the key holder is touched in exactly two places', () => {
+    const src = strip(read(MACHINE));
+    expect(src).not.toMatch(/\bfetch\b|Date\.now|new Date|Math\.random|crypto|setTimeout|setInterval|\bawait\b|\basync\b/);
+    expect(src).not.toMatch(/from 'react'/);
+    expect(src.match(/holder\.keyFor\(/g)?.length).toBe(1); // REVIEW: the only place a key is asked for
+    expect(src.match(/holder\.discard\(/g)?.length).toBe(1); // NEW_ATTEMPT, reachable only from the conflict state
+    expect(src).toMatch(/case 'NEW_ATTEMPT': \{\s*if \(state\.step !== 'conflict'\) return state;/);
+    expect(src).toMatch(/case 'RETRY': \{\s*if \(\(state\.step !== 'retry' && state\.step !== 'unsure'\) \|\| !state\.attempt\) return state;/);
+  });
+
   it('the key module generates keys only inside newBookingKey and has no rotate operation', () => {
     const src = strip(read('lib/scheduling/staffBooking/key.ts'));
     expect(src.match(/randomUUID/g)?.length).toBe(1);
     expect(src).not.toMatch(/rotate|regenerate|refresh/i);
+  });
+
+  it('the dialog never creates a key or a payload of its own, offers no payment control and has no free time, duration or step input', () => {
+    const src = strip(read(DIALOG));
+    expect(src).not.toMatch(/newBookingKey|randomUUID|bk_/);
+    expect(src).not.toMatch(/\bfetch\(/);
+    expect(src).toMatch(/fetchBasis\(/);
+    expect(src).toMatch(/day\.starts\.map/);
+    expect(src).not.toMatch(/type="(time|date|datetime-local|number|password|checkbox|file)"/);
+    expect(src).not.toMatch(/<select|stripe|card number|cardNumber|payment method|Pay now|paymentIntent|checkout/i);
+    expect([...src.matchAll(/type="radio"/g)].length).toBe(2); // the offering and start-time groups
+  });
+
+  it('every customer field turns browser autocomplete off, so the staff member’s own details are never inserted', () => {
+    const src = strip(read(DIALOG));
+    const fields = [...src.matchAll(/<(input|textarea)\b[^>]*?(?:\/>|>)/g)].map(m => m[0]).filter(tag => !/type="radio"/.test(tag) && !/readOnly/.test(tag));
+    expect(fields.length).toBe(5); // name, email, phone, party size, notes
+    for (const tag of fields) expect(tag).toMatch(/autoComplete="off"/);
+    expect(src).toMatch(/<form[\s\S]*?autoComplete="off"/);
   });
 });
 
