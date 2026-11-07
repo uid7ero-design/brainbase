@@ -8,6 +8,7 @@ import { ModuleNavItem, ModuleSidebar } from '@/components/ui/app';
 const NAV_ITEMS: { href: string; label: string; exact?: boolean; also?: string[] }[] = [
   { href: '/scheduling', label: 'Overview', exact: true },
   { href: '/scheduling/schedules', label: 'Schedules', also: ['/scheduling/offerings'] },
+  { href: '/coaching', label: 'Coaching workspace', exact: true },
   { href: '/scheduling/resources', label: 'Resources' },
 ];
 

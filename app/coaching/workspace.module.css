@@ -1,0 +1,10 @@
+.page { max-width: 72rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+.columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.panel { min-width: 0; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.panel h2 { font-size: 1.15rem; margin: 0 0 1rem; }
+.panel ul { padding: 0; margin: 0 0 1rem; list-style: none; }
+.panel li { display: grid; gap: .25rem; padding: .65rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.panel small { color: var(--text-secondary); }
+.panel a { color: var(--text-link, var(--text-primary)); text-decoration: underline; text-underline-offset: .2em; }
+.panel p { margin: 1rem 0; }
+@media (max-width: 720px) { .columns { grid-template-columns: 1fr; } }

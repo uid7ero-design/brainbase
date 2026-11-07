@@ -50,7 +50,10 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .filter(f => !rel(f).startsWith('app/scheduling/'))
       .filter(f => /@scheduling\/core|@\/lib\/scheduling|from ['"]\.\.?\/.*scheduling\//.test(readFileSync(f, 'utf8')))
       .map(rel);
-    expect(offenders).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts']);
+    expect(offenders).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'app/coaching/CoachSchedules.tsx']);
+    // Coach consumes only the dashboard's public view type and URL segment encoder.
+    const coachImports = [...read('app/coaching/CoachSchedules.tsx').matchAll(/from '(@(?:scheduling\/|\/lib\/scheduling\/)[^']+)'/g)].map(match => match[1]);
+    expect(coachImports.sort()).toEqual(['@/lib/scheduling/dashboard/api', '@/lib/scheduling/dashboard/types']);
   });
 
   it('no scheduling route or page exists', () => {
