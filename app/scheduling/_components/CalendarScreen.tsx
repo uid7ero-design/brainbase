@@ -127,6 +127,7 @@ export default function CalendarScreen({ kind, id, canManage, canBook = false, o
         resourceName={view.resource.name}
         today={today}
         onClose={() => setBookOpen(false)}
+        onBooked={calendar.reload}
         onUnavailable={() => {
           setBookGone(true);
           setBookOpen(false);

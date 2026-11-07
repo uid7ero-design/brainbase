@@ -270,3 +270,92 @@
     animation: none !important;
   }
 }
+
+/* ── slice 2: customer details, review, booked ───────────────────────────────────────────────────────────────────────────────── */
+.liveNotice {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.narrowField {
+  max-width: 160px;
+}
+
+.errorSummary {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 2px solid var(--status-danger);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+.errorSummary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.errorTitle {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+.errorSummary ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.errorSummary a {
+  display: inline-block;
+  min-height: 24px;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.refRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reference {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.8125rem;
+}
+.copyStatus {
+  min-height: 1.1em;
+  margin: 4px 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 639px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .narrowField {
+    max-width: none;
+  }
+}
+
+/* Touch targets: every customer field is at least 44px tall. */
+.form input,
+.form textarea,
+.refRow input {
+  min-height: 44px;
+  box-sizing: border-box;
+}

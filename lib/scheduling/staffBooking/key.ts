@@ -1,37 +1,44 @@
-// Phase 2C.3c UI slice 1: the booking idempotency key, PREPARED but never sent. Pure of server imports (client components use it).
+// Phase 2C.3c UI slices 1-2: the booking idempotency key (slice 1 prepared it; slice 2 sends it, minted once per distinct content at the review step). Pure of server imports (client components use it).
 //
 // The contract this encodes (docs/architecture/scheduling-phase2c3c-staff-booking-ui-design.md §3):
 //   - format `bk_` + 32 lowercase hex characters (35 characters; the API accepts 16-80 of [A-Za-z0-9_-]);
 //   - ONE key per distinct booking content: the same content always yields the same key, however often it is asked for, so a retry, a
 //     timeout, a double click or a re-render can never invent a second key for the same intended booking;
 //   - a different content yields a new key (the staff member changed the booking);
-//   - the key lives in memory only. It is not written to sessionStorage, localStorage, a URL, a log or the DOM (slice 2 adds the
-//     reload-recovery record, which holds only {key, payloadHash, savedAt}, never customer data);
+//   - the key lives in memory only. It is not written to sessionStorage, localStorage, a log or the DOM. It travels only in the
+//     Idempotency-Key header of the one POST and in the reconcile lookup's query (GET ?idempotencyKey=), as the API contract defines.
+//     Slice 2 does NOT add a reload-recovery record: nothing is stored, so a reload forgets the attempt (the database's exclusive hold still refuses an overlapping second booking);
 //   - there is deliberately NO "rotate" operation here. The only ways to a new key are a changed content or an explicit `discard()`, which
-//     slice 2 may call solely after a KNOWN definitive refusal. During an uncertain outcome nothing in this module can change the key.
+//     slice 2 calls it solely from the IDEMPOTENCY_CONFLICT state, on the staff member's explicit choice to start a new booking. During an uncertain outcome nothing in this module can change the key.
 
 export const BOOKING_KEY_PATTERN = /^bk_[0-9a-f]{32}$/;
 
-/** What the key identifies in slice 1: the facility, the resource and the engine-offered start. Customer fields join the content in slice 2. */
+/** What the key identifies: the offering, the resource, the engine-offered start and (slice 2) the party and customer fields, trimmed. The basis stamps are NOT part of it. */
 export interface BookingContent {
   offeringId: string;
   resourceId: string;
   date: string;
   time: string;
+  partySize?: number;
+  customerName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
 }
 
 export function newBookingKey(randomUuid: () => string = () => globalThis.crypto.randomUUID()): string {
   return `bk_${randomUuid().replace(/-/g, '').toLowerCase()}`;
 }
 
-const canonical = (c: BookingContent): string => JSON.stringify([c.offeringId, c.resourceId, c.date, c.time]);
+const canonical = (c: BookingContent): string =>
+  JSON.stringify([c.offeringId, c.resourceId, c.date, c.time, c.partySize ?? null, c.customerName ?? null, c.email ?? null, c.phone ?? null, c.notes ?? null]);
 
 export interface BookingKeyHolder {
   /** The key for this content: the held key if the content is unchanged, otherwise a fresh one that replaces it. */
   keyFor(content: BookingContent): string;
   /** The held key, or null. Never creates one. */
   current(): string | null;
-  /** Forget the held key. For a KNOWN definitive refusal only (slice 2); never during an uncertain outcome. */
+  /** Forget the held key. Only the IDEMPOTENCY_CONFLICT state calls it, on the staff member's choice; never during an uncertain outcome. */
   discard(): void;
 }
 

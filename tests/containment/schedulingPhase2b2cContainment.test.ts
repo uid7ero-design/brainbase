@@ -50,7 +50,7 @@ const CLIENT_ALLOWED = [
   /^@\/lib\/layout\/headerOffset$/,
   /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability|calendar)$/,
   /^@\/lib\/scheduling\/(configurable|coachingContract)$/,
-  /^@\/lib\/scheduling\/staffBooking\/(basisClient|key|view)$/, // 2C.3c UI slice 1: pure, read-only booking helpers (no server imports; pinned in schedulingStaffBookingUiGate.test.ts)
+  /^@\/lib\/scheduling\/staffBooking\/(basisClient|key|view|machine|submitClient)$/, // 2C.3c UI slices 1-2: pure booking helpers; submitClient is the ONE module that writes (no server imports; pinned in schedulingStaffBookingUiGate.test.ts)
   /^@scheduling\/core$/,
   /^\.\.?\/[\w./-]*$/, // siblings inside the dashboard / the pure libraries
   /\.module\.css$/,
