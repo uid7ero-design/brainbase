@@ -122,6 +122,35 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   assert.deepEqual(summary.costs.value,[{currency:'AUD',billed_cents:'1500',paid_cents:'1500'}]);
   console.log('PASS: actual invoice issue/payment and purchase order/bill/payment routes reconcile to exact workspace totals.');
 
+  if (financeOnly) {
+    await page.goto(origin+'/business/tennis/finance');
+    await page.getByRole('link',{name:'Review unpaid customer invoices'}).click();
+    const balance = page.getByRole('row').filter({has:page.getByRole('link',{name:/./})});
+    await expect(balance).toHaveCount(1);
+    await expect(balance.getByRole('link')).toHaveAttribute('href',`/commercial/invoices/${invoice.id}`);
+    await expect(balance.getByRole('cell',{name:'$40.00',exact:true})).toBeVisible();
+    await expect(balance.getByRole('cell',{name:'$20.00',exact:true})).toBeVisible();
+    await page.setViewportSize({width:390,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Unpaid invoice page overflows mobile viewport');
+
+    const finalPayment=await post(`/api/commercial/invoices/${invoice.id}/payments`,{amount_cents:4000,method:'CASH'});
+    await page.reload();
+    await page.getByText('No unpaid customer invoices.',{exact:true}).waitFor();
+    await post(`/api/commercial/invoices/${invoice.id}/payments/${finalPayment.payment.id}/reverse`,{reason:'Synthetic reversal'});
+    await page.reload();
+    await expect(balance.getByRole('cell',{name:'$40.00',exact:true})).toBeVisible();
+
+    await q('ALTER TABLE commercial_payment_allocations RENAME TO unavailable_allocations');
+    try {
+      await page.reload();
+      await page.getByText('Customer balances could not be loaded.',{exact:true}).waitFor();
+      await expect(page.getByText('No unpaid customer invoices.',{exact:true})).toHaveCount(0);
+    } finally {
+      await q('ALTER TABLE unavailable_allocations RENAME TO commercial_payment_allocations');
+    }
+    await page.getByRole('button',{name:'Retry balances'}).click();
+    await expect(balance.getByRole('cell',{name:'$40.00',exact:true})).toBeVisible();
+  }
   if(!financeOnly) {
   const day=new Date(date+'T12:00:00Z').getUTCDay();
   const session=(await post('/api/business/tennis/coaching/sessions',{name:'Synthetic coaching',session_type:'SYNTHETIC',day_of_week:day,start_time:'15:00',max_capacity:2,start_date:date,end_mode:'after_weeks',end_after_weeks:1})).session;
@@ -157,6 +186,11 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   await guest.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await staff.goto(origin+'/login');await staff.getByLabel('Username',{exact:true}).fill('local-manager');await staff.getByLabel('Password',{exact:true}).fill(password);await staff.getByRole('button',{name:'Sign in',exact:true}).click();await staff.waitForURL('**/workspace');
   if(financeOnly){await staff.goto(origin+'/business/tennis/finance');await staff.getByText('Invoicing or Purchasing access is required.').waitFor();}
+  if (financeOnly) {
+    await staff.goto(origin+'/business/tennis/finance/unpaid');
+    await staff.getByRole('heading',{name:'Customer balances unavailable'}).waitFor();
+    await expect(staff.getByRole('table')).toHaveCount(0);
+  }
   await staff.goto(origin+'/business/tennis');await staff.getByRole('link',{name:'Open CRM contacts',exact:true}).waitFor();
   assert.equal(await staff.getByRole('link',{name:'Manage billing customers',exact:true}).count(),0);
   assert.equal((await guest.request.get(origin+'/api/business/tennis/coaching/sessions')).status(),403);
