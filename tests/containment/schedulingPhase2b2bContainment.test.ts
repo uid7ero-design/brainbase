@@ -38,6 +38,8 @@ const EXPECTED_ROUTES: Record<string, Array<[string, Perm, string]>> = {
   'app/api/scheduling/reservations/route.ts': [['POST', 'scheduling.reserve', 'createReservation'], ['GET', 'scheduling.reserve', 'findReservationByKey']],
   'app/api/scheduling/reservations/[reservationId]/route.ts': [['GET', 'scheduling.reserve', 'getReservation']],
   'app/api/scheduling/reservations/[reservationId]/cancel/route.ts': [['POST', 'scheduling.reserve', 'cancelReservation']],
+  // Phase 2C.3c-B (deliberate, reviewed change): the staff-only availability basis read. GET only, both booking gates, scheduling.reserve; pinned in schedulingPhase2c3bContainment.test.ts.
+  'app/api/scheduling/reservations/basis/route.ts': [['GET', 'scheduling.reserve', 'readReservationBasis']],
   'app/api/scheduling/status/route.ts': [['GET', 'scheduling.view', '']],
   'app/api/scheduling/schedules/route.ts': [['GET', 'scheduling.view', 'listSchedules'], ['POST', 'scheduling.manage', 'createSchedule']],
   'app/api/scheduling/schedules/[scheduleId]/route.ts': [['GET', 'scheduling.view', 'getSchedule'], ['PATCH', 'scheduling.manage', 'updateSchedule']],

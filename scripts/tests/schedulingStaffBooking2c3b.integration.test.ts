@@ -21,7 +21,7 @@ const suite = TEST_URL ? describe : describe.skip;
 
 const state = vi.hoisted(() => {
   process.env.SESSION_SECRET = 'test-only-session-secret-for-the-disposable-staff-booking-matrix-0123456789';
-  return { cookie: null as string | null, loseNextBatchReply: false, failNextBatchBeforeSend: false, failAudit: false, batches: 0 };
+  return { cookie: null as string | null, loseNextBatchReply: false, failNextBatchBeforeSend: false, failAudit: false, batches: 0, unexpected: null as null | 'before' | 'during' | 'after' };
 });
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -35,6 +35,10 @@ vi.mock('@/lib/db', async () => {
   const p = new P({ connectionString: process.env.SCHEDULING_TEST_DATABASE_URL, max: 40 });
   p.on('error', () => undefined);
   const run = (text: string, params: unknown[]) => {
+    if (state.unexpected === 'before' && /idempotency_key = \$2/i.test(text)) {
+      state.unexpected = null;
+      return Promise.reject(Object.assign(new Error('internal error'), { code: 'XX000' })); // BEFORE anything is written
+    }
     if (state.failAudit && /INSERT INTO audit_logs/i.test(text)) return Promise.reject(Object.assign(new Error('audit store down'), { code: '08006' }));
     return p.query(text, params).then(r => r.rows);
   };
@@ -47,12 +51,20 @@ vi.mock('@/lib/db', async () => {
       state.failNextBatchBeforeSend = false;
       throw Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' });
     }
+    // Phase 2C.3c-A: an UNCLASSIFIED server error (SQLSTATE XX000: the repository rethrows it) before any write, in the middle of the batch, and a committed batch whose reply cannot be read. The handler must reconcile by the key. (An error with NO SQLSTATE is already "unknown" inside the repository and is resolved there.)
+    const fault = state.unexpected === 'before' ? null : state.unexpected;
+    if (fault) state.unexpected = null;
     const c = await p.connect();
     try {
       await c.query('BEGIN');
       const out: unknown[] = [];
-      for (const q of queries) out.push((await c.query(q.text, q.params)).rows);
+      for (const q of queries) {
+        out.push((await c.query(q.text, q.params)).rows);
+        if (fault === 'during') throw Object.assign(new Error('internal error'), { code: 'XX000' }); // after the first statement: rolled back below, nothing is written
+      }
       await c.query('COMMIT');
+      // AFTER the commit the reply is unusable (a row the repository cannot read: it throws a TypeError): an unclassified error although the booking IS written
+      if (fault === 'after') return [...out.slice(0, -1), [null]];
       if (state.loseNextBatchReply) {
         state.loseNextBatchReply = false; // the batch COMMITTED; the reply never reaches the caller
         throw Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' });
@@ -677,6 +689,83 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
       expect((await create(body(), key)).status).toBe(201);
       expect(await reservations()).toBe(1);
       expect(await liveHolds()).toBe(1);
+    });
+
+    describe('UNEXPECTED errors before, during and after the transaction (2C.3c-A): reconciled by the original key, never a 500, never a duplicate', () => {
+      it('BEFORE anything is written (the first read fails): nothing is written, OUTCOME_UNKNOWN with the same-key retry contract, and repeating the SAME key books exactly once', async () => {
+        const key = newKey();
+        state.unexpected = 'before';
+        const first = await create(body(), key);
+        expect(first.status).toBe(504);
+        expect(first.json).toMatchObject({ code: 'OUTCOME_UNKNOWN', retryable: true });
+        expect(JSON.stringify(first.json)).not.toMatch(/internal error|XX000|Internal error/);
+        expect(await reservations()).toBe(0);
+        expect((await getByKey(key)).status).toBe(404);
+        expect(await auditRows('scheduling.reservation.created')).toHaveLength(0);
+        expect((await create(body(), key)).status).toBe(201);
+        expect(await reservations()).toBe(1);
+        expect(await liveHolds()).toBe(1);
+      });
+
+      it('DURING the batch (after its first statement): the transaction rolls back as a whole - no reservation and no hold - and the answer is OUTCOME_UNKNOWN, then the same key books once', async () => {
+        const key = newKey();
+        state.unexpected = 'during';
+        const first = await create(body(), key);
+        expect(first.status).toBe(504);
+        expect(first.json.code).toBe('OUTCOME_UNKNOWN');
+        expect(await reservations()).toBe(0);
+        expect(await liveHolds()).toBe(0);
+        expect((await create(body(), key)).status).toBe(201);
+        expect(await reservations()).toBe(1);
+        expect(await liveHolds()).toBe(1);
+      });
+
+      it('AFTER the batch committed: the booking is found by the original key and returned (201, recovered), with one reservation, one hold and one audit entry; the repeat is a plain replay', async () => {
+        const key = newKey();
+        state.unexpected = 'after';
+        const r = await create(body(), key);
+        expect(r.status).toBe(201);
+        expect(r.json).toMatchObject({ replayed: false, recovered: true });
+        expect(r.json.reservation.id).toBeTruthy();
+        expect(await reservations()).toBe(1);
+        expect(await liveHolds()).toBe(1);
+        const audits = await auditRows('scheduling.reservation.created');
+        expect(audits).toHaveLength(1);
+        expect(JSON.stringify(audits)).not.toMatch(/Pat|Hirer|example\.com|0400/);
+        const again = await create(body(), key);
+        expect(again.status).toBe(200);
+        expect(again.json.replayed).toBe(true);
+        expect(await reservations()).toBe(1);
+      });
+
+      it('AFTER the commit with the audit store down as well: still the booking, still 201', async () => {
+        state.unexpected = 'after';
+        state.failAudit = true;
+        const r = await create(body());
+        expect(r.status).toBe(201);
+        expect(await reservations()).toBe(1);
+        expect(await auditRows()).toHaveLength(0);
+      });
+
+      it('a different payload under a key whose first attempt committed after an unexpected error is IDEMPOTENCY_CONFLICT, and the original is untouched', async () => {
+        const key = newKey();
+        state.unexpected = 'after';
+        expect((await create(body(), key)).status).toBe(201);
+        const other = await create(body({ partySize: 3 }), key);
+        expect(other.status).toBe(409);
+        expect(other.json.code).toBe('IDEMPOTENCY_CONFLICT');
+        expect(await reservations()).toBe(1);
+      });
+
+      it('a burst of 6 same-key requests where the first hits an unexpected error after commit: exactly one reservation and one hold, every answer a success or a retryable unknown', async () => {
+        const key = newKey();
+        state.unexpected = 'after';
+        const rs = await Promise.all(Array.from({ length: 6 }, () => create(body(), key)));
+        expect(rs.every(r => [200, 201].includes(r.status) || (r.status === 504 && r.json.code === 'OUTCOME_UNKNOWN'))).toBe(true);
+        expect(rs.some(r => r.status === 500)).toBe(false);
+        expect(await reservations()).toBe(1);
+        expect(await liveHolds()).toBe(1);
+      });
     });
 
     it('lock contention: a configuration writer holding the offering row longer than the 2 s lock timeout gives 503 CONTENTION_TIMEOUT with Retry-After, writes nothing, and the same key books once the writer is gone', async () => {

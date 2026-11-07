@@ -1,4 +1,4 @@
-import { HireNotReadyError, SchedulingError, validateHireRequest, type HireBasis, type HireFailure, type HireFailureCode, type HireRequest, type Reservation } from '@scheduling/core';
+import { HireNotReadyError, SchedulingError, hireRequestMatches, validateHireRequest, type HireBasis, type HireFailure, type HireFailureCode, type HireRequest, type Reservation } from '@scheduling/core';
 import { schedulingJson, type SchedulingRouteContext } from '../route';
 import { recordSchedulingAudit } from '../audit';
 import { idParam, notFound, readBody } from '../config/http';
@@ -29,6 +29,9 @@ const KEY_HEADER = 'idempotency-key';
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const extraKeys = (o: Json, allowed: readonly string[], prefix: string): string[] => Object.keys(o).filter(k => !allowed.includes(k)).map(k => `${prefix}${k}`);
+
+/** The one answer for a write whose result cannot be proven. It never says "failed" or "not booked": the booking may exist. The only safe next step is the SAME key. */
+const unknownOutcome = (): Response => schedulingJson({ error: FAILURES.outcome_unknown.error, code: 'OUTCOME_UNKNOWN', retryable: true }, { status: FAILURES.outcome_unknown.status });
 
 const invalid = (problems: string[]): Response => schedulingJson({ error: 'The request is not valid.', code: 'VALIDATION', problems }, { status: 400 });
 
@@ -200,15 +203,48 @@ export async function createReservation(context: SchedulingRouteContext): Promis
   } catch (err) {
     if (err instanceof HireNotReadyError) return schedulingJson({ error: 'Booking is not available right now. Nothing was booked.', code: 'BOOKING_NOT_READY' }, { status: 503 });
     if (err instanceof SchedulingError && err.code === 'permission_denied') return schedulingJson({ error: 'Forbidden.', code: 'FORBIDDEN' }, { status: 403 });
-    throw err; // anything else: the guard answers a generic 500 with no detail; a client treats it like a lost response and repeats the SAME key
+    // Anything else is UNEXPECTED, and it may have been thrown before the transaction was sent, while it ran, or after it committed. The handler cannot tell which, so it never answers a
+    // definite failure (and never a bare 500): it asks the database about the ORIGINAL key.
+    return reconcileCreate(context, parsed.request);
   }
   if (!result.ok) return failureResponse(result);
 
-  // Audit only the call that created the booking: a pure replay wrote nothing now. A recovered booking was created by THIS call's earlier attempt, so it is audited once.
-  if (!result.replayed) await audit(context, 'scheduling.reservation.created', result.reservation);
-  const body: Json = { reservation: staffReservationView(result.reservation), replayed: result.replayed };
-  if (result.recovered) body.recovered = true;
-  return schedulingJson(body, { status: result.replayed ? 200 : 201 });
+  try {
+    // Audit only the call that created the booking: a pure replay wrote nothing now. A recovered booking was created by THIS call's earlier attempt, so it is audited once.
+    if (!result.replayed) await audit(context, 'scheduling.reservation.created', result.reservation);
+    const body: Json = { reservation: staffReservationView(result.reservation), replayed: result.replayed };
+    if (result.recovered) body.recovered = true;
+    return schedulingJson(body, { status: result.replayed ? 200 : 201 });
+  } catch {
+    // The booking COMMITTED (createHire returned it) but this response could not be built. Never a 500 that reads as a failure: the same key returns the booking.
+    return unknownOutcome();
+  }
+}
+
+/**
+ * createHire threw something the repository did not classify. Resolve it with the idempotency key of THIS request and nothing else: no new key is ever made and createHire is never called
+ * again from here (a retry is the client's, with the same key, and is a safe replay).
+ *   found, and it is this request   -> the booking exists: return it as recovered (201, audited once with recovered:true; the audit store failing changes nothing)
+ *   found, but it is another request -> the key is taken by a different booking, so this attempt cannot have committed: IDEMPOTENCY_CONFLICT
+ *   not found / lookup failed / not a hire booking -> OUTCOME_UNKNOWN: an in-flight statement may still commit, so "nothing was booked" is never claimed
+ * The reservation carries no creation time, so a booking that an EARLIER identical request made is audited again here (flagged recovered): a duplicate audit line is preferred to a missing one.
+ */
+async function reconcileCreate(context: SchedulingRouteContext, request: HireRequest): Promise<Response> {
+  try {
+    const found = await context.hire.findHireByKey(context.tenant, request.idempotencyKey);
+    if (isHire(found)) {
+      if (!hireRequestMatches(found, request)) {
+        const m = FAILURES.idempotency_conflict;
+        return schedulingJson({ error: m.error, code: m.code }, { status: m.status });
+      }
+      const body: Json = { reservation: staffReservationView(found), replayed: false, recovered: true };
+      await audit(context, 'scheduling.reservation.created', found, { recovered: true });
+      return schedulingJson(body, { status: 201 });
+    }
+  } catch {
+    /* fall through: the outcome stays unknown */
+  }
+  return unknownOutcome();
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -228,6 +264,14 @@ export async function getReservation(context: SchedulingRouteContext): Promise<R
   if (!id) return notFound();
   const found = await context.persistence.reservations.getById(context.tenant, id);
   return isHire(found) ? schedulingJson({ reservation: staffReservationView(found) }) : notFound();
+}
+
+async function readQuietly(context: SchedulingRouteContext, id: string): Promise<Reservation | null> {
+  try {
+    return await context.persistence.reservations.getById(context.tenant, id);
+  } catch {
+    return null;
+  }
 }
 
 // ── POST /api/scheduling/reservations/{id}/cancel ───────────────────────────────────────────────────────────────────────────────────
@@ -275,14 +319,15 @@ export async function cancelReservation(context: SchedulingRouteContext): Promis
 
   if (outcome.status === 'rejected') {
     if (outcome.reason === 'already_cancelled') {
-      const now = await context.persistence.reservations.getById(context.tenant, id);
-      return isHire(now) ? schedulingJson({ reservation: staffReservationView(now), alreadyCancelled: true }) : notFound();
+      const now = await readQuietly(context, id);
+      return schedulingJson({ reservation: staffReservationView(isHire(now) ? now : { ...before, status: 'cancelled' as const }), alreadyCancelled: true });
     }
     if (outcome.reason === 'in_the_past') return schedulingJson({ error: FAILURES.in_the_past.error, code: 'IN_THE_PAST' }, { status: 422 });
     return outcome.reason === 'not_found' ? notFound() : schedulingJson({ error: 'Forbidden.', code: 'FORBIDDEN' }, { status: 403 });
   }
 
-  const after = await context.persistence.reservations.getById(context.tenant, id);
+  // The cancel COMMITTED. Re-reading is only for a fresher view: if that read fails, the row we read before, marked cancelled, is the answer (never a 500 after a success).
+  const after = await readQuietly(context, id);
   const view = isHire(after) ? after : { ...before, status: 'cancelled' as const };
   await audit(context, 'scheduling.reservation.cancelled', view, { has_reason: reason !== null });
   return schedulingJson({ reservation: staffReservationView(view) });
