@@ -50,6 +50,7 @@ const CLIENT_ALLOWED = [
   /^@\/lib\/layout\/headerOffset$/,
   /^@\/lib\/scheduling\/dashboard\/(api|forms|types|wording|availability|calendar)$/,
   /^@\/lib\/scheduling\/(configurable|coachingContract)$/,
+  /^@\/lib\/scheduling\/staffBooking\/(basisClient|key|view)$/, // 2C.3c UI slice 1: pure, read-only booking helpers (no server imports; pinned in schedulingStaffBookingUiGate.test.ts)
   /^@scheduling\/core$/,
   /^\.\.?\/[\w./-]*$/, // siblings inside the dashboard / the pure libraries
   /\.module\.css$/,
@@ -83,14 +84,14 @@ describe('the dashboard is exactly the configuration screens', () => {
 });
 
 describe('nothing server-side reaches the browser', () => {
-  const clientFiles = () => [...dashboardFiles(), ...walk(path.join(ROOT, 'lib/scheduling/dashboard'), /\.ts$/).map(rel), 'lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].filter(f => /\.(ts|tsx)$/.test(f));
+  const clientFiles = () => [...dashboardFiles(), ...walk(path.join(ROOT, 'lib/scheduling/dashboard'), /\.ts$/).map(rel), ...walk(path.join(ROOT, 'lib/scheduling/staffBooking'), /\.ts$/).map(rel), 'lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].filter(f => /\.(ts|tsx)$/.test(f));
 
   it('every "use client" file, and the pure libraries they use, import only from the allow-list', () => {
     const checked: string[] = [];
     for (const f of clientFiles()) {
       const src = read(f);
       const isClient = /^\s*['"]use client['"]/.test(src);
-      const isPureLib = f.startsWith('lib/scheduling/dashboard/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
+      const isPureLib = f.startsWith('lib/scheduling/dashboard/') || f.startsWith('lib/scheduling/staffBooking/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
       if (!isClient && !isPureLib) continue;
       checked.push(f);
       for (const spec of importsOf(src)) expect(CLIENT_ALLOWED.some(re => re.test(spec)), `${f} imports ${spec}`).toBe(true);
@@ -100,7 +101,7 @@ describe('nothing server-side reaches the browser', () => {
   });
 
   it('no client file imports a server module by name (db, session, capability, guard, audit, runtime, repositories)', () => {
-    const isBrowserSide = (f: string) => /^\s*['"]use client['"]/.test(read(f)) || f.startsWith('lib/scheduling/dashboard/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
+    const isBrowserSide = (f: string) => /^\s*['"]use client['"]/.test(read(f)) || f.startsWith('lib/scheduling/dashboard/') || f.startsWith('lib/scheduling/staffBooking/') || ['lib/scheduling/configurable.ts', 'lib/scheduling/coachingContract.ts'].includes(f);
     for (const f of clientFiles().filter(isBrowserSide)) {
       for (const spec of importsOf(read(f))) {
         expect(spec, f).not.toMatch(/@\/lib\/(db|org|session|capabilities)|lib\/scheduling\/(pageAccess|route|access|runtime|audit|crmLink|adapters|config)|@scheduling\/postgres|server-only|next\/headers/);
