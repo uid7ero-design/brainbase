@@ -485,7 +485,7 @@ suite('booking reads on real PostgreSQL (Phase 2C.2)', () => {
   // ─── indexes ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   describe('the statements use the indexes', () => {
-    it('at thousands of rows a month-long read uses an index on reservations and holds; occurrences need the proposed (organisation, start) index (migration 041)', async () => {
+    it('at thousands of rows a month-long read uses an index on reservations and holds; with migration 041 reservations and occurrences use the gist range indexes', async () => {
       await world();
       // 8000 occurrences (two organisations), 4000 reservations and 4000 holds in org A (8 courts, hourly), all written with triggers off in ONE disposable session.
       const c = await getPool().connect();
@@ -526,8 +526,13 @@ suite('booking reads on real PostgreSQL (Phase 2C.2)', () => {
       await getPool().query('ANALYZE scheduling_occurrences; ANALYZE scheduling_reservations; ANALYZE scheduling_resource_holds');
       const window = { fromInstant: '2026-12-01T00:00:00Z', toInstant: '2026-12-08T00:00:00Z' };
       const planOf = async (withProposedIndex: boolean) => {
-        if (withProposedIndex) await getPool().query('CREATE INDEX IF NOT EXISTS zz_prototype_041_occ ON scheduling_occurrences (organisation_id, ends_at); CREATE INDEX IF NOT EXISTS zz_prototype_041_res ON scheduling_reservations (organisation_id, ends_at); ANALYZE scheduling_occurrences; ANALYZE scheduling_reservations');
-        else await getPool().query('DROP INDEX IF EXISTS zz_prototype_041_occ; DROP INDEX IF EXISTS zz_prototype_041_res; ANALYZE scheduling_occurrences; ANALYZE scheduling_reservations');
+        // Migration 041 (GiST range indexes). It needs the 2c.3.1 registry row (037); this suite does not apply 037, so the row is added for the plan check and removed after.
+        if (withProposedIndex) {
+          await getPool().query("INSERT INTO scheduling_schema_migrations (version, description) VALUES ('2c.3.1', 'plan check only') ON CONFLICT (version) DO NOTHING");
+          await runScript(sqlFile('041_range_indexes.sql'));
+          await getPool().query('ANALYZE scheduling_occurrences; ANALYZE scheduling_reservations');
+        }
+        else await runScript(sqlFile('099_range_indexes_rollback.sql')).then(() => getPool().query('ANALYZE scheduling_occurrences; ANALYZE scheduling_reservations'));
         const s = spy(fromPgLike(getPool()));
         const r = new PostgresBookingReadRepository({ sql: s.exec });
         await r.listOccurrencesInRange(viewer, window);
@@ -545,8 +550,9 @@ suite('booking reads on real PostgreSQL (Phase 2C.2)', () => {
       for (const [i, p] of withIdx.entries()) console.log(`[plan with 041, statement ${i}]`, summary(p));
       expect(scans(withIdx[1], 'scheduling_reservations'), 'reservations plan').not.toContain('Seq Scan');
       expect(scans(withIdx[2], 'scheduling_resource_holds'), 'holds plan').not.toContain('Seq Scan');
-      expect(scans(withIdx[0], 'scheduling_occurrences'), 'occurrences plan with the proposed index').not.toContain('Seq Scan');
-      await getPool().query('DROP INDEX IF EXISTS zz_prototype_041_occ; DROP INDEX IF EXISTS zz_prototype_041_res');
+      expect(scans(withIdx[0], 'scheduling_occurrences'), 'occurrences plan with 041').not.toContain('Seq Scan');
+      await runScript(sqlFile('099_range_indexes_rollback.sql'));
+      await getPool().query("DELETE FROM scheduling_schema_migrations WHERE version = '2c.3.1' AND description = 'plan check only'");
     }, 180_000);
   });
 });
