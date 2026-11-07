@@ -36,3 +36,9 @@ The harness also checks billing-customer linkage/recovery, failed supplier-list 
 The finance workspace links to `/business/tennis/finance/unpaid` for staff with invoicing access. The list covers all months. Each row opens the issued invoice and shows the saved billing customer, due date, currency, invoice total, recorded allocations and remaining balance. Due dates use the Adelaide calendar. A failed read offers a retry and keeps the empty-list message hidden.
 
 The production-mode local finance rehearsal used a synthetic AUD 60 invoice. It verified AUD 40 outstanding after a partial receipt, disappearance after final payment, reappearance after reversal, read-error recovery, a narrow viewport and denial for CRM-only staff.
+
+## Paid receipt expenses
+
+LD Tennis finances shows a separate monthly AUD total for purchases already paid from a receipt. Open **Receipt expenses** to select a month, review purchases or start an entry. Record the actual purchase date, merchant, description and gross amount, plus the receipt number when available. Keep the original receipt separately. This entry records a purchase and does not calculate a tax credit, move funds, or add a supplier bill or purchase order.
+
+The release requires `scripts/create-tennis-receipt-expenses.sql` (one table and its month lookup index). The form uses a fresh entry ID for each new purchase. The same ID and contents can be confirmed again after a lost response. Conflicting contents cannot replace the saved entry. Independently starting a new entry creates a new purchase, so check the month register before re-entering a receipt. Purchasing readers can review the register. Recording a paid receipt uses the existing supplier-payment role floor and requires Purchasing use for managed staff.

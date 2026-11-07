@@ -9,7 +9,7 @@ import { coachingFetch, clearCoachingLock, COACHING_LOCK } from '@/lib/tennisBus
 import { currentBusinessMonth, type BusinessOverview } from '@/lib/tennisBusiness/model';
 vi.mock('next/link', () => ({ default: ({ children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props}>{children}</a> }));
 vi.mock('@/app/dashboard/sessions/page', () => ({ default: () => <p>Saved coaching timetable</p> }));
-const overview = (month = currentBusinessMonth()): BusinessOverview => ({ month, timezone:'Australia/Adelaide',modules:['scheduling','crm','invoicing','purchasing'],coaching:{state:'ready',value:{today:'2026-11-03',sessions:2,players:5}},crm:{state:'ready',value:{contacts:7,openDeals:1}},income:{state:'ready',value:[{currency:'AUD',invoiced_cents:'10000',received_cents:'3000',outstanding_cents:'7000'}]},costs:{state:'unavailable'} });
+const overview = (month = currentBusinessMonth()): BusinessOverview => ({ month, timezone:'Australia/Adelaide',modules:['scheduling','crm','invoicing','purchasing'],coaching:{state:'ready',value:{today:'2026-11-03',sessions:2,players:5}},crm:{state:'ready',value:{contacts:7,openDeals:1}},income:{state:'ready',value:[{currency:'AUD',invoiced_cents:'10000',received_cents:'3000',outstanding_cents:'7000'}]},receiptSpending:{state:'ready',value:'0'},costs:{state:'unavailable'} });
 beforeEach(() => { sessionStorage.clear(); clearCoachingLock(); history.replaceState({}, '', '/business/tennis'); vi.stubGlobal('fetch',vi.fn()); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('Business saved-state and capability rendering', () => {

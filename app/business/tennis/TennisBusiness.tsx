@@ -24,7 +24,7 @@ export default function TennisBusiness({ financeOnly = false }: { financeOnly?: 
         const response = await fetch('/api/business/tennis?month=' + encodeURIComponent(month), { cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error('Unable to load the business workspace. Your access may have changed.');
         const data = await response.json() as BusinessOverview;
-        if (data.month !== month || !Array.isArray(data.modules) || !data.coaching || !data.crm || !data.income || !data.costs) throw new Error('Saved figures could not be confirmed.');
+        if (data.month !== month || !Array.isArray(data.modules) || !data.coaching || !data.crm || !data.income || !data.costs || !data.receiptSpending) throw new Error('Saved figures could not be confirmed.');
         if (active) setResult({ key, data });
       } catch (error) { if (active) setResult({ key, error: error instanceof Error ? error.message : 'Workspace unavailable.' }); }
     })();
@@ -52,11 +52,15 @@ export default function TennisBusiness({ financeOnly = false }: { financeOnly?: 
           <p><Link href="/commercial/invoices/new">Create a lesson invoice</Link> · <Link href="/commercial/invoices?status=DRAFT">Continue draft invoices</Link></p>
           <p><Link href="/commercial/customers">Manage billing customers</Link> · <Link href="/commercial/products">Lesson prices and services</Link></p><p><Link href="/commercial/invoices">Open invoices and record a payment</Link></p>
         </>}</SavedSection></Panel>
+        {data.modules.includes('purchasing') && <Panel title="Paid receipt expenses">
+          <SavedSection section={data.receiptSpending}>{total => <p>Receipt spending this month (AUD) · {formatMoneyCentsExact(total, 'AUD')}</p>}</SavedSection>
+          <Link href={'/business/tennis/finance/expenses?month=' + month}>Open receipt expenses</Link>
+        </Panel>}
         <Panel title="Supplier bills and spending"><SavedSection section={data.costs}>{rows => <>
           {rows.length === 0 ? <p>No posted supplier bills or recorded supplier payments in this month.</p> : rows.map(row => <div key={row.currency} className={styles.figures}><h3>{row.currency}</h3><dl><dt>Supplier bills dated this month</dt><dd>{formatMoneyCentsExact(row.billed_cents, row.currency)}</dd><dt>Supplier payments recorded this month</dt><dd>{formatMoneyCentsExact(row.paid_cents, row.currency)}</dd></dl></div>)}
           <p><Link href="/commercial/purchasing/purchase-orders">Plan a purchase</Link> · <Link href="/commercial/purchasing/purchase-receipts">Record goods or services received</Link></p>
           <p><Link href="/commercial/purchasing/supplier-bills/new">Enter a supplier bill</Link> · <Link href="/commercial/purchasing/ap-overview">Review unpaid supplier bills</Link></p>
-          <p>Expenses use supplier → purchase order → receipt → bill → payment. Court hire and coaching equipment can be described as service or goods lines. A draft order is not an expense or payment.</p><p><Link href="/commercial/purchasing/supplier-bills">Open supplier bills</Link></p>
+          <p>Supplier bills use supplier → purchase order → receipt → bill → payment. Court hire and coaching equipment can be described as service or goods lines. A draft order is not an expense or payment.</p><p><Link href="/commercial/purchasing/supplier-bills">Open supplier bills</Link></p>
         </>}</SavedSection></Panel>
       </div>
       {financeOnly && <Panel title="Your weekly finance routine">

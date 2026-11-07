@@ -18,7 +18,7 @@ function currency(value: unknown) {
 /** Read-only projection. Every source remains authoritative; no synthetic profit or cross-currency total. */
 export async function readTennisBusiness(organisationId: string, modules: BusinessModule[], month: string): Promise<BusinessOverview> {
   const { from, to } = businessPeriod(month);
-  const [coaching, crm, income, costs] = await Promise.all([
+  const [coaching, crm, income, costs, receiptSpending] = await Promise.all([
     read(modules.includes('scheduling'), async () => {
       const authority=await coachingAuthority(organisationId);
       if(authority==='frozen')throw Error('Coaching handover paused');
@@ -72,6 +72,12 @@ export async function readTennisBusiness(organisationId: string, modules: Busine
         FROM bills b FULL JOIN payments p ON p.currency=b.currency ORDER BY 1`;
       return rows.map(row => ({ currency: currency(row.currency), billed_cents: exactCents(row.billed_cents), paid_cents: exactCents(row.paid_cents) }));
     }),
+    read(modules.includes('purchasing'), async () => {
+      const [row] = await sql`SELECT COALESCE(SUM(amount_cents), 0)::text AS total
+        FROM tennis_receipt_expenses WHERE organisation_id=${organisationId}
+          AND purchase_date >= ${from} AND purchase_date < ${to}`;
+      return exactCents(row?.total);
+    }),
   ]);
-  return { month, timezone: 'Australia/Adelaide', modules, coaching, crm, income, costs };
+  return { month, timezone: 'Australia/Adelaide', modules, coaching, crm, income, costs, receiptSpending };
 }
