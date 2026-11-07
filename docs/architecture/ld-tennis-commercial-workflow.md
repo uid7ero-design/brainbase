@@ -30,3 +30,9 @@ The harness also checks billing-customer linkage/recovery, failed supplier-list 
 ## Local acceptance receipt — 6 November 2026
 
 77 focused component/containment checks passed. The final real Next/login/disposable-Postgres browser journey passed and removed its owned services. Browser-led invoice and bill creation each produced one row despite a lost response and reload; invoice issue/partial receipt and bill posting/full payment reconciled to AUD 60.00 / 20.00 / 40.00 and AUD 15.00 / 15.00 respectively. Failed supplier-ledger reads recovered through explicit retry. Managed access, tenant denial and 390/768/1440 layout checks passed. Changed-file lint and the optimized production build with TypeScript passed. Hosted checks remain an exact-PR-head gate; no production release is included in this receipt.
+
+## Unpaid customer invoices
+
+The finance workspace links to `/business/tennis/finance/unpaid` for staff with invoicing access. The list covers all months. Each row opens the issued invoice and shows the saved billing customer, due date, currency, invoice total, recorded allocations and remaining balance. Due dates use the Adelaide calendar. A failed read offers a retry and keeps the empty-list message hidden.
+
+The production-mode local finance rehearsal used a synthetic AUD 60 invoice. It verified AUD 40 outstanding after a partial receipt, disappearance after final payment, reappearance after reversal, read-error recovery, a narrow viewport and denial for CRM-only staff.
