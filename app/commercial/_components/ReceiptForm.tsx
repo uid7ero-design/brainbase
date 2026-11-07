@@ -3,13 +3,13 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Button, Field, fieldControlClassName } from '@/components/ui/app';
 
-export function StartReceipt({ month }: { month: string }) {
+export function StartReceipt({ month, path }: { month: string; path: string }) {
   return <Button type="button" onClick={() => {
-    window.location.assign('/business/tennis/finance/expenses?month=' + month + '&entry=' + crypto.randomUUID());
+    window.location.assign(path + '?month=' + month + '&entry=' + crypto.randomUUID());
   }}>Record a paid expense</Button>;
 }
 
-export default function ReceiptForm({ id, today }: { id: string; today: string }) {
+export default function ReceiptForm({ id, today, api, organisationId }: { id: string; today: string; api: string; organisationId: string }) {
   const sending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
@@ -23,9 +23,9 @@ export default function ReceiptForm({ id, today }: { id: string; today: string }
     setBusy(true);
     setError('');
     try {
-      const response = await fetch('/api/business/tennis/expenses', {
+      const response = await fetch(api, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...Object.fromEntries(form), id }), signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({ ...Object.fromEntries(form), id, expectedOrganisationId: organisationId }), signal: AbortSignal.timeout(30000),
       });
       const result = await response.json();
       if (response.status === 400 || response.status === 403 || response.status === 401) {

@@ -56,7 +56,7 @@ describe('Phase C4.2 §10 — Commercial navigation is per-capability gated for 
     const layout = readSource('app/commercial/layout.tsx')
     expect(layout).toMatch(/checkCapability\(session\.organisationId, 'quotes'\)/)
     expect(layout).toMatch(/checkCapability\(session\.organisationId, 'invoicing'\)/)
-    expect(layout).toMatch(/invoicingEnabled=\{invoicingCapability\.allowed\}/)
+    expect(layout).toMatch(/invoicingEnabled=\{invoicingCapability\.allowed && visible\('invoicing'\)\}/)
   })
 })
 

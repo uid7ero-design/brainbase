@@ -57,7 +57,9 @@ export default function CommercialSidebar({
     ...BASE_NAV_ITEMS.slice(0, 3),
     ...(quotesEnabled ? [{ href: '/commercial/quotes', label: 'Quotes' }] : []),
     ...(invoicingEnabled ? [{ href: '/commercial/invoices', label: 'Invoices' }] : []),
+    ...(invoicingEnabled ? [{ href: '/commercial/invoices/unpaid', label: 'Unpaid Customer Invoices' }] : []),
     ...(purchasingEnabled ? [
+      { href: '/commercial/purchasing/receipt-expenses', label: 'Receipt Expenses' },
       { href: '/commercial/purchasing/purchase-orders', label: 'Purchase Orders' },
       // Phase C7.3 — Purchase Receipts, gated on the identical
       // 'purchasing' capability as Purchase Orders/Suppliers (no new
@@ -93,7 +95,7 @@ export default function CommercialSidebar({
       style={{ position: 'sticky', top: APP_HEADER_OFFSET_VAR, height: APP_HEADER_OFFSET_VH_CALC }}
     >
       {navItems.map(item => {
-        const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+        const active = item.exact ? pathname === item.href : (pathname.startsWith(item.href) && !(item.href === '/commercial/invoices' && pathname === '/commercial/invoices/unpaid'));
         return (
           <ModuleNavItem key={item.href} href={item.href} active={active}>
             {item.label}
