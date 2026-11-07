@@ -160,6 +160,7 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
     await page.getByRole('link',{name:'View receipt expenses'}).click();
     await page.getByText('Tennis balls',{exact:false}).waitFor();
     await page.getByText('Receipt spending (AUD) · $24.95',{exact:true}).waitFor();
+    await verifySharedFinance({ origin, page, context, q, browser, contextOptions, password, receipt });
     const replay = await postReceipt(receipt);
     assert.equal(replay.status(),200,await replay.text());
     assert.equal((await postReceipt({...receipt,amount:'42.00'})).status(),409);
@@ -239,6 +240,11 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
     await staff.getByText('Tennis balls',{exact:false}).waitFor();
     assert.equal(await staff.getByRole('button',{name:'Record a paid expense'}).count(),0);
     assert.equal((await guest.request.post(origin+'/api/business/tennis/expenses',{data:{},headers:{origin}})).status(),403);
+    await staff.goto(origin+'/commercial/purchasing/receipt-expenses');
+    await staff.getByText('Tennis balls',{exact:false}).waitFor();
+    await expect(staff.getByRole('button',{name:'Record a paid expense'})).toHaveCount(0);
+    await expect(staff.getByRole('link',{name:'Unpaid Customer Invoices',exact:true})).toHaveCount(0);
+    assert.equal((await guest.request.post(origin+'/api/commercial/purchasing/receipt-expenses',{data:{},headers:{origin}})).status(),403);
     await q(`UPDATE organisation_user_access SET permissions='{"crm":"view"}' WHERE user_id='local-manager'`);
     await staff.goto(origin+'/business/tennis/finance/unpaid');
     await staff.getByRole('heading',{name:'Customer balances unavailable'}).waitFor();
@@ -257,4 +263,53 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
   }
   await expect(page.getByRole('link',{name:'Workspace help and setup checklist',exact:true})).toBeVisible();
   console.log('PASS: real managed login, selective visibility, current revocation, foreign tenant denial and 390/768/1440 workspace layout.');
+}
+
+async function verifySharedFinance({ origin, page, context, q, browser, contextOptions, password, receipt }) {
+  const expenses = '/commercial/purchasing/receipt-expenses';
+  const api = origin + '/api' + expenses;
+  await page.goto(origin + '/commercial/invoices');
+  await page.getByRole('link', { name: 'Unpaid Customer Invoices', exact: true }).click();
+  await expect(page.getByRole('cell', { name: '$40.00', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Receipt Expenses', exact: true }).click();
+  await page.getByText('Receipt spending (AUD) · $24.95', { exact: true }).waitFor();
+  assert.equal((await context.request.post(api, { headers: { origin }, data: receipt })).status(), 200);
+
+  await q(`INSERT INTO users(id,organisation_id,username,name,role,password_hash,updated_at)
+    SELECT 'other-buyer','local-other','other-buyer','Synthetic buyer','ADMIN',password_hash,now()
+    FROM users WHERE id='local-admin'`);
+  const other = await browser.newContext(contextOptions);
+  try {
+    await other.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const buyer = await other.newPage();
+    await buyer.goto(origin + '/login');
+    await buyer.getByLabel('Username', { exact: true }).fill('other-buyer');
+    await buyer.getByLabel('Password', { exact: true }).fill(password);
+    await buyer.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect.poll(async () => (await other.cookies()).some(cookie => cookie.name === 'session')).toBe(true);
+    const post = data => other.request.post(api, { headers: { origin }, data });
+    assert.equal((await post(receipt)).status(), 403);
+    await q(`INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at)
+      VALUES ('local-other','purchasing',true,now()), ('local-other','invoicing',true,now())`);
+    await buyer.goto(origin + '/commercial/invoices/unpaid');
+    await buyer.getByText('No unpaid customer invoices.', { exact: true }).waitFor();
+    await buyer.goto(origin + expenses + '?entry=' + receipt.id);
+    await buyer.getByRole('heading', { name: 'Record a paid expense' }).waitFor();
+    assert.equal((await post(receipt)).status(), 403);
+    await buyer.getByLabel('Merchant', { exact: true }).fill('Second organisation shop');
+    await buyer.getByLabel('What was purchased?').fill('Office supplies');
+    await buyer.getByLabel('Receipt total (AUD)').fill('17.30');
+    await buyer.getByRole('button', { name: 'Record paid expense', exact: true }).click();
+    await buyer.getByRole('heading', { name: 'Saved receipt' }).waitFor();
+    await buyer.getByRole('link', { name: 'View receipt expenses' }).click();
+    await buyer.getByText('Receipt spending (AUD) · $17.30', { exact: true }).waitFor();
+    await expect(buyer.getByText('Tennis balls', { exact: false })).toHaveCount(0);
+    assert.equal((await other.request.post(origin + '/api/business/tennis/expenses', { headers: { origin }, data: receipt })).status(), 404);
+    await page.reload();
+    await page.getByText('Receipt spending (AUD) · $24.95', { exact: true }).waitFor();
+    await expect(page.getByText('Office supplies', { exact: false })).toHaveCount(0);
+    console.log('PASS: Commercial navigation, enabled and disabled modules, stale workspace denial, and independent records with the same receipt ID across two signed-in organisations.');
+  } finally {
+    await other.close();
+  }
 }

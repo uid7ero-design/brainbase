@@ -42,3 +42,11 @@ The production-mode local finance rehearsal used a synthetic AUD 60 invoice. It 
 LD Tennis finances shows a separate monthly AUD total for purchases already paid from a receipt. Open **Receipt expenses** to select a month, review purchases or start an entry. Record the actual purchase date, merchant, description and gross amount, plus the receipt number when available. Keep the original receipt separately. This entry records a purchase and does not calculate a tax credit, move funds, or add a supplier bill or purchase order.
 
 The release requires `scripts/create-tennis-receipt-expenses.sql` (one table and its month lookup index). The form uses a fresh entry ID for each new purchase. The same ID and contents can be confirmed again after a lost response. Conflicting contents cannot replace the saved entry. Independently starting a new entry creates a new purchase, so check the month register before re-entering a receipt. Purchasing readers can review the register. Recording a paid receipt uses the existing supplier-payment role floor and requires Purchasing use for managed staff.
+
+## Shared Commercial registers
+
+Organisations with Invoicing can open **Commercial → Unpaid Customer Invoices** to see issued invoices that still have a balance, including partial payments. Open an invoice to review its payment history.
+
+Organisations with Purchasing can open **Commercial → Receipt Expenses**, choose the purchase month and select **Record a paid expense**. Use the gross AUD amount on the receipt. Administrators with Purchasing write access can save purchases. Readers can review saved receipts. If a save is interrupted, use **Check saved receipt** before starting another entry.
+
+LD Tennis can use either its finance workspace or Commercial to reach the same records. Both routes use the existing organisation-scoped receipts table and invoice allocations. Enabling these screens requires no data migration or new module.

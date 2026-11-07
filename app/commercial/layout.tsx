@@ -3,6 +3,8 @@ import { requireSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 import { roleGte } from '@/lib/session';
+import type { UserPermissions } from '@/lib/organisationUsers/policy';
+import { getUserPermissions } from '@/lib/organisationUsers/access';
 import CommercialSidebar from './_components/CommercialSidebar';
 import { FinanceSetupAccessProvider } from './_components/FinanceWorkflow';
 
@@ -64,6 +66,11 @@ export default async function CommercialLayout({ children }: { children: React.R
     );
   }
 
+  const permissions = session.role === 'super_admin' ? null :
+    await getUserPermissions(session.organisationId, session.userId).catch((): UserPermissions => ({}));
+  const visible = (key: 'invoicing' | 'purchasing') => permissions === null ||
+    permissions[key] === 'view' || permissions[key] === 'use';
+
   return (
     <div
       style={{
@@ -76,8 +83,8 @@ export default async function CommercialLayout({ children }: { children: React.R
     >
       <CommercialSidebar
         quotesEnabled={quotesCapability.allowed}
-        invoicingEnabled={invoicingCapability.allowed}
-        purchasingEnabled={purchasingCapability.allowed}
+        invoicingEnabled={invoicingCapability.allowed && visible('invoicing')}
+        purchasingEnabled={purchasingCapability.allowed && visible('purchasing')}
         budgetingEnabled={budgetingCapability.allowed}
         budgetingAdminEnabled={budgetingCapability.allowed && roleGte(session.role, 'admin')}
       />
