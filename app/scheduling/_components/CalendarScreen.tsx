@@ -29,6 +29,7 @@ import {
 import type { StatusView } from '@/lib/scheduling/dashboard/types';
 import type { CalendarDay, CalendarLane } from '@scheduling/core';
 import { LoadError } from './parts';
+import StaffBookDialog from './StaffBookDialog';
 import { useSchedulingData } from './useSchedulingData';
 import styles from './scheduling.module.css';
 
@@ -55,7 +56,9 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-export default function CalendarScreen({ kind, id, canManage, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; organisationTimezone?: string | null }) {
+// `canBook` is the SERVER's decision (lib/scheduling/staffBookingVisibility.ts: switch on, organisation capability, scheduling.reserve). It defaults to false and only
+// the resource calendar acts on it; with it false the Book button and the dialog do not exist and nothing booking-related is requested.
+export default function CalendarScreen({ kind, id, canManage, canBook = false, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; canBook?: boolean; organisationTimezone?: string | null }) {
   const ownerPath = kind === 'offering' ? `/offerings/${seg(id)}` : `/resources/${seg(id)}`;
   const params = useSearchParams();
   // The page already knows the organisation's zone (it is read beside the access check), so the calendar can start loading at once. Only without it
@@ -67,6 +70,8 @@ export default function CalendarScreen({ kind, id, canManage, organisationTimezo
   const [date, setDate] = useState<string | null>(isDate(params.get('date')) ? params.get('date') : null);
   const [step, setStep] = useState<number | null>(STEPS.includes(Number(params.get('step')) as (typeof STEPS)[number]) ? Number(params.get('step')) : null);
   const [laneId, setLaneId] = useState<string | null>(null);
+  const [bookOpen, setBookOpen] = useState(false);
+  const [bookGone, setBookGone] = useState(false); // a gate closed under the user (404 from a booking read): hide the button until reload
 
   // The first date is "today" in the zone the organisation shows; once the calendar answers, "Today" uses the zone it is drawn in.
   const startDate = date ?? (organisationTimezone ? localToday(organisationTimezone) : status.state === 'ready' && status.data ? localToday(status.data.timezone) : status.state === 'error' ? localToday('UTC') : null);
@@ -93,6 +98,7 @@ export default function CalendarScreen({ kind, id, canManage, organisationTimezo
   const selected = lanes.find(l => l.id === laneId) ?? lanes[0] ?? null;
   const names = useMemo(() => Object.fromEntries(lanes.map(l => [l.id, l.name])), [lanes]);
 
+  const showBook = canBook && kind === 'resource' && !bookGone && view?.resource?.active === true;
   const back = <Link href={kind === 'offering' ? '/scheduling/schedules' : '/scheduling/resources'}>{kind === 'offering' ? 'Schedules' : 'Resources'}</Link>;
   const header = (
     <PageHeader
@@ -101,12 +107,32 @@ export default function CalendarScreen({ kind, id, canManage, organisationTimezo
       meta={view && (view.offering?.archived || view.resource?.active === false) ? <Badge state="inactive">{kind === 'offering' ? 'Archived' : 'Inactive'}</Badge> : undefined}
       description="When this is available, what is closed and what is already held. Read only: nothing here books or changes anything."
       actions={
-        <Link href={hoursHref} {...buttonProps('secondary', 'md')} className={`${buttonProps('secondary', 'md').className} ${styles.touch}`} data-testid="hours-link">
-          {canManage ? 'Edit hours' : 'View hours'}
-        </Link>
+        <>
+          {showBook && (
+            <Button variant="primary" onClick={() => setBookOpen(true)} className={styles.touch} data-testid="book-button">
+              Book
+            </Button>
+          )}
+          <Link href={hoursHref} {...buttonProps('secondary', 'md')} className={`${buttonProps('secondary', 'md').className} ${styles.touch}`} data-testid="hours-link">
+            {canManage ? 'Edit hours' : 'View hours'}
+          </Link>
+        </>
       }
     />
   );
+  const bookDialog =
+    showBook && bookOpen && view?.resource ? (
+      <StaffBookDialog
+        resourceId={view.resource.id}
+        resourceName={view.resource.name}
+        today={today}
+        onClose={() => setBookOpen(false)}
+        onUnavailable={() => {
+          setBookGone(true);
+          setBookOpen(false);
+        }}
+      />
+    ) : null;
 
   if (!range || calendar.state === 'loading') {
     return (
@@ -165,6 +191,7 @@ export default function CalendarScreen({ kind, id, canManage, organisationTimezo
   return (
     <div className={`${styles.page} ${styles.availability}`} data-testid="calendar-screen">
       {header}
+      {bookDialog}
       {!canManage && <p className={styles.notice} role="note">You have view-only access to Scheduling. This calendar is read only for everyone.</p>}
 
       <div className={styles.calToolbar} role="group" aria-label="Calendar controls">

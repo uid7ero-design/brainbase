@@ -44,7 +44,7 @@ describe('createHire is reachable from exactly the 2C.3b wiring and nowhere else
 describe('no flag, no entitlement row, no migration, no role change', () => {
   const code = [...walk('app'), ...walk('lib'), ...walk('components'), ...walk('packages/scheduling/src'), ...walk('packages/scheduling-postgres/src'), ...walk('packages/scheduling/sql')].filter(f => /\.(ts|tsx|sql)$/.test(f));
   it('the kill switch and the capability key of 2C.3b are named only by the access gate and the BrainBase adapter, and no SQL file registers the capability for anyone', () => {
-    expect(code.filter(f => /SCHEDULING_STAFF_BOOKING|scheduling\.staff_booking/.test(noTsComments(read(f))))).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts']);
+    expect(code.filter(f => /SCHEDULING_STAFF_BOOKING|scheduling\.staff_booking/.test(noTsComments(read(f))))).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/staffBookingVisibility.ts']); // 2C.3c UI slice 1 adds the page-level visibility helper (UX gate; the API re-checks)
     expect(code.filter(f => /\.sql$/.test(f) && /staff_booking/.test(read(f)))).toEqual([]);
   });
   it('the shared schema is still exactly the approved one: no migration beyond 037, no rollback beyond 098', () => {

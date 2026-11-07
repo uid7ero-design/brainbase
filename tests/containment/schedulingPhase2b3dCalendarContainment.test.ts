@@ -121,7 +121,10 @@ describe('the screen only reads', () => {
 
   it('offers a link to the hours screen, labelled by what the person may do there, and no way to save, book or hold', () => {
     expect(screen).toMatch(/canManage \? 'Edit hours' : 'View hours'/);
-    expect(screen).not.toMatch(/\b(Book|Reserve|Save|Pin|Hold|Pay)\b\s*<\/(Button|button)>|>\s*(Book|Reserve|Save hours|Pay)\b/);
+    // 2C.3c UI slice 1 (deliberate, reviewed change): ONE gated "Book" button that only opens the read-only staff dialog. It exists only behind the server's `canBook`
+    // (schedulingStaffBookingUiGate.test.ts pins the gate); everything else here is still read only.
+    const withoutGatedBook = screen.replace(/\{showBook && \([\s\S]*?data-testid="book-button"[\s\S]*?<\/Button>\s*\)\}/, '');
+    expect(withoutGatedBook).not.toMatch(/\b(Book|Reserve|Save|Pin|Hold|Pay)\b\s*<\/(Button|button)>|>\s*(Book|Reserve|Save hours|Pay)\b/);
   });
 });
 
@@ -131,7 +134,8 @@ describe('the pages authorise themselves', () => {
     expect(src).toMatch(/resolveSchedulingPage\(\)/);
     expect(src).toMatch(/if \(denied\) return denied;/);
     // 2B.3e follow-up: the page also hands the screen the organisation's timezone (read beside the access check), so the screen need not ask /status for it
-    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\} organisationTimezone=\{timezone\} \/>/);
+    // 2C.3c UI slice 1: the resource page also hands over the server's `canBook` decision (schedulingStaffBookingUiGate.test.ts pins it)
+    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\}( canBook=\{canBook\})? organisationTimezone=\{timezone\} \/>/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);
   });
 });

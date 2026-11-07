@@ -1,0 +1,272 @@
+/* Staff booking dialog (Phase 2C.3c slice 1). Shared tokens only (app/globals.css): no hard-coded colours, so light and dark both follow
+   the theme. States use border, weight and text in addition to colour. Touch targets are at least 44px. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 320px;
+}
+
+.lead {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.stepItem[aria-current='step'] {
+  color: var(--text-primary);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.stepItem[data-done='true']::before {
+  content: '\2713\00a0';
+}
+
+.live {
+  min-height: 1.1em;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.heading {
+  margin: 0 0 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.heading:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.facts,
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.facts dt,
+.summary dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.facts dd,
+.summary dd {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* Native radios, visually hidden but focusable; the label is the target. */
+.input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.option:has(.input:checked) {
+  border-color: var(--accent);
+  border-width: 2px;
+  padding: 7px 11px;
+  font-weight: 600;
+}
+.option:has(.input:focus-visible),
+.time:has(.input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.optionBody {
+  display: flex;
+  flex-direction: column;
+}
+.optionTitle {
+  font-size: 0.875rem;
+}
+.optionMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.window {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.windowText {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.day:hover:not([aria-disabled='true']) {
+  border-color: var(--accent);
+}
+.day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.day[aria-disabled='true'] {
+  border-style: dashed;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+.dayName {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.dayCount {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.times {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.time {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.time:has(.input:checked) {
+  border-color: var(--accent);
+  border-width: 2px;
+  font-weight: 700;
+}
+.timeText {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.touch {
+  min-height: 44px;
+  min-width: 44px;
+}
+.continue {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+/* Phone widths: the dialog fills the screen as a sheet, one column, the footer stays reachable. */
+@media (max-width: 639px) {
+  .body {
+    min-height: calc(100dvh - 150px);
+  }
+  .days {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .times {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .footer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .footer > * {
+    flex: 1 1 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .body * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

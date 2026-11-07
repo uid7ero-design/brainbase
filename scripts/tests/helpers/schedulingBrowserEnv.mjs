@@ -46,7 +46,7 @@ export const USERS = {
   'manager-view': ['a', 'MANAGER', 'view'],
 };
 
-const SCHEDULING_SQL = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '035_availability_partial_closures.sql', '036_availability_zones.sql'];
+const SCHEDULING_SQL = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '035_availability_partial_closures.sql', '036_availability_zones.sql', '037_availability_versions.sql']; // 037 (Production has it since 2026-11-02) is what makes the staff booking reads ready; the other specs run unchanged on top of it
 
 export async function startSchedulingBrowserEnv({ root = process.cwd(), log = console.log } = {}) {
   if (!existsSync(path.join(root, 'packages/scheduling/sql/010_shared_schema.sql'))) throw new Error('Run from the repository worktree.');
@@ -102,6 +102,9 @@ export async function startSchedulingBrowserEnv({ root = process.cwd(), log = co
       if (existsSync(path.join(root, file))) for (const match of readFileSync(path.join(root, file), 'utf8').matchAll(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/gm)) env[match[1]] = '';
     }
     Object.assign(env, { DATABASE_URL: appDatabaseUrl, DIRECT_URL: databaseUrl, SESSION_SECRET: randomUUID() + randomUUID(), NODE_ENV: production ? 'production' : 'development', NEXT_TELEMETRY_DISABLED: '1', CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' });
+    // Phase 2C.3c UI slice 1: the staff-booking kill switch is OFF unless the caller asks for it (SCHED_BROWSER_STAFF_BOOKING=on), whatever the parent shell holds. DISPOSABLE harness only.
+    delete env.SCHEDULING_STAFF_BOOKING;
+    if (process.env.SCHED_BROWSER_STAFF_BOOKING === 'on') env.SCHEDULING_STAFF_BOOKING = 'on';
 
     log('Applying the repository Prisma schema, user administration and the Scheduling schema chain (010, 110, 120, 030-033).');
     exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env, cwd: root });
@@ -130,6 +133,10 @@ export async function startSchedulingBrowserEnv({ root = process.cwd(), log = co
       await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES($1,'scheduling',true,now())", [ORGS[org].id]);
       await q("INSERT INTO scheduling_settings(organisation_id,currency) VALUES($1,'AUD')", [ORGS[org].id]);
     }
+    // Phase 2C.3c UI slice 1: on the DISPOSABLE database only, register the staff-booking capability and entitle ORGANISATION A alone (organisation C holds Scheduling but not this), so the browser specs can prove
+    // the button is hidden by the SWITCH even when the capability is held, and by the CAPABILITY when the switch is on. Nothing here touches Production.
+    await q("INSERT INTO modules(key,name,description,active) VALUES('scheduling.staff_booking','Scheduling staff booking (disposable harness)','disposable harness only',true) ON CONFLICT (key) DO UPDATE SET active=true");
+    await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES($1,'scheduling.staff_booking',true,now())", [ORGS.a.id]);
 
     // SQL-over-HTTP bridge: the transport Neon's serverless driver speaks, answered by the disposable database.
     bridge = createServer(async (request, response) => {

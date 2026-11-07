@@ -10,6 +10,7 @@
 #   packages/scheduling-postgres/tests/bookingReads.integration.test.ts           Phase 2C.2: tenant-scoped range reads, viewer-reduced shape, read-only proof (a READ ONLY connection)
 #   scripts/tests/schedulingBookingOverlay2c2.integration.test.ts                  Phase 2C.2: the guarded overlay API (permissions, redaction, bounds)
 #   scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts              Phase 2C.3c-B: the staff availability basis (gates, permissions, contract, bounds, offered-equals-bookable, stale basis, DST)
+#   scripts/tests/schedulingStaffBookingUi2c3c.integration.test.ts                 Phase 2C.3c UI slice 1: the visibility gate over the real tables and the dialog's read path (offerings of a resource, basis, tenant isolation)
 #   scripts/tests/schedulingStaffBooking2c3b.integration.test.ts                   Phase 2C.3b: the staff booking API through the real chain (gates, permissions, isolation, idempotency, concurrency, cancel, lost replies)
 # Suites that do not exist on the current branch are skipped, so the same script serves the 2C.1 and 2C.2 branches.
 #
@@ -88,6 +89,7 @@ run packages/scheduling-postgres/tests/bookingReads.integration.test.ts
 run scripts/tests/schedulingBookingOverlay2c2.integration.test.ts
 run scripts/tests/schedulingStaffBooking2c3b.integration.test.ts
 run scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts
+run scripts/tests/schedulingStaffBookingUi2c3c.integration.test.ts
 
 if [ "${SCHED_KEEP:-0}" = "1" ]; then echo "KEPT $NAME  $URL"; fi
 if [ "$RC" -eq 0 ]; then echo "SCHEDULING 2C PROOF (PG $PG_MAJOR): PASS"; else echo "SCHEDULING 2C PROOF (PG $PG_MAJOR): FAIL"; fi
