@@ -1,5 +1,6 @@
 'use client';
 import {useEffect, useState} from 'react';
+import { coachingReference } from '@/lib/commercial/coachingReference';
 import Link from 'next/link';
 import {Button} from '@/components/ui/app';
 import {formatMoneyCentsExact} from '@/lib/commercial/money';
@@ -44,8 +45,9 @@ export default function CoachingInvoicePreparation({occurrenceId,bookingId,after
         <p><strong>{source.occurrence.name}</strong><br/>{source.occurrence.date} · {source.occurrence.startTime.slice(0,5)} · {row.name}</p>
         <p>{price}</p><p>Attendance: {row.attendance ?? 'not marked'}. Tennis paid marker: {row.paidMarker ? 'marked':'not marked'} — this is not a Commercial payment.</p>
         <p>Select the billing customer below; a player and their paying parent may be different people. Check existing invoices before creating another. Add and review the lesson line items after creating the draft.</p>
-        <Button onClick={()=>onUseNotes(`Coaching booking reference: ${bookingId}\nClass date reference: ${occurrenceId}\n${source.occurrence.name} — ${source.occurrence.date} ${source.occurrence.startTime.slice(0,5)}\nPlayer: ${row.name}\n${price}`)}>Use booking reference in internal notes</Button>
+        <Button onClick={()=>onUseNotes(`${coachingReference(bookingId, occurrenceId)}\n${source.occurrence.name} — ${source.occurrence.date} ${source.occurrence.startTime.slice(0,5)}\nPlayer: ${row.name}\n${price}`)}>Use booking reference in internal notes</Button>
       </>}
+    {row && !error && <p><Link href={`/commercial/invoices?coachingBooking=${encodeURIComponent(bookingId)}&coachingDate=${encodeURIComponent(occurrenceId)}`} target="_blank" rel="noopener noreferrer">Find invoices for this booking (new tab)</Link></p>}
     <p><Link href="/commercial/invoices" target="_blank" rel="noopener noreferrer">Review existing invoices (new tab)</Link> · <Link href="/scheduling/coaching">Back to roster</Link></p>
     <p>No invoice lines or payments are created from this reference. Booking changes do not update invoice notes automatically.</p>
   </section>;

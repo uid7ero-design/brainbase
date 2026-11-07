@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { hasCoachingReference } from '@/lib/commercial/coachingReference';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { StatusBadge, OverdueBadge } from './_status';
@@ -17,7 +18,7 @@ import {
 
 type Invoice = {
   id: string; invoice_number: string | null; status: string; customer_id: string;
-  customer_name_snapshot: string | null; source_quote_id: string | null;
+  customer_name_snapshot: string | null; source_quote_id: string | null; notes: string | null;
   issue_date: string | null; due_date: string | null; overdue: boolean;
   total_cents: number; currency: string; created_at: string;
 };
@@ -71,18 +72,25 @@ export default function InvoicesPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, []);
 
-  const filtered = statusFilter === 'ALL' ? invoices : invoices.filter(inv => inv.status === statusFilter);
+  const booking = searchParams.get('coachingBooking');
+  const occurrence = searchParams.get('coachingDate');
+  const reviewingBooking = booking !== null || occurrence !== null;
+  const visibleInvoices = reviewingBooking
+    ? invoices.filter(inv => hasCoachingReference(inv.notes, booking ?? '', occurrence ?? ''))
+    : invoices;
+  const filtered = statusFilter === 'ALL' ? visibleInvoices : visibleInvoices.filter(inv => inv.status === statusFilter);
 
   return (
     <div style={{ maxWidth: 1150 }}>
       <PageHeader
         title="Invoices"
-        description={loading ? 'Loading saved invoices…' : error ? 'Saved invoices unavailable' : `${invoices.length} total`}
+        description={loading ? 'Loading saved invoices…' : error ? 'Saved invoices unavailable' : (reviewingBooking ? `${visibleInvoices.length} with this booking reference` : `${invoices.length} total`)}
         actions={<Link href="/commercial/invoices/new" {...buttonProps('primary')}>+ New Invoice</Link>}
       />
 
+      {reviewingBooking && <p>Showing invoices with the saved booking and class date reference. Older or manually entered invoices may have no reference. <Link href="/commercial/invoices" onClick={() => setStatusFilter('ALL')}>View all invoices</Link></p>}
       {error && <p role="alert">{error} <button type="button" onClick={load}>Retry invoices</button></p>}
-      <WorkToolbar count={statusFilter !== 'ALL' && !loading && !error ? `${filtered.length} of ${invoices.length}` : undefined}>
+      <WorkToolbar count={statusFilter !== 'ALL' && !loading && !error ? `${filtered.length} of ${visibleInvoices.length}` : undefined}>
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
@@ -114,7 +122,7 @@ export default function InvoicesPage() {
             {loading && <TableStateRow colSpan={8} kind="loading">Loading invoices…</TableStateRow>}
             {!loading && !error && filtered.length === 0 && (
               <TableStateRow colSpan={8} kind="empty">
-                {invoices.length === 0 ? 'No invoices yet.' : 'No invoices with this status.'}
+                {reviewingBooking && visibleInvoices.length === 0 ? 'No saved invoice matches this booking reference.' : invoices.length === 0 ? 'No invoices yet.' : 'No invoices with this status.'}
               </TableStateRow>
             )}
             {filtered.map(inv => (

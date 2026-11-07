@@ -61,6 +61,7 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
     let writes=0;
     await page.goto(origin+'/commercial/invoices/new');
     await page.getByRole('combobox',{name:/Customer/}).selectOption(customer.id);
+    await page.getByLabel('Notes (internal)',{exact:true}).fill('Coaching booking reference: synthetic-booking\nClass date reference: synthetic-date');
     await page.getByLabel('Due Date',{exact:true}).fill('2099-12-31');
     await page.route('**/api/commercial/invoices',async route=>{
       if(route.request().method()!=='POST')return route.continue();
@@ -72,7 +73,12 @@ export async function verifyTennisBusiness({origin,context,page,q,browser,contex
     await expect(page.getByRole('button',{name:/Create Draft/})).toBeDisabled();assert.equal(writes,1);
     assert.equal((await q('SELECT count(*)::int AS n FROM commercial_invoices WHERE customer_id=$1',[customer.id])).rows[0].n,1);
     await page.unroute('**/api/commercial/invoices');
-    await page.goto(origin+'/commercial/invoices');await page.getByRole('link',{name:'Draft',exact:true}).waitFor();
+    await page.goto(origin+'/commercial/invoices?coachingBooking=synthetic-booking&coachingDate=synthetic-date');
+    await expect(page.getByRole('link',{name:'Draft',exact:true})).toHaveAttribute('href',`/commercial/invoices/${invoice.id}`);
+    await page.goto(origin+'/commercial/invoices?coachingBooking=another-booking&coachingDate=synthetic-date');
+    await page.getByText('No saved invoice matches this booking reference.').waitFor();
+    await page.getByRole('link',{name:'View all invoices',exact:true}).click();
+    await page.getByRole('link',{name:'Draft',exact:true}).waitFor();
   } else invoice=(await post('/api/commercial/invoices',{customerId:customer.id,currency:'AUD',dueDate:'2099-12-31'})).invoice;
   await post(`/api/commercial/invoices/${invoice.id}/lines`,{description:'Synthetic lesson',quantity:1,unitPriceCents:6000});
   await post(`/api/commercial/invoices/${invoice.id}/issue`);

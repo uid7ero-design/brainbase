@@ -6,10 +6,10 @@ import SupplierBills from '@/app/commercial/purchasing/supplier-bills/page';
 import Invoices from '@/app/commercial/invoices/page';
 import TennisBusiness from '@/app/business/tennis/TennisBusiness';
 import { currentBusinessMonth } from '@/lib/tennisBusiness/model';
-const { push } = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }), useSearchParams: () => new URLSearchParams() }));
+const { push, params } = vi.hoisted(() => ({ push: vi.fn(), params: new URLSearchParams() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }), useSearchParams: () => params }));
 vi.mock('@/app/commercial/_components/SlidePanel', () => ({ default: () => null }));
-beforeEach(() => { sessionStorage.clear(); push.mockReset(); });
+beforeEach(() => { sessionStorage.clear(); push.mockReset(); params.delete('coachingBooking'); params.delete('coachingDate'); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const choices = (bill: boolean) => bill ? { purchaseOrders: [{ id:'order',status:'ISSUED',purchase_order_number:'PO-1',supplier_name_snapshot:'Synthetic supplier' }] } : { customers:[{id:'payer',name:'Synthetic parent',active:true}] };
 const mount = (bill: boolean) => render(bill ? <NewBill/> : <NewInvoice/>);
@@ -73,4 +73,26 @@ it.each([false,true])('unlocks %s only after explicit acknowledgement and a fres
   mount(bill);await screen.findByRole('region',{name:'Review uncertain draft'});
   fireEvent.click(screen.getByRole('button',{name:/I checked saved records/}));await waitFor(()=>expect(screen.queryByRole('region',{name:'Review uncertain draft'})).not.toBeInTheDocument());
   expect(fetch).toHaveBeenCalledTimes(2);expect(push).not.toHaveBeenCalled();
+});
+it('finds saved invoices by exact booking and class date, including older multiline notes', async () => {
+  params.set('coachingBooking', 'booking-1');
+  params.set('coachingDate', 'date-1');
+  const invoice = (name: string, notes: string | null) => ({
+    id: name, invoice_number: name, status: 'ISSUED', total_cents: 1000, currency: 'AUD', notes,
+  });
+  const records = [
+    invoice('MATCH', 'Original notes\r\nCoaching booking reference: booking-1\r\nClass date reference: date-1\r\nPlayer details'),
+    invoice('OTHER-BOOKING', 'Coaching booking reference: booking-10\nClass date reference: date-1'),
+    invoice('OTHER-DATE', 'Coaching booking reference: booking-1\nClass date reference: date-10'),
+    invoice('MANUAL', null),
+  ];
+  vi.stubGlobal('fetch', vi.fn(async url => Response.json(String(url).endsWith('invoices') ? { invoices: records } : { customers: [] })));
+  const view = render(<Invoices/>);
+  await screen.findByRole('link', { name: 'MATCH' });
+  expect(screen.getByText('1 with this booking reference')).toBeVisible();
+  for (const name of ['OTHER-BOOKING', 'OTHER-DATE', 'MANUAL']) expect(screen.queryByText(name)).toBeNull();
+  expect(screen.getByRole('link', { name: 'View all invoices' })).toHaveAttribute('href', '/commercial/invoices');
+  params.delete('coachingDate');
+  view.rerender(<Invoices/>);
+  expect(screen.getByText('No saved invoice matches this booking reference.')).toBeVisible();
 });
