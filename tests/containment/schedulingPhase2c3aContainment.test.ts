@@ -30,9 +30,9 @@ describe('createHire is reachable from exactly the 2C.3b wiring and nowhere else
     const users = files.filter(f => HIRE_API.some(n => new RegExp(`\\b${n}\\b`).test(noTsComments(read(f)))));
     expect(users).toEqual(['lib/scheduling/booking/reservations.ts', 'lib/scheduling/runtime.ts']);
   });
-  it('the only reservation, booking or hire routes are the three of 2C.3b, and no route file itself calls a reservation write', () => {
+  it('the only reservation, booking or hire routes are the four of 2C.3b/2C.3c-B, and no route file itself calls a reservation write', () => {
     const routes = walk('app/api/scheduling').filter(f => /route\.ts$/.test(f));
-    expect(routes.filter(f => /reservation|booking|hire/i.test(f)).sort()).toEqual(['app/api/scheduling/reservations/[reservationId]/cancel/route.ts', 'app/api/scheduling/reservations/[reservationId]/route.ts', 'app/api/scheduling/reservations/route.ts']);
+    expect(routes.filter(f => /reservation|booking|hire/i.test(f)).sort()).toEqual(['app/api/scheduling/reservations/[reservationId]/cancel/route.ts', 'app/api/scheduling/reservations/[reservationId]/route.ts', 'app/api/scheduling/reservations/basis/route.ts', 'app/api/scheduling/reservations/route.ts']);
     expect(routes.filter(f => /reservations\.(create|createAssigned|cancel)\(|createHire\(/.test(noTsComments(read(f))))).toEqual([]);
   });
   it('no screen, page or component renders a booking form', () => {
