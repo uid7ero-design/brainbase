@@ -35,8 +35,10 @@ export type ClassDate = {
 export type CoachSchedule = { id: string; name: string; slug: string | null };
 
 export function weekDates(org: string, from: string) {
-  return db().query<ClassDate>(
-    `WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields} ${dates}
+  return db().query<ClassDate & { term: string | null }>(
+    `WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields},
+    (SELECT t.name FROM scheduling_coach_term_dates d JOIN scheduling_coach_terms t ON t.organisation_id=d.organisation_id
+      AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${dates}
     AND o.local_date >= $2::date AND o.local_date < $2::date+7 ORDER BY o.local_date,o.local_start_time,f.name,o.id`,
     [org, from],
   );
@@ -69,6 +71,7 @@ export async function publicClasses(org: string, slug: string) {
 export async function readRoster(org: string, id: string) {
   const rows = await db().query<
     ClassDate & {
+      term: { name: string; dates: string[]; last: string | null } | null;
       members: {
         id: string;
         name: string;
@@ -76,12 +79,20 @@ export async function readRoster(org: string, id: string) {
         attendance: string | null;
         version: string;
         paid: string;
+        recurring: boolean;
       }[];
     }
   >(
     `
-    WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields},COALESCE((SELECT jsonb_agg(jsonb_build_object(
-      'id',r.id,'name',r.customer_name,'status',r.status,'attendance',r.attendance,'version',r.updated_at::text,'paid',r.payment_status)
+    WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields},(SELECT jsonb_build_object('name',t.name,'dates',coalesce(array_agg(future.id ORDER BY future.starts_at) FILTER(WHERE future.id IS NOT NULL),'{}'),
+      'last',max(future.local_date)) FROM scheduling_coach_term_dates base
+      JOIN scheduling_coach_terms t ON t.organisation_id=base.organisation_id AND t.offering_id=base.offering_id AND t.id=base.term_id
+      JOIN scheduling_coach_term_dates d ON d.organisation_id=t.organisation_id AND d.offering_id=t.offering_id AND d.term_id=t.id
+      LEFT JOIN scheduling_occurrences future ON future.organisation_id=d.organisation_id AND future.id=d.occurrence_id
+        AND future.starts_at>=o.starts_at AND future.starts_at>now() AND future.status='scheduled'
+      WHERE base.organisation_id=o.organisation_id AND base.occurrence_id=o.id GROUP BY t.name) AS term,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'id',r.id,'name',r.customer_name,'status',r.status,'attendance',r.attendance,'version',r.updated_at::text,'paid',r.payment_status,'recurring',r.series_id IS NOT NULL)
       ORDER BY r.customer_name,r.id) FROM scheduling_reservations r WHERE r.organisation_id=o.organisation_id AND r.occurrence_id=o.id),'[]') members
       ${dates} AND o.id=$2`,
     [org, id],
@@ -144,6 +155,62 @@ export async function enrolClass(
     return rows.length > 0 || (await saved());
   } catch (error) {
     if (await saved()) return true;
+    if (['SCCAP', 'SCCLS', 'SCARC', '23505'].includes((error as { code: string }).code)) return false;
+    throw error;
+  }
+}
+// The roster supplies the exact dates and fee the coach saw. Recheck both while locking the dates
+// in calendar order. One refused reservation rolls back the series and every other place.
+export async function enrolTerm(org: string, staff: string, input: EnrolInput, expected: string[]) {
+  if (expected.length < 1 || expected.length > 26 || expected[0] !== input.id) return false;
+  const seriesId = 'coach-term:' + input.key;
+  const params = [
+    org,
+    input.id,
+    input.name,
+    input.email,
+    input.cents,
+    input.currency,
+    staff,
+    seriesId,
+    JSON.stringify(expected),
+  ];
+  try {
+    const rows = await db().query(
+      `WITH eligible AS (SELECT s.* ${schedules} FOR SHARE OF s,n,m,entitlement),
+      anchor AS (SELECT o.id,o.organisation_id,o.starts_at,d.term_id,d.offering_id
+        FROM scheduling_occurrences o JOIN scheduling_coach_term_dates d ON d.organisation_id=o.organisation_id AND d.occurrence_id=o.id
+        WHERE o.organisation_id=$1 AND o.id=$2 AND o.starts_at>now() AND o.status='scheduled'),
+      selected AS (SELECT o.*,s.preset_version,f.schedule_id,f.price_cents,f.currency ${dates}
+        AND EXISTS(SELECT 1 FROM anchor a JOIN scheduling_coach_term_dates d ON d.organisation_id=a.organisation_id
+          AND d.term_id=a.term_id AND d.offering_id=a.offering_id
+          WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id AND o.starts_at>=a.starts_at)
+        AND o.status='scheduled' AND o.starts_at>now() AND f.price_cents=$5 AND f.currency=$6
+        ORDER BY o.starts_at,o.id FOR UPDATE OF o FOR SHARE OF f),
+      series AS (INSERT INTO scheduling_series(organisation_id,id,offering_id,customer_name,customer_email,customer_email_normalised,timezone,created_by,status)
+        SELECT organisation_id,$8,offering_id,$3,$4,$4,timezone,$7,'ended' FROM selected WHERE id=$2
+          AND (SELECT jsonb_agg(id ORDER BY starts_at,id) FROM selected)=$9::jsonb
+        RETURNING id)
+      INSERT INTO scheduling_reservations (id,organisation_id,schedule_id,preset_key,preset_version,offering_id,occurrence_id,series_id,span_kind,
+        customer_name,customer_email,customer_email_normalised,timezone,local_start_date,local_start_time,local_end_date,local_end_time,
+        starts_at,ends_at,party_size,status,price_cents,currency,idempotency_key,created_by)
+      SELECT gen_random_uuid()::text,o.organisation_id,o.schedule_id,'classes_coaching',o.preset_version,o.offering_id,o.id,s.id,'occurrence',
+        $3,$4,$4,o.timezone,o.local_date,o.local_start_time,(o.ends_at AT TIME ZONE o.timezone)::date,(o.ends_at AT TIME ZONE o.timezone)::time,
+        o.starts_at,o.ends_at,1,'confirmed',o.price_cents,o.currency,s.id||':'||o.id,$7
+      FROM selected o CROSS JOIN series s ORDER BY o.starts_at,o.id RETURNING id`,
+      params,
+    );
+    return rows.length === expected.length;
+  } catch (error) {
+    // A repeated submission with the same key can acknowledge its original booking but never recreate a cancelled place.
+    const saved = await db().query(
+      `SELECT 1 FROM scheduling_reservations WHERE organisation_id=$1 AND series_id=$8
+      AND customer_name=$3 AND customer_email_normalised=$4 AND price_cents=$5 AND currency=$6 AND created_by=$7
+      GROUP BY series_id HAVING jsonb_agg(occurrence_id ORDER BY starts_at,occurrence_id)=$9::jsonb
+        AND bool_or(occurrence_id=$2)`,
+      params,
+    );
+    if (saved.length) return true;
     if (['SCCAP', 'SCCLS', 'SCARC', '23505'].includes((error as { code: string }).code)) return false;
     throw error;
   }

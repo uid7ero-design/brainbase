@@ -1,5 +1,6 @@
 import {
   AvailabilityZonesNotReadyError,
+  MAX_HORIZON_WEEKS,
   OCCURRENCE_WRITING_PRESETS,
   SchedulingError,
   isIanaTimezone,
@@ -774,6 +775,50 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
   }
 
   // ── occurrences ────────────────────────────────────────────────────────────
+
+  async createCoachTerm(tenant: TenantContext, offering: StoredOffering, resourceId: string | null,
+    zone: string, name: string, dates: readonly NewOccurrenceInput[]): Promise<boolean> {
+    this.manage(tenant);
+    if (dates.length < 2 || dates.length > MAX_HORIZON_WEEKS) return false;
+    const offeringId = offering.id;
+    // One statement commits the term, every occurrence and each exclusive resource hold together.
+    const rows = await this.sql.query(
+      `
+      WITH basis AS (SELECT f.id,f.organisation_id FROM scheduling_offerings f
+        JOIN scheduling_schedules s ON s.organisation_id=f.organisation_id AND s.id=f.schedule_id
+        JOIN organisations n ON n.id=s.organisation_id
+        WHERE f.organisation_id=$1 AND f.id=$2 AND f.archived_at IS NULL AND s.archived_at IS NULL
+        AND s.preset_key='classes_coaching' AND s.id<>'tennis-coaching'
+        AND f.duration_minutes=$8 AND f.capacity=$7 AND coalesce(s.timezone,nullif(n.timezone,''),'Australia/Adelaide')=$6
+        AND ($5::text IS NOT NULL OR NOT EXISTS(SELECT 1 FROM scheduling_offering_resources l
+          WHERE l.organisation_id=f.organisation_id AND l.offering_id=f.id))
+        FOR SHARE OF f,s,n),
+      term AS (INSERT INTO scheduling_coach_terms (organisation_id,offering_id,id,name,created_by)
+        SELECT organisation_id,id,gen_random_uuid(),$3,$4 FROM basis RETURNING *),
+      dates AS (INSERT INTO scheduling_occurrences (organisation_id,id,offering_id,resource_id,local_date,local_start_time,
+        timezone,starts_at,ends_at,capacity,created_by)
+        SELECT t.organisation_id,gen_random_uuid()::text,t.offering_id,$5,d.date,d."startTime",$6,d."startsAt",d."endsAt",$7,$4
+        FROM term t CROSS JOIN jsonb_to_recordset($9::jsonb) AS d(date date,"startTime" time,"startsAt" timestamptz,"endsAt" timestamptz)
+        ORDER BY d.date RETURNING *),
+      holds AS (INSERT INTO scheduling_resource_holds (organisation_id,id,resource_id,during,occurrence_id)
+        SELECT organisation_id,gen_random_uuid()::text,resource_id,tstzrange(starts_at,ends_at,'[)'),id FROM dates
+        WHERE resource_id IS NOT NULL ORDER BY starts_at)
+      INSERT INTO scheduling_coach_term_dates (organisation_id,offering_id,term_id,occurrence_id)
+        SELECT t.organisation_id,t.offering_id,t.id,d.id FROM term t CROSS JOIN dates d RETURNING occurrence_id`,
+      [
+        tenant.organisationId,
+        offeringId,
+        name,
+        createdBy(tenant),
+        resourceId,
+        zone,
+        offering.capacity,
+        offering.durationMinutes,
+        JSON.stringify(dates),
+      ],
+    );
+    return rows.length === dates.length;
+  }
 
   async createOccurrence(tenant: TenantContext, input: NewOccurrenceInput): Promise<CreateOccurrenceResult> {
     this.manage(tenant);

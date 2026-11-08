@@ -143,7 +143,10 @@ describe('Phase 1 does not enable the module anywhere', () => {
       }
     };
     sqlDirs.forEach(d => scan(path.join(ROOT, d)));
-    expect(offenders).toEqual(['scripts/tests/helpers/tennisSchedulingLocal.mjs']);
+    expect(offenders.sort()).toEqual(['scripts/create-coach-terms.sql', 'scripts/tests/helpers/tennisSchedulingLocal.mjs']);
+    const termSchema=read('scripts/create-coach-terms.sql');
+    expect([...termSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(match=>match[1])).toEqual(['scheduling_coach_terms','scheduling_coach_term_dates']);
+    expect(termSchema).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|DROP|ALTER)\b/i);
     expect(read('prisma/schema.prisma')).not.toMatch(/scheduling_/);
   });
 });
