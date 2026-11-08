@@ -152,5 +152,9 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
 }
 
 export function createCoachConfigRepository() {
-  return new PostgresSchedulingConfigRepository({ sql: createSchedulingExecutor() });
+  return new PostgresSchedulingConfigRepository({
+    sql: createSchedulingExecutor(),
+    coachTimezoneQuery: `SELECT coalesce(nullif(timezone,''),'Australia/Adelaide') AS timezone
+      FROM organisations WHERE id=$1 FOR SHARE`,
+  });
 }

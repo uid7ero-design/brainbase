@@ -194,14 +194,18 @@ const invalid = (problems: string[]) => new SchedulingError('invalid_input', pro
 export interface ConfigRepositoryOptions {
   sql: SqlExecutor;
   newId?: () => string;
+  /** Trusted host SQL selecting and locking the default timezone for tenant $1. */
+  coachTimezoneQuery?: string;
 }
 
 export class PostgresSchedulingConfigRepository implements SchedulingConfigRepository {
   private readonly sql: SqlExecutor;
   private readonly newId: () => string;
+  private readonly coachTimezoneQuery: string;
 
   constructor(options: ConfigRepositoryOptions) {
     this.sql = options.sql;
+    this.coachTimezoneQuery = options.coachTimezoneQuery ?? 'SELECT $11::text AS timezone';
     this.newId = options.newId ?? defaultNewId;
   }
 
@@ -784,15 +788,16 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
     // One statement commits the term, every occurrence and each exclusive resource hold together.
     const rows = await this.sql.query(
       `
-      WITH basis AS (SELECT f.id,f.organisation_id FROM scheduling_offerings f
+      WITH tenant_zone AS MATERIALIZED (${this.coachTimezoneQuery}),
+      basis AS (SELECT f.id,f.organisation_id FROM scheduling_offerings f
         JOIN scheduling_schedules s ON s.organisation_id=f.organisation_id AND s.id=f.schedule_id
-        JOIN organisations n ON n.id=s.organisation_id
+        CROSS JOIN tenant_zone n
         WHERE f.organisation_id=$1 AND f.id=$2 AND f.archived_at IS NULL AND s.archived_at IS NULL
-        AND s.preset_key='classes_coaching' AND s.id<>'tennis-coaching'
-        AND f.duration_minutes=$8 AND f.capacity=$7 AND coalesce(s.timezone,nullif(n.timezone,''),'Australia/Adelaide')=$6
+        AND s.preset_key='classes_coaching' AND s.id=$10
+        AND f.duration_minutes=$8 AND f.capacity=$7 AND coalesce(s.timezone,n.timezone,$11::text)=$6
         AND ($5::text IS NOT NULL OR NOT EXISTS(SELECT 1 FROM scheduling_offering_resources l
           WHERE l.organisation_id=f.organisation_id AND l.offering_id=f.id))
-        FOR SHARE OF f,s,n),
+        FOR SHARE OF f,s),
       term AS (INSERT INTO scheduling_coach_terms (organisation_id,offering_id,id,name,created_by)
         SELECT organisation_id,id,gen_random_uuid(),$3,$4 FROM basis RETURNING *),
       dates AS (INSERT INTO scheduling_occurrences (organisation_id,id,offering_id,resource_id,local_date,local_start_time,
@@ -815,6 +820,8 @@ export class PostgresSchedulingConfigRepository implements SchedulingConfigRepos
         offering.capacity,
         offering.durationMinutes,
         JSON.stringify(dates),
+        offering.scheduleId,
+        tenant.timezone,
       ],
     );
     return rows.length === dates.length;
