@@ -80,12 +80,17 @@ export interface MachineState {
   refetch: number;
   /** IDEMPOTENCY_CONFLICT: what already exists under the key, once looked up. */
   conflictFound: BookedReservation | null;
+  /**
+   * Keys that have had an UNCERTAIN outcome: the booking may exist under them. "Nothing was booked." may only be said about an attempt whose key is
+   * not in this list (see provableNotBooked). Grows only; never cleared, because a key that may have committed stays unconfirmed.
+   */
+  unconfirmedKeys: readonly string[];
 }
 
 export const initialDetails: Details = { name: '', email: '', phone: '', partySize: '1', notes: '' };
 
 export function initialState(): MachineState {
-  return { step: 'idle', target: null, details: initialDetails, errors: {}, errorTick: 0, notice: null, preferTime: null, reviewKey: null, attempt: null, sends: 0, poll: 0, reservation: null, mismatch: false, refetch: 0, conflictFound: null };
+  return { step: 'idle', target: null, details: initialDetails, errors: {}, errorTick: 0, notice: null, preferTime: null, reviewKey: null, attempt: null, sends: 0, poll: 0, reservation: null, mismatch: false, refetch: 0, conflictFound: null, unconfirmedKeys: [] };
 }
 
 export type Action =
@@ -178,6 +183,17 @@ export const RETURN_TO_TIME: Readonly<Partial<Record<DefinitiveCode, string>>> =
   NOT_FOUND: 'This resource or offering no longer exists, or you no longer have access to it. Nothing was booked.',
 };
 
+/** "Nothing was booked." is a CLAIM. It is only made when the system can prove it: this attempt's key has never had an uncertain outcome. */
+export function provableNotBooked(state: Pick<MachineState, 'attempt' | 'unconfirmedKeys'>): boolean {
+  return !state.attempt || !state.unconfirmedKeys.includes(state.attempt.key);
+}
+export const UNCONFIRMED_NOTE = 'Your earlier attempt could not be confirmed, so look in the calendar before booking again.';
+
+/** The refusal text for a definitive code. The claim is kept only when provable; otherwise it is replaced by the unconfirmed-attempt note. */
+export function refusalNotice(base: string, provable: boolean): string {
+  return provable ? base : `${base.replace(/ ?Nothing was booked\./, '')} ${UNCONFIRMED_NOTE}`;
+}
+
 const PROBLEM_FIELD: Readonly<Record<string, FieldKey>> = {
   'customer.name': 'name',
   'customer.email': 'email',
@@ -259,7 +275,7 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
         if (state.step !== 'submitting' || !state.attempt || !state.target) return state;
         const o = action.outcome;
         if (o.kind === 'created') return done(state, o.reservation);
-        if (o.kind === 'uncertain') return { ...state, step: 'checking', poll: 0 };
+        if (o.kind === 'uncertain') return { ...state, step: 'checking', poll: 0, unconfirmedKeys: state.unconfirmedKeys.includes(state.attempt.key) ? state.unconfirmedKeys : [...state.unconfirmedKeys, state.attempt.key] };
         if (o.kind === 'gate_off') return { ...state, step: 'unavailable' };
         if (o.kind === 'denied') return { ...state, step: 'denied' };
         const code = o.code;
@@ -273,10 +289,10 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
             const f = PROBLEM_FIELD[p];
             if (f) errors[f] = FIELD_MESSAGE[f];
           }
-          const notice = Object.keys(errors).length === 0 ? 'The booking was not accepted. Check the details. Nothing was booked.' : null;
+          const notice = Object.keys(errors).length === 0 ? refusalNotice('The booking was not accepted. Check the details. Nothing was booked.', provableNotBooked(state)) : null;
           return { ...state, step: 'details', attempt: null, errors, errorTick: state.errorTick + 1, notice };
         }
-        const text = RETURN_TO_TIME[code] ?? 'That time can’t be booked. Nothing was booked.';
+        const text = refusalNotice(RETURN_TO_TIME[code] ?? 'That time can’t be booked. Nothing was booked.', provableNotBooked(state));
         return {
           ...state,
           step: 'idle',
