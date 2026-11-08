@@ -17,7 +17,15 @@ If a date conflicts with a saved class or resource hold, term creation rolls bac
 
 The release requires the additive schema in `scripts/create-coach-terms.sql` before deploying the application. Existing single classes have no term membership.
 
-Existing LD Tennis classes use the LD Tennis calendar and roster link. One-to-one appointments remain available from the Coach workspace through Scheduling.
+### Use existing LD Tennis dates
+
+After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.
+
+From the first upcoming class, use **Group existing dates into a term**, name the term and choose its last scheduled class. The count covers the same class, weekday, time and location. Cancelled dates are skipped and an existing term ends the available range. To schedule further Tennis dates, use the existing Tennis class management screen to generate them first. Grouping only links dates and leaves the original class and player records in place.
+
+Open the joining date, then use **Enrol participant** for the remaining term when staff booking is enabled. The Tennis roster retains its existing one-off and open-ended weekly enrolment controls. The Tennis public booking page keeps its existing address.
+
+One-to-one appointments remain available from the Coach workspace through Scheduling.
 
 ## Operational boundaries
 

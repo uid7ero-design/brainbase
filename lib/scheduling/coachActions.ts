@@ -3,7 +3,14 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { authorizeSchedulingRequest } from './access';
 import { addClassDate } from './coachClassDates';
-import { changePublication, coachLinkPattern, enrolClass, enrolTerm, updateMember } from './coachClasses';
+import {
+  changePublication,
+  coachLinkPattern,
+  groupTennisTerm,
+  enrolClass,
+  enrolTerm,
+  updateMember,
+} from './coachClasses';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 type Result = { message: string; ok: boolean };
@@ -28,6 +35,17 @@ export async function manageClass(org: string, _previous: Result, form: FormData
   try {
     let ok = false;
     switch (action) {
+      case 'group-tennis-term':
+        ok = await groupTennisTerm(
+          org,
+          auth.session.userId,
+          field(form, 'class'),
+          field(form, 'termName'),
+          JSON.parse(field(form, 'expectedDates')),
+        );
+        if (!ok)
+          return result('The class dates have changed or already belong to a term. Refresh the roster.');
+        break;
       case 'term':
       case 'date': {
         const [offering, resource] = JSON.parse(field(form, 'offering'));

@@ -82,8 +82,8 @@ try {
   await q("INSERT INTO hr_administrators(organisation_id,user_id) VALUES('local-hr','local-admin')");
   await q("INSERT INTO hr_people(organisation_id,linked_user_id,first_name,last_name) VALUES('local-hr','local-employee','Local','Employee'),('local-other',NULL,'Foreign','Fixture')");
   if(tennisOnly) await setupTennisBusiness(q);
-  const tennisFixture=tennisSchedulingOnly ? await setupTennisScheduling(q) : null;
-  if(tennisSchedulingOnly)env.LD_TENNIS_ORG_ID=TENNIS_FIXTURE_ORG;
+  const tennisFixture=tennisSchedulingOnly ? await setupTennisScheduling(q, env) : null;
+  if(tennisSchedulingOnly) env.LD_TENNIS_ORG_ID=TENNIS_FIXTURE_ORG;
   let sqlCalls = 0;
   const objects = new Map();
   let storageCalls = 0;

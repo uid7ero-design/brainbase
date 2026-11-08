@@ -1,4 +1,5 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/app';
@@ -67,14 +68,21 @@ export default function CoachingWorkspaceScreen({today}:{today:string}) {
       {data.data?.next && <Button onClick={()=>{setAfter(data.data!.next);setSelected(null);}}>More dates</Button>}</div>
       </section>
       <div className={layout.rosterColumn}>
-      {selected ? <RosterScreen key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />
+      {selected ? <TennisRoster key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />
         : <section className={layout.empty} aria-label="Roster selection"><h2>Select a class date</h2><p>Choose a session to see its players, attendance and weekly enrolments.</p></section>}
       </div>
     </div>}
   </div>;
 }
 
-function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;today:string;onChanged:()=>void}) {
+type RosterProps = { id: string; active: boolean; today: string };
+
+export function RosterScreen(props: RosterProps) {
+  const router = useRouter();
+  return <TennisRoster {...props} onChanged={() => router.refresh()} />;
+}
+
+function TennisRoster({id,active,today,onChanged}: RosterProps & {onChanged:()=>void}) {
   const [after,setAfter]=useState<string|null>(null);
   const data=useSchedulingData<Roster>(`/coaching/roster/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}`:''}`);
   const roster=data.data;
@@ -154,6 +162,7 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
 function WeeklyControls({row,disabled,today,bookingDate,act}:{row:Row;disabled:boolean;today:string;bookingDate:string;act:(action:CoachingAction)=>Promise<void>}) {
   const minimum=!row.seriesId && bookingDate>today ? bookingDate:today;
   const [from,setFrom]=useState(minimum);const [until,setUntil]=useState(plusDays(minimum,7));
+  if(row.seriesId?.startsWith('coach-term:'))return <p>Term enrolment</p>;
   if(row.seriesId && row.seriesStatus!=='active')return <p>Weekly enrolment has ended. Previous bookings remain in history.</p>;
   if(!row.seriesId && row.status==='cancelled')return null;
   return <details><summary>Weekly enrolment for {row.name}</summary>
