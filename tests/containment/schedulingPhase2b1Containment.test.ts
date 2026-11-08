@@ -137,8 +137,8 @@ describe('the guard itself', () => {
     const sources = ['app', 'components', 'hooks', 'modules', 'services', 'store', 'lib'].flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/)).concat([path.join(ROOT, 'middleware.ts')]);
     const importers = (re: RegExp, relative?: RegExp) =>
       sources.filter(f => re.test(readFileSync(f, 'utf8')) || (relative !== undefined && rel(f).startsWith('lib/scheduling/') && relative.test(readFileSync(f, 'utf8')))).map(rel).sort();
-    expect(importers(/lib\/scheduling\/access['"]/, /from ['"]\.\/access['"]/)).toEqual(['app/coaching/roster/[id]/page.tsx', 'lib/scheduling/coachActions.ts', 'lib/scheduling/route.ts']);
-    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'lib/scheduling/coachClassDates.ts', 'lib/scheduling/coachClasses.ts', 'lib/scheduling/route.ts']);
+    expect(importers(/lib\/scheduling\/access['"]/, /from ['"]\.\/access['"]/)).toEqual(['app/coaching/roster/[id]/page.tsx', 'lib/scheduling/coachActions.ts', 'lib/scheduling/coachSquads.ts', 'lib/scheduling/route.ts']);
+    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'lib/scheduling/coachClassDates.ts', 'lib/scheduling/coachClasses.ts', 'lib/scheduling/coachSquadActions.ts', 'lib/scheduling/coachSquads.ts', 'lib/scheduling/route.ts']);
     expect(importers(/@scheduling\/postgres/)).toEqual(['lib/scheduling/runtime.ts']);
   });
 });

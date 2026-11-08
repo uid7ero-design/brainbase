@@ -41,6 +41,7 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
         {date.day} · {date.time} {date.timezone} · {date.schedule}
       </p>
       <p>
+        {date.squad && <>{date.squad} · </>}
         {date.term && <>{date.term.name} · </>}
         {date.enrolled} of {date.capacity} places filled
       </p>

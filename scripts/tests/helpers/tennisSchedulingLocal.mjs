@@ -15,6 +15,7 @@ export async function setupTennisScheduling(q, env) {
   for(const file of ['010_shared_schema.sql','030_resource_concurrency.sql','031_reservation_integrity.sql','032_schedule_archive_ordering.sql','033_occurrence_integrity.sql','034_availability_integrity.sql','035_availability_partial_closures.sql','036_availability_zones.sql','037_availability_versions.sql'])await q(readFileSync(`packages/scheduling/sql/${file}`,'utf8'));
   await q("INSERT INTO scheduling_settings(organisation_id,currency) VALUES($1,'AUD')",[org]);
   await q(readFileSync('scripts/create-coach-terms.sql','utf8'));
+  await q(readFileSync('scripts/create-coach-squads.sql','utf8'));
   await seedDisposableStaffBooking(q,org,env);
   const day=(await q("SELECT to_char((now() AT TIME ZONE 'Australia/Adelaide')::date+1,'YYYY-MM-DD') AS fixture_day")).rows[0].fixture_day;
   await q(`INSERT INTO sessions(id,organisation_id,name,day_of_week,start_time,duration_minutes,max_capacity,session_type,price_per_session,start_date,end_mode)

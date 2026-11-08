@@ -35,3 +35,6 @@
   .page label { grid-template-columns: minmax(0,1fr); }
   .page select,.page input { min-width: 0; }
 }
+.squadNav { display: flex; flex-wrap: wrap; gap: .5rem; }
+.squadNav a { border: 1px solid var(--border); border-radius: .5rem; padding: .6rem .9rem; }
+.squadNav a[aria-current="page"] { border-color: currentColor; font-weight: 650; }

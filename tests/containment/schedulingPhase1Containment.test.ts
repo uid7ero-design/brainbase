@@ -52,7 +52,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .map(rel);
     expect(offenders.sort()).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts',
       'app/class-booking/[org]/[link]/page.tsx', 'app/coaching/BookingFields.tsx', 'app/coaching/CoachSchedules.tsx',
-      'app/coaching/calendar/page.tsx', 'app/coaching/roster/[id]/page.tsx'].sort());
+      'app/coaching/calendar/page.tsx', 'app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx', 'app/coaching/squads/page.tsx'].sort());
     // Coach consumes only the dashboard's public view type and URL segment encoder.
     const coachImports = [...read('app/coaching/CoachSchedules.tsx').matchAll(/from '(@(?:scheduling\/|\/lib\/scheduling\/)[^']+)'/g)].map(match => match[1]);
     expect(coachImports.sort()).toEqual(['@/lib/scheduling/dashboard/api', '@/lib/scheduling/dashboard/types']);
@@ -143,7 +143,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
       }
     };
     sqlDirs.forEach(d => scan(path.join(ROOT, d)));
-    expect(offenders.sort()).toEqual(['scripts/create-coach-terms.sql', 'scripts/tests/helpers/tennisSchedulingLocal.mjs']);
+    expect(offenders.sort()).toEqual(['scripts/create-coach-squads.sql', 'scripts/create-coach-terms.sql', 'scripts/tests/helpers/tennisSchedulingLocal.mjs']);
     const termSchema=read('scripts/create-coach-terms.sql');
     expect([...termSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(match=>match[1])).toEqual(['scheduling_coach_terms','scheduling_coach_term_dates']);
     expect(termSchema).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|DROP|ALTER)\b/i);

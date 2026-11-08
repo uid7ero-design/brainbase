@@ -236,7 +236,7 @@ describe('the Book button exists only when the server says so (static)', () => {
       }
     };
     for (const dir of ['app', 'lib', 'components']) walk(dir);
-    expect(importers.sort()).toEqual(['app/coaching/roster/[id]/page.tsx', 'app/scheduling/resources/[resourceId]/calendar/page.tsx']);
+    expect(importers.sort()).toEqual(['app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx', 'app/scheduling/resources/[resourceId]/calendar/page.tsx']);
     const roster = read('app/coaching/roster/[id]/page.tsx');
     expect(roster).toContain('await getStaffBookingVisibility()');
     expect(roster).toContain('staffBooking && date.open && date.enrolled < date.capacity');
