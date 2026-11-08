@@ -464,6 +464,80 @@ for (const scheme of ['light', 'dark'] as const) {
       await context.close();
     });
 
+    // ── RELOAD-RECOVERY (design PR): FAILING-FIRST. Expected to FAIL until the recovery fix lands (test.fail); RECOVERY_IMPLEMENTED=1 makes them ordinary tests. ──
+    test(`RECOVERY D1: lost reply, "could not confirm", Close, reopen: the ORIGINAL booking is recovered; one key; one reservation (${scheme})`, async ({ browser }) => {
+      test.fail(process.env.RECOVERY_IMPLEMENTED !== '1', 'reload-recovery is not implemented yet');
+      test.setTimeout(150_000);
+      const context = await contextFor(browser, 'manager');
+      const page = await context.newPage();
+      await themed(page, scheme);
+      const keys: string[] = [];
+      let lost = false;
+      let blockLookups = true;
+      await page.route('**/api/scheduling/reservations', async route => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        keys.push(route.request().headers()['idempotency-key'] ?? '');
+        if (lost) return route.fallback();
+        lost = true;
+        await route.fetch(); // committed for real
+        return route.abort('failed'); // the reply is lost
+      });
+      await page.route(/\/api\/scheduling\/reservations\?idempotencyKey=/, route => (blockLookups ? route.abort('failed') : route.fallback()));
+      await openCalendar(page, court);
+      const before = await reservationRows();
+      const dialog = await toDetails(page);
+      await fillCustomer(dialog);
+      await dialog.getByRole('button', { name: 'Review booking' }).click();
+      await dialog.getByTestId('confirm-booking').click();
+      await expect(dialog.getByRole('heading', { name: /could not confirm whether the booking was saved/ })).toBeVisible({ timeout: 60_000 });
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(dialog).toBeHidden();
+      blockLookups = false;
+      await page.getByTestId('book-button').click();
+      const reopened = page.getByRole('dialog', { name: /^Book ZZ Staff booking court/ });
+      await expect(reopened.getByRole('heading', { name: 'Booked' })).toBeVisible({ timeout: 30_000 });
+      expect(new Set(keys).size).toBe(1);
+      expect(keys).toHaveLength(1);
+      expect(await reservationRows()).toBe(before + 1);
+      expect(await liveHoldRows()).toBe(1);
+      await context.close();
+    });
+
+    test(`RECOVERY refresh: a real page reload while the outcome is unknown reconciles the ORIGINAL key before anything else; no second booking (${scheme})`, async ({ browser }) => {
+      test.fail(process.env.RECOVERY_IMPLEMENTED !== '1', 'reload-recovery is not implemented yet');
+      test.setTimeout(150_000);
+      const context = await contextFor(browser, 'manager');
+      const page = await context.newPage();
+      await themed(page, scheme);
+      const keys: string[] = [];
+      let lost = false;
+      await page.route('**/api/scheduling/reservations', async route => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        keys.push(route.request().headers()['idempotency-key'] ?? '');
+        if (lost) return route.fallback();
+        lost = true;
+        await route.fetch();
+        return route.abort('failed');
+      });
+      await openCalendar(page, court);
+      const before = await reservationRows();
+      const dialog = await toDetails(page);
+      await fillCustomer(dialog);
+      await dialog.getByRole('button', { name: 'Review booking' }).click();
+      await dialog.getByTestId('confirm-booking').click();
+      await expect(dialog.getByRole('heading', { name: 'Checking whether your booking was saved' })).toBeVisible({ timeout: 30_000 });
+      await page.reload(); // the page's memory is gone
+      await expect(page.getByTestId('book-button')).toBeVisible({ timeout: 90_000 });
+      await page.getByTestId('book-button').click();
+      const reopened = page.getByRole('dialog', { name: /^Book ZZ Staff booking court/ });
+      await expect(reopened.getByRole('heading', { name: /Booked|earlier booking/ })).toBeVisible({ timeout: 30_000 });
+      await expect(reopened.getByText('Choose a date')).toHaveCount(0); // no fresh booking flow was offered
+      expect(keys).toHaveLength(1);
+      expect(await reservationRows()).toBe(before + 1);
+      expect(await liveHoldRows()).toBe(1);
+      await context.close();
+    });
+
     test(`RESOURCE_CONFLICT from the real server: the time was taken after the dialog loaded it; the user is returned to fresh times with their details (${scheme})`, async ({ browser }, info) => {
       const context = await contextFor(browser, 'manager');
       const page = await context.newPage();

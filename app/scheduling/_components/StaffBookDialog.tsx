@@ -3,7 +3,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from
 import { Button, Dialog, Field, FormActions, StateMessage, fieldControlClassName } from '@/components/ui/app';
 import { WINDOW_DAYS, describeReadFailure, fetchBasis, loadBookableOfferings, type BasisView, type BookableOffering } from '@/lib/scheduling/staffBooking/basisClient';
 import { createBookingKeyHolder } from '@/lib/scheduling/staffBooking/key';
-import { NOTES_MAX, POLL_DELAYS_MS, RETURN_TO_TIME, createMachine, initialState, type FieldKey, type Step, type Target } from '@/lib/scheduling/staffBooking/machine';
+import { NOTES_MAX, POLL_DELAYS_MS, RETURN_TO_TIME, UNCONFIRMED_NOTE, createMachine, initialState, provableNotBooked, type FieldKey, type Step, type Target } from '@/lib/scheduling/staffBooking/machine';
 import { lookupReservation, postReservation, type BookedReservation } from '@/lib/scheduling/staffBooking/submitClient';
 import { dayAccessibleName, dayLabel, durationText, endClock, longDayLabel, priceText, shiftDate, timesText, zoneText } from '@/lib/scheduling/staffBooking/view';
 import styles from './staffBook.module.css';
@@ -224,6 +224,8 @@ export default function StaffBookDialog({
 
   const failure = offerings.status === 'error' ? offerings.failure : basis.status === 'error' ? basis.failure : null;
   const busy = m.step === 'submitting' || m.step === 'checking';
+  // "Nothing was booked." is a claim: only made when this attempt's key has never had an uncertain outcome (machine.provableNotBooked).
+  const provable = provableNotBooked(m);
 
   const announce =
     m.notice ? m.notice
@@ -231,7 +233,7 @@ export default function StaffBookDialog({
     : m.step === 'checking' ? 'Checking whether your booking was saved. Please wait. Do not book again.'
     : m.step === 'done' ? 'Booked. The booking reference is shown below.'
     : m.step === 'unsure' ? 'We could not confirm whether the booking was saved.'
-    : m.step === 'retry' ? 'The system was busy. Nothing was booked.'
+    : m.step === 'retry' ? (provable ? 'The system was busy. Nothing was booked.' : `The system was busy. ${UNCONFIRMED_NOTE}`)
     : waitHint ? 'Please wait: this booking is being saved or checked. The window can be closed afterwards.'
     : m.step !== 'idle' ? ''
     : offerings.status === 'loading' ? 'Loading offerings…'
@@ -575,8 +577,8 @@ export default function StaffBookDialog({
             {m.step === 'retry' && (
               <section aria-labelledby="sb-h-retry">
                 <h3 id="sb-h-retry" ref={heading} tabIndex={-1} className={styles.heading}>The system was busy</h3>
-                <StateMessage kind="error" title="Nothing was booked.">
-                  Try again to send the same booking. It is safe to repeat.
+                <StateMessage kind="error" title={provable ? 'Nothing was booked.' : 'This try was not saved.'}>
+                  {provable ? '' : `${UNCONFIRMED_NOTE} `}Try again to send the same booking. It is safe to repeat.
                 </StateMessage>
               </section>
             )}
@@ -601,13 +603,13 @@ export default function StaffBookDialog({
             {m.step === 'unavailable' && (
               <section aria-labelledby="sb-h-unavail">
                 <h3 id="sb-h-unavail" ref={heading} tabIndex={-1} className={styles.heading}>Booking is not available</h3>
-                <StateMessage kind="error" title="Booking isn’t available right now. Nothing was booked." />
+                <StateMessage kind="error" title={provable ? 'Booking isn’t available right now. Nothing was booked.' : `Booking isn’t available right now. ${UNCONFIRMED_NOTE}`} />
               </section>
             )}
             {m.step === 'denied' && (
               <section aria-labelledby="sb-h-denied">
                 <h3 id="sb-h-denied" ref={heading} tabIndex={-1} className={styles.heading}>You can’t book here</h3>
-                <StateMessage kind="error" title="Your session has ended or you do not have permission to book. Nothing was booked." />
+                <StateMessage kind="error" title={provable ? 'Your session has ended or you do not have permission to book. Nothing was booked.' : `Your session has ended or you do not have permission to book. ${UNCONFIRMED_NOTE}`} />
               </section>
             )}
 

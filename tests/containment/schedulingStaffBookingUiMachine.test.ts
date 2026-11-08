@@ -13,7 +13,9 @@ import {
   bodyOf,
   contentOf,
   createMachine,
+  UNCONFIRMED_NOTE,
   initialState,
+  provableNotBooked,
   validateDetails,
   type Action,
   type Details,
@@ -482,4 +484,89 @@ describe('no sequence of outcomes can send a different key (property test)', () 
     expect(sendsSeen).toBeGreaterThan(500);
     expect(uncertainSeen).toBeGreaterThan(500);
   }, 60_000);
+});
+
+// ── "Nothing was booked." is a claim, made only when it can be proven ─────────────────────────────────────────────────────────────────
+describe('the claim "Nothing was booked." needs proof', () => {
+  const CLAIM = /Nothing was booked/i;
+  const toUnsure = (h: ReturnType<typeof harness>) => {
+    h.toReview();
+    h.send({ type: 'SUBMIT' });
+    h.send({ type: 'RESPONSE', outcome: { kind: 'uncertain' } });
+    for (let i = 0; i < POLL_DELAYS_MS.length; i += 1) h.send({ type: 'POLL', outcome: { kind: 'missing' } });
+    expect(h.state.step).toBe('unsure');
+  };
+
+  it('a definitive refusal of a first, certain attempt may say nothing was booked', () => {
+    const h = harness();
+    h.toReview();
+    h.send({ type: 'SUBMIT' });
+    expect(provableNotBooked(h.state)).toBe(true);
+    h.send({ type: 'RESPONSE', outcome: { kind: 'refused', code: 'RESOURCE_CONFLICT', problems: [] } });
+    expect(h.state.notice).toMatch(CLAIM);
+    expect(h.state.notice).toMatch(/just taken/i);
+  });
+
+  it('after an uncertain outcome, EVERY refusal code replaces the claim with the unconfirmed-attempt note', () => {
+    for (const code of [...Object.keys(RETURN_TO_TIME), 'VALIDATION', 'SOMETHING_ELSE'] as Array<(typeof DEFINITIVE_CODES)[number]>) {
+      const h = harness();
+      toUnsure(h);
+      h.send({ type: 'RETRY' });
+      expect(provableNotBooked(h.state)).toBe(false);
+      h.send({ type: 'RESPONSE', outcome: { kind: 'refused', code, problems: [] } });
+      const text = h.state.notice ?? '';
+      if (h.state.step === 'idle') {
+        expect(text, code).not.toMatch(CLAIM);
+        expect(text, code).toContain(UNCONFIRMED_NOTE);
+      }
+    }
+  });
+
+  it('a definite resource conflict after an unresolved attempt is distinguished from a clean one', () => {
+    const clean = harness();
+    clean.toReview();
+    clean.send({ type: 'SUBMIT' });
+    clean.send({ type: 'RESPONSE', outcome: { kind: 'refused', code: 'RESOURCE_CONFLICT', problems: [] } });
+    const unresolved = harness();
+    toUnsure(unresolved);
+    unresolved.send({ type: 'RETRY' });
+    unresolved.send({ type: 'RESPONSE', outcome: { kind: 'refused', code: 'RESOURCE_CONFLICT', problems: [] } });
+    expect(clean.state.notice).toMatch(CLAIM);
+    expect(unresolved.state.notice).not.toMatch(CLAIM);
+    expect(unresolved.state.notice).toMatch(/just taken/i);
+    expect(unresolved.state.notice).toContain(UNCONFIRMED_NOTE);
+  });
+
+  it('the unconfirmed history sticks to the key: going back to time selection and re-reviewing the same content keeps it unproven', () => {
+    const h = harness();
+    toUnsure(h);
+    h.send({ type: 'RETRY' });
+    h.send({ type: 'RESPONSE', outcome: { kind: 'refused', code: 'RESOURCE_CONFLICT', problems: [] } });
+    const first = h.state.unconfirmedKeys;
+    h.send({ type: 'START', target: TARGET });
+    h.send({ type: 'REVIEW' });
+    h.send({ type: 'SUBMIT' });
+    expect(h.state.attempt!.key).toBe(first[0]); // same content -> the holder returns the same key
+    expect(provableNotBooked(h.state)).toBe(false);
+    expect(h.minted()).toBe(1);
+  });
+
+  it('unconfirmedKeys is not changed by a stray response outside the submitting step', () => {
+    const h = harness();
+    toUnsure(h);
+    const keys = h.state.unconfirmedKeys;
+    expect(keys).toHaveLength(1);
+    h.send({ type: 'RESPONSE', outcome: { kind: 'created', reservation: reservation(), replayed: false } as never }); // ignored: not submitting
+    expect(h.state.unconfirmedKeys).toEqual(keys);
+  });
+
+  it('a lookup that finds the booking after an uncertain outcome ends in Booked, with no claim anywhere', () => {
+    const h = harness();
+    h.toReview();
+    h.send({ type: 'SUBMIT' });
+    h.send({ type: 'RESPONSE', outcome: { kind: 'uncertain' } });
+    h.send({ type: 'POLL', outcome: { kind: 'found', reservation: reservation() } });
+    expect(h.state.step).toBe('done');
+    expect(h.state.notice).toBeNull();
+  });
 });

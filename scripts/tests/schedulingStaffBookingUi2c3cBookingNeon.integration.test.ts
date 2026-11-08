@@ -8,15 +8,15 @@ import { staff, uid } from '../../packages/scheduling-postgres/tests/support/pgH
 // Phase 2C.3c UI slice 2: the staff booking UI's OWN client code (state machine + postReservation + lookupReservation) driven through the real routes with the REAL
 // @neondatabase/serverless HTTP driver as `@/lib/db`, against a DISPOSABLE Neon branch only. Opt-in: skipped unless NEON_REHEARSAL_URL is set. Same safety guard as the 2C.3b Neon test:
 // refuses to run unless NEON_REHEARSAL_HOST equals the host of NEON_REHEARSAL_URL, the login role is exactly rehearsal_037, and migration 037 is present. Only two synthetic organisations
-// (neon-route-a, neon-route-b) are written and removed afterwards; every other organisation's rows (the Production-data copy, including the pilot and LD Tennis) are fingerprinted before
+// (neon-ui2-a, neon-ui2-b) are written and removed afterwards; every other organisation's rows (the Production-data copy, including the pilot and LD Tennis) are fingerprinted before
 // and after and must be identical. No credential is stored here.
 
 const URL_ = process.env.NEON_REHEARSAL_URL ?? '';
 const EXPECTED_HOST = process.env.NEON_REHEARSAL_HOST ?? '';
 const suite = URL_ !== '' ? describe : describe.skip;
 
-const ORG = 'neon-route-a';
-const OTHER = 'neon-route-b';
+const ORG = 'neon-ui2-a';
+const OTHER = 'neon-ui2-b';
 
 const state = vi.hoisted(() => ({ loseNextReply: false, failNextBeforeSend: false, unexpectedBefore: false, unexpectedAfter: false, batches: 0, session: null as null | { userId: string; organisationId: string; role: string }, noCapability: false }));
 
@@ -149,13 +149,15 @@ async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   return Response.json({ error: 'not_found' }, { status: 404 });
 }
 
+// ISOLATION RULE: every synthetic organisation of every Neon suite is named 'neon-*' (this suite: neon-ui2-*). "Other organisations" means everything NOT 'neon-*', so suites can run in
+// parallel or in any order without seeing each other's rows. The Production-data copy uses uuid ids and is never matched by this prefix.
 const OTHERS_SNAPSHOT_SQL = `SELECT
-  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT IN ($1, $2)) AS reservations,
-  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT IN ($1, $2)) AS holds,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT IN ($1, $2)) AS reservation_rows,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT IN ($1, $2)) AS rules,
-  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT IN ($1, $2)) AS versions,
-  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT IN ($1, $2)) AS offerings`;
+  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT LIKE 'neon-%') AS reservations,
+  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT LIKE 'neon-%') AS holds,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT LIKE 'neon-%') AS reservation_rows,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT LIKE 'neon-%') AS rules,
+  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT LIKE 'neon-%') AS versions,
+  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT LIKE 'neon-%') AS offerings`;
 let othersBefore: Record<string, unknown>;
 const timings: Record<string, number | string> = {};
 
@@ -171,12 +173,12 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       await sql.query('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $1, $1, now(), $2) ON CONFLICT (id) DO NOTHING', [org, TZ]);
       await sql.query("INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, 'AUD') ON CONFLICT DO NOTHING", [org]);
     }
-    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL))[0];
   }, 60_000);
 
   afterAll(async () => {
     if (!sql) return;
-    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL))[0];
     for (const org of [ORG, OTHER]) {
       await sql.query("DELETE FROM audit_logs WHERE organisation_id = $1 AND action LIKE 'scheduling.%'", [org]).catch(() => undefined);
       for (const t of ['scheduling_resource_holds', 'scheduling_reservations', 'scheduling_availability_rules', 'scheduling_availability_exceptions', 'scheduling_availability_zones', 'scheduling_offering_resources', 'scheduling_offerings', 'scheduling_resources', 'scheduling_schedules', 'scheduling_settings']) {
@@ -195,7 +197,7 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
     state.failNextBeforeSend = false;
     state.unexpectedBefore = false;
     state.unexpectedAfter = false;
-    as('neon-u1', ORG);
+    as('neon-ui2-u1', ORG);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
   });
@@ -350,12 +352,12 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       expect(s.step).toBe('done');
       const key = s.attempt!.key;
       const before = await total(f);
-      as('neon-u2', OTHER);
+      as('neon-ui2-u2', OTHER);
       expect(await lookupReservation(key)).toEqual({ kind: 'missing' });
       expect((await postReservation(s.attempt!.body, `bk_${'e'.repeat(32)}`)).kind).toBe('refused'); // org-b cannot book org-a's court: NOT_FOUND family
-      as('neon-viewer', ORG, 'viewer');
+      as('neon-ui2-viewer', ORG, 'viewer');
       expect((await postReservation(s.attempt!.body, `bk_${'f'.repeat(32)}`)).kind).toBe('denied');
-      as('neon-u1', ORG);
+      as('neon-ui2-u1', ORG);
       process.env.SCHEDULING_STAFF_BOOKING = 'off';
       expect(await postReservation(s.attempt!.body, `bk_${'9'.repeat(32)}`)).toEqual({ kind: 'gate_off' });
       process.env.SCHEDULING_STAFF_BOOKING = 'on';
