@@ -77,6 +77,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
                       )}
                     </strong>
                     <small>
+                      {c.archived && 'Archived class · '}
                       {c.term && <>{c.term} · </>}
                       {c.schedule} · {c.timezone}
                     </small>
@@ -94,6 +95,14 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
         <div className={styles.columns}>
           <section className={styles.panel}>
             <h2>Add a class date</h2>
+            {dates.some((d) => d.tennis) && (
+              <p>
+                Open a Tennis class above to group its scheduled dates into a term.{' '}
+                <Link href="/scheduling/schedules/tennis-coaching">
+                  Manage Tennis classes and generate dates
+                </Link>
+              </p>
+            )}
             {choices.length ? (
               <ClassDateForm action={action}>
                 <label>

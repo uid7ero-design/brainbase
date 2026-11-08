@@ -1,4 +1,5 @@
 import 'server-only';
+import { coachingAuthority } from '@/lib/tennisBusiness/coachingAuthority';
 import { randomUUID } from 'node:crypto';
 import { createSchedulingExecutor } from './runtime';
 
@@ -6,13 +7,29 @@ const db = () => createSchedulingExecutor();
 export const coachLinkPattern = /^coach-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 
 // The imported tennis schedule has its own cutover, roster and booking rules.
-const schedules = `FROM scheduling_schedules s JOIN organisations n ON n.id=s.organisation_id AND n.status='ACTIVE'
+const scheduleScope = `FROM scheduling_schedules s JOIN organisations n ON n.id=s.organisation_id AND n.status='ACTIVE'
   JOIN scheduling_settings settings ON settings.organisation_id=n.id
   JOIN organisation_modules entitlement ON entitlement.organisation_id=n.id AND entitlement.module_key='scheduling' AND entitlement.enabled
   JOIN modules m ON m.key=entitlement.module_key AND m.active
-  WHERE s.organisation_id=$1 AND s.preset_key='classes_coaching' AND s.id<>'tennis-coaching' AND s.archived_at IS NULL`;
-const dates = `FROM scheduling_occurrences o JOIN scheduling_offerings f ON f.organisation_id=o.organisation_id AND f.id=o.offering_id
-  JOIN eligible s ON s.organisation_id=f.organisation_id AND s.id=f.schedule_id WHERE f.archived_at IS NULL`;
+  WHERE s.organisation_id=$1 AND s.preset_key='classes_coaching' AND s.archived_at IS NULL`;
+const schedules = scheduleScope + " AND s.id<>'tennis-coaching'";
+
+// Public and single-booking mutations retain their original scope. Only signed-in
+// calendar, roster and term operations can include the activated import.
+async function staffSchedules(org: string) {
+  if ((await coachingAuthority(org)) !== 'scheduling') return schedules;
+  return (
+    scheduleScope +
+    ` AND (s.id<>'tennis-coaching' OR (n.slug='ld-tennis' AND EXISTS (
+    SELECT 1 FROM scheduling_tennis_cutover c JOIN scheduling_tennis_import_receipts i
+      ON i.organisation_id=c.organisation_id AND i.source_hash=c.captured_hash
+    WHERE c.organisation_id=n.id AND c.phase='scheduling' FOR SHARE OF c,i)))`
+  );
+}
+const dateScope = `FROM scheduling_occurrences o JOIN scheduling_offerings f ON f.organisation_id=o.organisation_id AND f.id=o.offering_id
+  JOIN eligible s ON s.organisation_id=f.organisation_id AND s.id=f.schedule_id`;
+const dates = dateScope + ' WHERE f.archived_at IS NULL';
+const staffDates = dateScope + " WHERE (f.archived_at IS NULL OR s.id='tennis-coaching')";
 const fields = `o.id,f.name,s.name AS schedule,to_char(o.local_date,'YYYY-MM-DD') AS day,to_char(o.local_start_time,'HH24:MI') AS time,
   o.timezone, o.capacity, f.price_cents AS cents,f.currency, o.status,
   (o.status='scheduled' AND o.starts_at>now()) AS open,
@@ -34,11 +51,11 @@ export type ClassDate = {
 };
 export type CoachSchedule = { id: string; name: string; slug: string | null };
 
-export function weekDates(org: string, from: string) {
-  return db().query<ClassDate & { term: string | null }>(
-    `WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields},
+export async function weekDates(org: string, from: string) {
+  return db().query<ClassDate & { term: string | null; tennis: boolean; archived: boolean }>(
+    `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,
     (SELECT t.name FROM scheduling_coach_term_dates d JOIN scheduling_coach_terms t ON t.organisation_id=d.organisation_id
-      AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${dates}
+      AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${staffDates}
     AND o.local_date >= $2::date AND o.local_date < $2::date+7 ORDER BY o.local_date,o.local_start_time,f.name,o.id`,
     [org, from],
   );
@@ -71,6 +88,8 @@ export async function publicClasses(org: string, slug: string) {
 export async function readRoster(org: string, id: string) {
   const rows = await db().query<
     ClassDate & {
+      tennis: boolean;
+      archived: boolean;
       term: { name: string; dates: string[]; last: string | null } | null;
       members: {
         id: string;
@@ -84,7 +103,7 @@ export async function readRoster(org: string, id: string) {
     }
   >(
     `
-    WITH eligible AS (SELECT s.* ${schedules}) SELECT ${fields},(SELECT jsonb_build_object('name',t.name,'dates',coalesce(array_agg(future.id ORDER BY future.starts_at) FILTER(WHERE future.id IS NOT NULL),'{}'),
+    WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,(SELECT jsonb_build_object('name',t.name,'dates',coalesce(array_agg(future.id ORDER BY future.starts_at) FILTER(WHERE future.id IS NOT NULL),'{}'),
       'last',max(future.local_date)) FROM scheduling_coach_term_dates base
       JOIN scheduling_coach_terms t ON t.organisation_id=base.organisation_id AND t.offering_id=base.offering_id AND t.id=base.term_id
       JOIN scheduling_coach_term_dates d ON d.organisation_id=t.organisation_id AND d.offering_id=t.offering_id AND d.term_id=t.id
@@ -93,11 +112,71 @@ export async function readRoster(org: string, id: string) {
       WHERE base.organisation_id=o.organisation_id AND base.occurrence_id=o.id GROUP BY t.name) AS term,
       COALESCE((SELECT jsonb_agg(jsonb_build_object(
       'id',r.id,'name',r.customer_name,'status',r.status,'attendance',r.attendance,'version',r.updated_at::text,'paid',r.payment_status,'recurring',r.series_id IS NOT NULL)
-      ORDER BY r.customer_name,r.id) FROM scheduling_reservations r WHERE r.organisation_id=o.organisation_id AND r.occurrence_id=o.id),'[]') members
-      ${dates} AND o.id=$2`,
+      ORDER BY r.customer_name,r.id) FROM scheduling_reservations r WHERE s.id<>'tennis-coaching' AND r.organisation_id=o.organisation_id AND r.occurrence_id=o.id),'[]') members
+      ${staffDates} AND o.id=$2`,
     [org, id],
   );
   return rows[0] ?? null;
+}
+// Group scheduled dates of one Tennis class at the same weekly time. Existing
+// term membership is a boundary even if its date was subsequently cancelled.
+async function tennisTermBasis(org: string) {
+  return `WITH eligible AS (SELECT s.* ${await staffSchedules(org)} AND s.id='tennis-coaching' FOR SHARE OF s,n,m,entitlement),
+    anchor AS (SELECT o.* ${dates} AND o.id=$2 AND o.status='scheduled' AND o.starts_at>now() FOR SHARE OF f,o),
+    slots AS (SELECT o.id,o.local_date,o.organisation_id,o.offering_id FROM anchor a
+      JOIN scheduling_occurrences o ON o.organisation_id=a.organisation_id AND o.offering_id=a.offering_id
+        AND o.resource_id IS NOT DISTINCT FROM a.resource_id AND o.local_start_time=a.local_start_time
+        AND o.local_date BETWEEN a.local_date AND a.local_date+175 AND (o.local_date-a.local_date)%7=0
+      WHERE (o.status='scheduled' OR EXISTS(SELECT 1 FROM scheduling_coach_term_dates d
+        WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id))
+      ORDER BY o.local_date,o.id FOR SHARE OF o),
+    available AS (SELECT * FROM slots x WHERE NOT EXISTS(SELECT 1 FROM slots prior
+      JOIN scheduling_coach_term_dates d ON d.organisation_id=prior.organisation_id AND d.occurrence_id=prior.id
+      WHERE prior.local_date<=x.local_date))`;
+}
+
+export async function tennisTermChoices(org: string, occurrence: string) {
+  return db().query<{ id: string; day: string }>(
+    `${await tennisTermBasis(org)}
+    SELECT id,to_char(local_date,'YYYY-MM-DD') AS day FROM available ORDER BY local_date,id`,
+    [org, occurrence],
+  );
+}
+
+export async function groupTennisTerm(
+  org: string,
+  staff: string,
+  occurrence: string,
+  name: string,
+  expected: unknown,
+) {
+  if (
+    !name ||
+    name.length > 120 ||
+    !Array.isArray(expected) ||
+    expected.length < 2 ||
+    expected.length > 26 ||
+    expected[0] !== occurrence ||
+    !expected.every((id) => typeof id === 'string')
+  )
+    return false;
+  try {
+    const rows = await db().query(
+      `${await tennisTermBasis(org)},
+      selected AS (SELECT * FROM available ORDER BY local_date,id LIMIT $3),
+      term AS (INSERT INTO scheduling_coach_terms(organisation_id,offering_id,id,name,created_by)
+        SELECT organisation_id,offering_id,gen_random_uuid(),$4,$5 FROM selected WHERE id=$2
+        AND (SELECT jsonb_agg(id ORDER BY local_date,id) FROM selected)=$6::jsonb RETURNING *)
+      INSERT INTO scheduling_coach_term_dates(organisation_id,offering_id,term_id,occurrence_id)
+      SELECT t.organisation_id,t.offering_id,t.id,x.id FROM term t CROSS JOIN selected x
+      ORDER BY x.local_date,x.id RETURNING occurrence_id`,
+      [org, occurrence, expected.length, name, staff, JSON.stringify(expected)],
+    );
+    return rows.length === expected.length;
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') return false;
+    throw error;
+  }
 }
 export type EnrolInput = {
   id: string;
@@ -177,7 +256,7 @@ export async function enrolTerm(org: string, staff: string, input: EnrolInput, e
   ];
   try {
     const rows = await db().query(
-      `WITH eligible AS (SELECT s.* ${schedules} FOR SHARE OF s,n,m,entitlement),
+      `WITH eligible AS (SELECT s.* ${await staffSchedules(org)} FOR SHARE OF s,n,m,entitlement),
       anchor AS (SELECT o.id,o.organisation_id,o.starts_at,d.term_id,d.offering_id
         FROM scheduling_occurrences o JOIN scheduling_coach_term_dates d ON d.organisation_id=o.organisation_id AND d.occurrence_id=o.id
         WHERE o.organisation_id=$1 AND o.id=$2 AND o.starts_at>now() AND o.status='scheduled'),

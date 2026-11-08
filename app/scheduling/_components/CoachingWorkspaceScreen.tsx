@@ -1,4 +1,5 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/app';
@@ -74,7 +75,8 @@ export default function CoachingWorkspaceScreen({today}:{today:string}) {
   </div>;
 }
 
-function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;today:string;onChanged:()=>void}) {
+export function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;today:string;onChanged?:()=>void}) {
+  const router=useRouter();
   const [after,setAfter]=useState<string|null>(null);
   const data=useSchedulingData<Roster>(`/coaching/roster/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}`:''}`);
   const roster=data.data;
@@ -84,7 +86,7 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
   try { if(snapshot && storageReady) {const p=JSON.parse(snapshot);if(!p || typeof p.key!=='string' || !['enrol','attendance','paid-marker','cancel','pause','resume','start-weekly','stop-weekly'].includes(p.kind)) throw Error();pending=p;} } catch {storageReady=false;}
   const [busy,setBusy]=useState(false);const flight=useRef(false);const [message,setMessage]=useState('');
   const save=(value:Pending|null)=>{if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);window.dispatchEvent(new Event(event));};
-  const reload=()=>{data.reload();onChanged();};
+  const reload=()=>{data.reload();if(onChanged)onChanged();else router.refresh();};
   const disabled=!active || !storageReady || busy || !!pending || !!data.problem || data.refreshing;
   async function act(action:CoachingAction) {
     if(disabled || flight.current)return;flight.current=true;setBusy(true);setMessage('');
@@ -154,6 +156,7 @@ function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;toda
 function WeeklyControls({row,disabled,today,bookingDate,act}:{row:Row;disabled:boolean;today:string;bookingDate:string;act:(action:CoachingAction)=>Promise<void>}) {
   const minimum=!row.seriesId && bookingDate>today ? bookingDate:today;
   const [from,setFrom]=useState(minimum);const [until,setUntil]=useState(plusDays(minimum,7));
+  if(row.seriesId?.startsWith('coach-term:'))return <p>Term enrolment</p>;
   if(row.seriesId && row.seriesStatus!=='active')return <p>Weekly enrolment has ended. Previous bookings remain in history.</p>;
   if(!row.seriesId && row.status==='cancelled')return null;
   return <details><summary>Weekly enrolment for {row.name}</summary>
