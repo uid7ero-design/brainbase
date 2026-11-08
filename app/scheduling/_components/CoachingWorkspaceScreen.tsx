@@ -68,15 +68,21 @@ export default function CoachingWorkspaceScreen({today}:{today:string}) {
       {data.data?.next && <Button onClick={()=>{setAfter(data.data!.next);setSelected(null);}}>More dates</Button>}</div>
       </section>
       <div className={layout.rosterColumn}>
-      {selected ? <RosterScreen key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />
+      {selected ? <TennisRoster key={selected} id={selected} active={data.data?.phase==='scheduling' && !data.refreshing} today={today} onChanged={data.reload} />
         : <section className={layout.empty} aria-label="Roster selection"><h2>Select a class date</h2><p>Choose a session to see its players, attendance and weekly enrolments.</p></section>}
       </div>
     </div>}
   </div>;
 }
 
-export function RosterScreen({id,active,today,onChanged}:{id:string;active:boolean;today:string;onChanged?:()=>void}) {
-  const router=useRouter();
+type RosterProps = { id: string; active: boolean; today: string };
+
+export function RosterScreen(props: RosterProps) {
+  const router = useRouter();
+  return <TennisRoster {...props} onChanged={() => router.refresh()} />;
+}
+
+function TennisRoster({id,active,today,onChanged}: RosterProps & {onChanged:()=>void}) {
   const [after,setAfter]=useState<string|null>(null);
   const data=useSchedulingData<Roster>(`/coaching/roster/${encodeURIComponent(id)}${after ? `?after=${encodeURIComponent(after)}`:''}`);
   const roster=data.data;
@@ -86,7 +92,7 @@ export function RosterScreen({id,active,today,onChanged}:{id:string;active:boole
   try { if(snapshot && storageReady) {const p=JSON.parse(snapshot);if(!p || typeof p.key!=='string' || !['enrol','attendance','paid-marker','cancel','pause','resume','start-weekly','stop-weekly'].includes(p.kind)) throw Error();pending=p;} } catch {storageReady=false;}
   const [busy,setBusy]=useState(false);const flight=useRef(false);const [message,setMessage]=useState('');
   const save=(value:Pending|null)=>{if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);window.dispatchEvent(new Event(event));};
-  const reload=()=>{data.reload();if(onChanged)onChanged();else router.refresh();};
+  const reload=()=>{data.reload();onChanged();};
   const disabled=!active || !storageReady || busy || !!pending || !!data.problem || data.refreshing;
   async function act(action:CoachingAction) {
     if(disabled || flight.current)return;flight.current=true;setBusy(true);setMessage('');
