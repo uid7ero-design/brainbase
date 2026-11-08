@@ -28,6 +28,7 @@ const matches = (path: string, prefix: string) => path === prefix || path.starts
 /** Page and HTTP API namespaces; unknown namespaces deny managed accounts. */
 export function moduleForPath(path: string): ModuleKey[] {
   const plain = path.startsWith('/api/') ? path.slice(4) : path;
+  if (matches(path, '/coaching')) return ['scheduling'];
   if (matches(plain, '/business/tennis')) return ['scheduling', 'crm', 'invoicing', 'purchasing', 'budgeting'];
   if (matches(plain, '/hr') || matches(plain, '/people')) return ['people'];
   if (matches(plain, '/uploads') || matches(plain, '/upload') || matches(plain, '/data-hub')) return ['data_hub'];

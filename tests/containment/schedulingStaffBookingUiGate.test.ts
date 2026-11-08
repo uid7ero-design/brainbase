@@ -224,7 +224,7 @@ describe('the Book button exists only when the server says so (static)', () => {
     expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility/);
   });
 
-  it('the visibility helper is server-only and is imported by exactly one page', () => {
+  it('the visibility helper is server-only and is used only by the Coach roster and resource calendar', () => {
     expect(read('lib/scheduling/staffBookingVisibility.ts')).toMatch(/^import 'server-only';/);
     const importers: string[] = [];
     const walk = (dir: string) => {
@@ -236,7 +236,10 @@ describe('the Book button exists only when the server says so (static)', () => {
       }
     };
     for (const dir of ['app', 'lib', 'components']) walk(dir);
-    expect(importers).toEqual(['app/scheduling/resources/[resourceId]/calendar/page.tsx']);
+    expect(importers.sort()).toEqual(['app/coaching/roster/[id]/page.tsx', 'app/scheduling/resources/[resourceId]/calendar/page.tsx']);
+    const roster = read('app/coaching/roster/[id]/page.tsx');
+    expect(roster).toContain('await getStaffBookingVisibility()');
+    expect(roster).toContain('staffBooking && date.open && date.enrolled < date.capacity');
   }, 60_000); // walks every source file; under the full parallel suite it exceeded the 5 s default (found in the final release review)
 
   it('the visibility gate checks the switch before it reads a session', () => {

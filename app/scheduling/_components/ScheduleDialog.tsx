@@ -12,7 +12,7 @@ import styles from './scheduling.module.css';
 // API refuses it afterwards with PRESET_LOCKED, so the form says why instead of offering a control that cannot work).
 
 export type ScheduleDialogProps =
-  | { mode: 'create'; onClose: () => void; onSaved: (schedule: ScheduleView) => void; onReload?: () => void }
+  | { mode: 'create'; coachingOnly?: boolean; onClose: () => void; onSaved: (schedule: ScheduleView) => void; onReload?: () => void }
   | { mode: 'edit'; schedule: ScheduleView; presetChangeable: boolean; onClose: () => void; onSaved: (schedule: ScheduleView) => void; onReload: () => void };
 
 export function ScheduleDialog(props: ScheduleDialogProps) {
@@ -21,7 +21,8 @@ export function ScheduleDialog(props: ScheduleDialogProps) {
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<string[]>([]);
   const [problem, setProblem] = useState<ApiProblem | null>(null);
-  const choices = presetChoices();
+  const choices = presetChoices().filter(choice => props.mode !== 'create' || !props.coachingOnly ||
+    choice.key === 'classes_coaching' || choice.key === 'appointments');
   const presetPickable = props.mode === 'create' || props.presetChangeable;
   const set = <K extends keyof ScheduleFormValues>(key: K, value: ScheduleFormValues[K]) => setValues(v => ({ ...v, [key]: value }));
   const needsHours = values.customerCanCancel;
