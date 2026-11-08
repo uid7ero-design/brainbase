@@ -7,7 +7,17 @@
 3. Open the class name to see its roster. Managers with staff booking enabled can enrol a participant by name and email. To open self-service booking, enable the schedule’s public booking link and share the resulting URL. The link lists scheduled classes starting in the next 90 days. Disable it to close that link to new bookings.
 4. Use the roster to mark attendance or cancel an unpaid enrolment whose attendance is still unmarked. A cancellation frees the place and keeps the entry in the roster history.
 
-Each enrolment covers one dated class and one place. Existing LD Tennis classes use the LD Tennis calendar and roster link. One-to-one appointments remain available from the Coach workspace through Scheduling.
+## Run a weekly term
+
+1. In **Weekly class calendar**, choose **Weekly term** under **Schedule type**. Choose the class and location, then enter the first class date, local start time, term name and inclusive end date. Select **Create term**. The calendar shows the term name on each weekly class. Terms cover two to 26 dates; the end date can fall between classes.
+2. Open the roster on the date the participant will join. Enter their name and email, then choose **Remaining term** under **Enrolment covers**. Check the number of classes, last date and fee per class before selecting **Enrol participant**. Earlier dates and other terms are excluded. The series is closed to further generation as soon as all selected reservations are saved.
+3. Each booked date has its own attendance and unpaid booking record. Cancelling an eligible enrolment from a roster affects only that date. Public booking links continue to book one date at a time.
+
+If a date conflicts with a saved class or resource hold, term creation rolls back. A full date or existing booking for that email blocks the whole enrolment. Review the saved rosters before retrying. Choose a different start time if a weekly class would fall at a skipped or repeated local time during a daylight-saving change.
+
+The release requires the additive schema in `scripts/create-coach-terms.sql` before deploying the application. Existing single classes have no term membership.
+
+Existing LD Tennis classes use the LD Tennis calendar and roster link. One-to-one appointments remain available from the Coach workspace through Scheduling.
 
 ## Operational boundaries
 

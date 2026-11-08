@@ -7,6 +7,7 @@ import { classSchedules, coachLinkPattern, weekDates } from '@/lib/scheduling/co
 import { weekStart, addLocalDays, dateChoices } from '@/lib/scheduling/coachClassDates';
 import { manageClass } from '@/lib/scheduling/coachActions';
 import ClassForm from '../ClassForm';
+import ClassDateForm from '../ClassDateForm';
 import styles from '../workspace.module.css';
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
                       )}
                     </strong>
                     <small>
+                      {c.term && <>{c.term} · </>}
                       {c.schedule} · {c.timezone}
                     </small>
                     <span>
@@ -93,8 +95,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
           <section className={styles.panel}>
             <h2>Add a class date</h2>
             {choices.length ? (
-              <ClassForm action={action} label="Add class date">
-                <input type="hidden" name="action" value="date" />
+              <ClassDateForm action={action}>
                 <label>
                   Class and location{' '}
                   <select name="offering">
@@ -116,7 +117,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
                 <label>
                   Local start time <input type="time" name="time" required />
                 </label>
-              </ClassForm>
+              </ClassDateForm>
             ) : (
               <p>
                 Open a group schedule and add a class offering with a duration and capacity.{' '}

@@ -1,6 +1,14 @@
 import 'server-only';
-import { isLocalDate, isLocalTime, resolveLocalTime, addLocalDays } from '@scheduling/core';
-import { createSchedulingExecutor, loadSchedulingRuntime } from './runtime';
+import {
+  isLocalDate,
+  isLocalTime,
+  resolveLocalTime,
+  addLocalDays,
+  planOccurrences,
+  localDayOfWeek,
+  MAX_HORIZON_WEEKS,
+} from '@scheduling/core';
+import { createCoachConfigRepository, createSchedulingExecutor, loadSchedulingRuntime } from './runtime';
 import type { OrgSession } from '@/lib/org';
 
 export function weekStart(day: string) {
@@ -33,6 +41,7 @@ export async function addClassDate(
   resourceId: string | null,
   day: string,
   time: string,
+  term?: { name: string; end: string },
 ) {
   if (!isLocalDate(day) || !isLocalTime(time)) return false;
   const { tenant, persistence, timezone } = await loadSchedulingRuntime(session);
@@ -54,6 +63,35 @@ export async function addClassDate(
   const zone = schedule.timezone ?? timezone.value;
   const start = resolveLocalTime(day, time, zone);
   if (start.kind !== 'ok' || Date.parse(start.instant) <= Date.now()) return false;
+  if (term) {
+    if (
+      !term.name ||
+      term.name.length > 120 ||
+      !isLocalDate(term.end) ||
+      term.end < addLocalDays(day, 7) ||
+      term.end > addLocalDays(day, MAX_HORIZON_WEEKS * 7 - 1)
+    )
+      return false;
+    const plan = planOccurrences({
+      offering: {
+        ...offering,
+        startTime: time,
+        recurrence: {
+          kind: 'weekly',
+          dayOfWeek: localDayOfWeek(day),
+          startDate: day,
+          end: { mode: 'on_date', date: term.end },
+        },
+      },
+      timezone: zone,
+      today: day,
+      resourceId,
+      horizonWeeks: MAX_HORIZON_WEEKS,
+    });
+    if (!plan.ok || plan.truncated || plan.skipped.length || plan.create.some((date) => date.ambiguous))
+      return false;
+    return createCoachConfigRepository().createCoachTerm(tenant, offering, resourceId, zone, term.name, plan.create);
+  }
   const result = await config.createOccurrence(tenant, {
     offeringId,
     resourceId,

@@ -1,7 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { type Clock, type SchedulingAvailabilityRepository, type SchedulingPersistence, type SchedulingSettings, type TenantContext } from '@scheduling/core';
-import { createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, PostgresHireRepository, type SqlExecutor, type SqlStatement } from '@scheduling/postgres';
+import { PostgresSchedulingConfigRepository, createPostgresScheduling, fromNeonHttpLike, PostgresAvailabilityRepository, PostgresBookingReadRepository, PostgresHireRepository, type SqlExecutor, type SqlStatement } from '@scheduling/postgres';
 import { BRAINBASE_FALLBACK_TIMEZONE, staffTenantContext } from './adapters/brainbase';
 import { SchedulingConfigurationError, resolveOrganisationTimezone, type ResolvedTimezone } from './organisationTimezone';
 import { CoachingClasses, type GenerationResult, type RestorationResult } from './compatibility/tennis/coachingClasses';
@@ -149,4 +149,12 @@ export async function loadSchedulingRuntime(session: { organisationId: string; u
     savedGeneration: (offeringId: string, key: string) => classes.savedGeneration(tenant, offeringId, key),
   };
   return { tenant, persistence, availability, bookingReads, hire, settings, timezone, coaching, coachingRoster, coachingLifecycle };
+}
+
+export function createCoachConfigRepository() {
+  return new PostgresSchedulingConfigRepository({
+    sql: createSchedulingExecutor(),
+    coachTimezoneQuery: `SELECT coalesce(nullif(timezone,''),'Australia/Adelaide') AS timezone
+      FROM organisations WHERE id=$1 FOR SHARE`,
+  });
 }

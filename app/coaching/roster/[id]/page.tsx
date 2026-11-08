@@ -26,6 +26,7 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
         {date.day} · {date.time} {date.timezone} · {date.schedule}
       </p>
       <p>
+        {date.term && <>{date.term.name} · </>}
         {date.enrolled} of {date.capacity} places filled
       </p>
       <section className={styles.panel}>
@@ -35,6 +36,7 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
           <article key={member.id}>
             <h3>{member.name}</h3>
             <p>
+              {member.recurring && <>Term enrolment · </>}
               {member.status} · {member.attendance ?? 'Attendance unmarked'}
             </p>
             {member.status === 'confirmed' && date.status !== 'cancelled' && (
@@ -74,6 +76,20 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
           <ClassForm key={date.members.length} action={action} label="Enrol participant">
             <input type="hidden" name="action" value="enrol" />
             <BookingFields date={date} />
+            {date.term && date.term.dates.length > 1 && (
+              <>
+                <input type="hidden" name="expectedDates" value={JSON.stringify(date.term.dates)} />
+                <label>
+                  Enrolment covers{' '}
+                  <select name="coverage" defaultValue="single">
+                    <option value="single">This class only</option>
+                    <option value="term">
+                      Remaining term · {date.term.dates.length} classes through {date.term.last}
+                    </option>
+                  </select>
+                </label>
+              </>
+            )}
           </ClassForm>
         </section>
       )}
