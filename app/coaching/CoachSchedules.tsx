@@ -24,6 +24,7 @@ export default function CoachSchedules({ canManage }: { canManage: boolean }) {
           <li key={schedule.id}><Link href={`/scheduling/schedules/${seg(schedule.id)}`}>{schedule.name}</Link>
             <small>{schedule.presetKey === 'appointments' ? 'Appointments' : 'Group classes'}</small></li>
         )}</ul> : <p>No active class or appointment schedules.</p>}
+        {canManage && schedules.some(s => s.id === 'tennis-coaching') && <p><Link href="/scheduling/coaching">LD Tennis class calendar and roster</Link></p>}
         {canManage && <Button variant="primary" onClick={() => setCreating(true)}>New coaching schedule</Button>}
       </>}
     <p><Link href="/scheduling/schedules">View all schedules and archives</Link></p>

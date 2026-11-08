@@ -137,8 +137,8 @@ describe('the guard itself', () => {
     const sources = ['app', 'components', 'hooks', 'modules', 'services', 'store', 'lib'].flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/)).concat([path.join(ROOT, 'middleware.ts')]);
     const importers = (re: RegExp, relative?: RegExp) =>
       sources.filter(f => re.test(readFileSync(f, 'utf8')) || (relative !== undefined && rel(f).startsWith('lib/scheduling/') && relative.test(readFileSync(f, 'utf8')))).map(rel).sort();
-    expect(importers(/lib\/scheduling\/access['"]/, /from ['"]\.\/access['"]/)).toEqual(['lib/scheduling/route.ts']);
-    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'lib/scheduling/route.ts']);
+    expect(importers(/lib\/scheduling\/access['"]/, /from ['"]\.\/access['"]/)).toEqual(['app/coaching/roster/[id]/page.tsx', 'lib/scheduling/coachActions.ts', 'lib/scheduling/route.ts']);
+    expect(importers(/lib\/scheduling\/runtime['"]/, /from ['"]\.\/runtime['"]/)).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts', 'lib/scheduling/coachClassDates.ts', 'lib/scheduling/coachClasses.ts', 'lib/scheduling/route.ts']);
     expect(importers(/@scheduling\/postgres/)).toEqual(['lib/scheduling/runtime.ts']);
   });
 });
@@ -150,8 +150,10 @@ describe('settings are explicit: no application code creates or edits them', () 
     const offenders = appSources.filter(f => /saveSettings|scheduling_settings/.test(noTsComments(readFileSync(f, 'utf8')))).map(rel);
     // The unreachable operator-only migration projection reads existing settings;
     // it must never create, repair or change them.
-    expect(offenders).toEqual(['lib/scheduling/compatibility/tennis/migrationSnapshot.ts']);
-    expect(noTsComments(read(offenders[0]))).not.toMatch(/saveSettings|\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i);
+    expect(offenders.sort()).toEqual(['lib/scheduling/coachClasses.ts', 'lib/scheduling/compatibility/tennis/migrationSnapshot.ts']);
+    // The booking query joins existing settings to require a configured organisation.
+    expect(noTsComments(read('lib/scheduling/coachClasses.ts')).replace('JOIN scheduling_settings settings ON settings.organisation_id=n.id', '')).not.toMatch(/saveSettings|scheduling_settings/);
+    expect(noTsComments(read('lib/scheduling/compatibility/tennis/migrationSnapshot.ts'))).not.toMatch(/saveSettings|\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i);
   });
 
   it('the runtime and the guard contain no write statement', () => {

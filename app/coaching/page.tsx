@@ -25,6 +25,7 @@ export default async function CoachPage() {
   const links = tools.filter(tool => capabilities?.some(row => row.key === tool.module));
   return <main className={styles.page}>
     <PageHeader title="Coach" description="Group classes, one-to-one appointments and the business tools for your practice." />
+    <Link href="/coaching/calendar">Weekly class calendar</Link>
     <div className={styles.columns}>
       <section className={styles.panel} aria-label="Coaching schedules">
         <CoachSchedules canManage={canManage} />

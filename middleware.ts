@@ -25,6 +25,7 @@ const PUBLIC = [
   '/demo',
   '/',
   '/tennis',
+  '/class-booking',
   '/web-systems',
   '/api/auth',
   '/api/lead',

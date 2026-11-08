@@ -152,9 +152,11 @@ describe('the TypeScript modules are staged, not wired', () => {
     .flatMap(d => walk(path.join(ROOT, d), /\.(ts|tsx|mts)$/))
     .concat([path.join(ROOT, 'middleware.ts')]);
 
-  it('nothing outside lib/scheduling imports the access gate or the CRM link', () => {
+  it('only the private Coach roster imports the access gate directly outside lib/scheduling', () => {
     const offenders = sources.filter(f => !rel(f).startsWith('lib/scheduling/')).filter(f => /lib\/scheduling\/(access|crmLink)/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(['app/coaching/roster/[id]/page.tsx']);
+    expect(read(offenders[0])).toContain("authorizeSchedulingRequest('scheduling.reserve')");
+    expect(read(offenders[0])).not.toContain('lib/scheduling/crmLink');
   });
 
   it('there is still no scheduling page, cron or navigation entry, and the only scheduling routes are the two 2B.1 foundation routes', () => {
