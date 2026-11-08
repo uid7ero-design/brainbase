@@ -4,18 +4,18 @@ import { contextFor, createSchedule, createOffering, createResource, api, query 
 
 test.skip(!enabled, 'Requires the disposable Scheduling browser harness');
 
-test('weekly term scheduling and enrolment are atomic, including a conflict on the last date', async ({
+test('gymnastics term enrolment, conflict recovery and attendance history across class dates', async ({
   browser,
 }, info) => {
   const coach = await contextFor(browser, 'manager');
   try {
-    const schedule = await createSchedule(coach.request, 'Term schedule ' + info.project.name);
-    const offering = await createOffering(coach.request, schedule.id, 'Term class ' + info.project.name, {
+    const schedule = await createSchedule(coach.request, 'Junior gymnastics ' + info.project.name);
+    const offering = await createOffering(coach.request, schedule.id, 'Floor skills ' + info.project.name, {
       durationMinutes: 45,
       capacity: 1,
       priceCents: 1800,
     });
-    const room = await createResource(coach.request, 'Term court ' + info.project.name);
+    const room = await createResource(coach.request, 'Gym floor ' + info.project.name, 'space');
     expect(
       (
         await coach.request.post(api('/offerings/' + offering.id + '/resources'), {
@@ -27,6 +27,8 @@ test('weekly term scheduling and enrolment are atomic, including a conflict on t
     const first = future(12),
       last = future(26);
     const calendar = await coach.newPage();
+    const viewport = info.project.use.viewport ?? { width: 1280, height: 800 };
+    await calendar.setViewportSize(viewport);
     await calendar.goto(origin + '/coaching/calendar?week=' + first);
     const add = calendar.getByRole('button', { name: 'Add class date' }),
       create = calendar.getByRole('button', { name: 'Create term' });
@@ -42,7 +44,7 @@ test('weekly term scheduling and enrolment are atomic, including a conflict on t
       await chooseClass();
       await calendar.getByLabel('Class date', { exact: true }).fill(first);
       await calendar.getByLabel('Local start time').fill(time);
-      await calendar.getByLabel('Term name').fill('Skills term');
+      await calendar.getByLabel('Term name').fill('Gymnastics foundations');
       await calendar.getByLabel('Term ends on').fill(last);
     };
     await fillTerm('16:00');
@@ -71,6 +73,7 @@ test('weekly term scheduling and enrolment are atomic, including a conflict on t
       await query('SELECT id FROM scheduling_resource_holds WHERE resource_id=$1', [room.id]),
     ).toHaveLength(4);
     const page = await coach.newPage();
+    await page.setViewportSize(viewport);
     await page.goto(origin + '/coaching/roster/' + dates[2].id);
     const form = page
       .locator('form')
@@ -137,6 +140,36 @@ test('weekly term scheduling and enrolment are atomic, including a conflict on t
         [offering.id],
       ),
     ).toEqual(dates.slice(1).map((d) => ({ occurrence_id: d.id })));
+    const member = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Mid-term entrant' }) });
+    await member.getByRole('button', { name: 'Mark attended' }).click();
+    await expect(member).toContainText('Term enrolment · confirmed · attended');
+    await page.goto(origin + '/coaching/roster/' + dates[2].id);
+    await expect(member).toContainText('Attendance unmarked');
+    await member.getByRole('button', { name: 'Mark absent' }).click();
+    await expect(member).toContainText('confirmed · absent');
+
+    // Reopen each week's roster from the calendar, including the date before this enrolment began.
+    for (const [index, date] of dates.entries()) {
+      await page.goto(origin + '/coaching/calendar?week=' + date.day);
+      const link = page.getByRole('link', { name: offering.name, exact: true }).and(
+        page.locator('a[href="/coaching/roster/' + date.id + '"]'),
+      );
+      await expect(page.locator('article').filter({ has: link })).toContainText('Gymnastics foundations');
+      await link.click();
+      if (index === 0) {
+        await expect(member).toHaveCount(0);
+      } else {
+        await expect(member).toContainText(index === 1 ? 'confirmed · attended' : 'confirmed · absent');
+        await expect(page.locator('article').filter({ hasText: 'Returning attendee' })).toContainText('cancelled');
+      }
+    }
+    expect(await query(
+      "SELECT occurrence_id,attendance FROM scheduling_reservations WHERE offering_id=$1 AND customer_email='mid@example.test' ORDER BY starts_at",
+      [offering.id],
+    )).toEqual([
+      { occurrence_id: dates[1].id, attendance: 'attended' },
+      { occurrence_id: dates[2].id, attendance: 'absent' },
+    ]);
   } finally {
     await coach.close();
   }

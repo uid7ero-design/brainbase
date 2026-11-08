@@ -17,6 +17,12 @@ If a date conflicts with a saved class or resource hold, term creation rolls bac
 
 The release requires the additive schema in `scripts/create-coach-terms.sql` before deploying the application. Existing single classes have no term membership.
 
+### Example for a gymnastics coach
+
+Create a group schedule called **Junior gymnastics** and a **Floor skills** offering. To reserve the gym floor for each class, add it as a Scheduling resource of kind **Space** and link it to the offering. In the Coach calendar, choose **Weekly term**, select Floor skills at that location, and enter the first and last dates.
+
+For a gymnast joining in week two, open the second class roster and choose **Remaining term**. Mark attendance on each class roster. Reopening an earlier week from the calendar shows that week's attendance, including the original roster from before the gymnast joined.
+
 ### Use existing LD Tennis dates
 
 After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.
