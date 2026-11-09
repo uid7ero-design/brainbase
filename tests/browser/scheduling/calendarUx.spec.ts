@@ -175,19 +175,34 @@ test.describe('1. time labels', () => {
     expect(ring, 'no focus ring on the scroll region').toBe(true);
     // the browser animates key scrolling, so each position is polled for, not read once
     const top = () => grid.evaluate(el => Math.round(el.scrollTop));
+    // A key that lands as the previous key-scroll animation ends can be dropped by Chromium (focus and element stay intact; measured: PageDown ignored for 30 s in about 1 run in 5).
+    // So wait for the scroll to be SETTLED (position unchanged for 4 animation frames), a condition and not a delay, before every key.
+    const settle = () => grid.evaluate(el => new Promise<void>(resolve => { let last = -1; let still = 0; const tick = () => { const t = el.scrollTop; if (t === last) { if (++still >= 4) { resolve(); return; } } else { still = 0; last = t; } requestAnimationFrame(tick); }; tick(); }));
+    await settle();
     await page.keyboard.press('Home');
     await expect.poll(top, { message: 'Home goes to the top of the grid' }).toBe(0);
+    await settle();
     for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
     await expect.poll(top, { message: 'the arrow keys scrolled the page, not the grid' }).toBeGreaterThan(0);
+    await settle();
     const arrows = await top();
     await page.keyboard.press('PageDown');
     await expect.poll(top, { message: 'PageDown moves further' }).toBeGreaterThan(arrows);
+    await settle();
     await page.keyboard.press('End');
     await expect.poll(() => grid.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 2), { message: 'End goes to the end of the grid' }).toBe(true);
     // and back up from the end: the grid is not stuck at the bottom
+    await settle();
     const atEnd = await top();
     for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
     await expect.poll(top, { message: 'ArrowUp scrolls back up from the end' }).toBeLessThan(atEnd);
+    // Home after End: Chromium animates key scrolling even without scroll-behavior, so an immediate read is always mid-flight; poll for the settled top
+    await settle();
+    await page.keyboard.press('End');
+    await expect.poll(() => grid.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 2), { message: 'End goes to the end again' }).toBe(true);
+    await settle();
+    await page.keyboard.press('Home');
+    await expect.poll(top, { message: 'Home goes back to the top after End' }).toBe(0);
     await context.close();
   });
 });
