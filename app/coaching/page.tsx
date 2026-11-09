@@ -28,6 +28,7 @@ export default async function CoachPage() {
     <PageHeader title="Coach" description="Group classes, one-to-one appointments and the business tools for your practice." />
     <nav aria-label="Coach tools" className={styles.controls}>
       <Link href="/coaching/calendar">Weekly class calendar</Link>
+      {canManage && <Link href="/coaching/calendar?view=review">Weekly coaching review</Link>}
       {canManage && await getStaffBookingVisibility() && <Link href="/coaching/squads">Teams and squads</Link>}
     </nav>
     <div className={styles.columns}>

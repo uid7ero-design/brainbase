@@ -52,7 +52,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
       .map(rel);
     expect(offenders.sort()).toEqual(['app/api/tennis/book/route.ts', 'app/api/tennis/sessions/route.ts',
       'app/class-booking/[org]/[link]/page.tsx', 'app/coaching/BookingFields.tsx', 'app/coaching/CoachSchedules.tsx',
-      'app/coaching/calendar/page.tsx', 'app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx', 'app/coaching/squads/page.tsx', 'app/coaching/roster/[id]/plan/page.tsx','app/coaching/roster/[id]/plan/TrainingEditor.tsx','app/coaching/roster/[id]/plan/PositionsBoard.tsx'].sort());
+      'app/coaching/calendar/WeeklyReview.tsx', 'app/coaching/calendar/page.tsx', 'app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx', 'app/coaching/squads/page.tsx', 'app/coaching/roster/[id]/plan/page.tsx','app/coaching/roster/[id]/plan/TrainingEditor.tsx','app/coaching/roster/[id]/plan/PositionsBoard.tsx'].sort());
     // Coach consumes only the dashboard's public view type and URL segment encoder.
     const coachImports = [...read('app/coaching/CoachSchedules.tsx').matchAll(/from '(@(?:scheduling\/|\/lib\/scheduling\/)[^']+)'/g)].map(match => match[1]);
     expect(coachImports.sort()).toEqual(['@/lib/scheduling/dashboard/api', '@/lib/scheduling/dashboard/types']);

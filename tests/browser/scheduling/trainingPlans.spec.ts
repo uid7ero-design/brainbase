@@ -91,6 +91,24 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
         0,
       );
     }
+    const reviewUrl = origin + '/coaching/calendar?view=review&week=' + day;
+    await page.goto(reviewUrl);
+    const upcoming = page.getByRole('region', { name: 'Session preparation' });
+    await expect(
+      upcoming.getByRole('link', { name: 'Open plan' }).and(page.locator('a[href="' + urls[0] + '/plan"]')),
+    ).toBeVisible();
+    await expect(
+      upcoming
+        .getByRole('link', { name: 'Prepare plan' })
+        .and(page.locator('a[href="' + urls[1] + '/plan"]')),
+    ).toBeVisible();
+    const viewerPage = await viewer.newPage();
+    await viewerPage.goto(reviewUrl);
+    await expect(viewerPage.getByRole('heading', { name: 'Weekly coaching review' })).toHaveCount(0);
+    const foreignPage = await other.newPage();
+    await foreignPage.goto(reviewUrl);
+    await expect(foreignPage.getByRole('heading', { name: 'Weekly coaching review' })).toBeVisible();
+    await expect(foreignPage.getByText(offering.name, { exact: true })).toHaveCount(0);
     await page.goto(origin + urls[1] + '/plan');
     await page.getByLabel('Saved templates').selectOption(template);
     page.once('dialog', (dialog) => dialog.accept());
@@ -104,6 +122,25 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
       [urls[1]!.split('/').pop()],
     );
     expect(rows[0].kinds).toEqual(['position', 'arrow']);
+    // Mark this synthetic occurrence complete and use the real roster to resolve attendance.
+    await query("UPDATE scheduling_occurrences SET status='completed' WHERE id=$1 AND offering_id=$2", [
+      urls[0]!.split('/').pop(),
+      offering.id,
+    ]);
+    await page.goto(reviewUrl);
+    const outstanding = page.getByRole('region', { name: 'Attendance to finish' });
+    const row = outstanding.getByRole('listitem').filter({ hasText: offering.name });
+    await expect(row).toContainText('1 unmarked');
+    await row.getByRole('link', { name: 'Open roster' }).click();
+    await page.getByRole('button', { name: 'Mark attended' }).click();
+    await expect(page.locator('article').filter({ hasText: 'Synthetic athlete' })).toContainText(
+      'confirmed · attended',
+    );
+    await page.goto(reviewUrl);
+    await expect(row).toHaveCount(0);
+    await expect(
+      page.getByRole('listitem').filter({ hasText: offering.name }).filter({ hasText: '1 attended' }),
+    ).toContainText('0 unmarked');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   } finally {
     await Promise.all([ctx.close(), viewer.close(), other.close()]);

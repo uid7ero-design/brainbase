@@ -3,15 +3,16 @@ import { notFound, redirect } from 'next/navigation';
 import { getSchedulingPageAccess } from '@/lib/scheduling/pageAccess';
 import { requireSession } from '@/lib/org';
 import { AccessMessage } from '@/app/scheduling/_components/AccessMessage';
-import { classSchedules, coachLinkPattern, weekDates } from '@/lib/scheduling/coachClasses';
+import { classSchedules, coachLinkPattern, weekDates, weeklyReview } from '@/lib/scheduling/coachClasses';
 import { weekStart, addLocalDays, dateChoices } from '@/lib/scheduling/coachClassDates';
 import { manageClass } from '@/lib/scheduling/coachActions';
+import WeeklyReview from './WeeklyReview';
 import ClassForm from '../ClassForm';
 import ClassDateForm from '../ClassDateForm';
 import styles from '../workspace.module.css';
 export const dynamic = 'force-dynamic';
 
-export default async function Calendar({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
+export default async function Calendar({ searchParams }: { searchParams: Promise<{ week?: string; view?: string }> }) {
   const access = await getSchedulingPageAccess();
   if (access.status === 'unauthenticated') redirect('/login');
   if (access.status !== 'ok') return <AccessMessage status={access.status} />;
@@ -22,12 +23,16 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+  const params = await searchParams;
+  const review = params.view === 'review';
+  if (review && !access.canManage) notFound();
   let start: string;
   try {
-    start = weekStart((await searchParams).week ?? today);
+    start = weekStart(params.week ?? today);
   } catch {
     notFound();
   }
+  if (review) return <WeeklyReview start={start} sessions={await weeklyReview(org, start)} />;
   const [dates, choices, schedules] = await Promise.all([
     weekDates(org, start),
     access.canManage ? dateChoices(org) : [],
@@ -38,6 +43,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
     <main className={styles.page}>
       <Link href="/coaching">Coach</Link>
       <h1>Weekly class calendar</h1>
+      {access.canManage && <Link href={'?view=review&week=' + start}>Weekly coaching review</Link>}
       <nav aria-label="Calendar weeks" className={styles.controls}>
         <Link href={'?week=' + addLocalDays(start, -7)}>Previous week</Link>
         <Link href="/coaching/calendar">This week</Link>

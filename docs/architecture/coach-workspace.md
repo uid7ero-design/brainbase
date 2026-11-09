@@ -43,6 +43,12 @@ Select **Save plan**, then **Run session** to step through the drills in order. 
 
 To reuse a plan, enter a template name before saving. Templates are shared within the organisation. They copy coaching notes and convert rostered players to anonymous position markers. Open another session, choose the template, adjust its drills and save. This feature requires the separate local migration in `scripts/create-coach-training-plans.sql`.
 
+### Review the coaching week
+
+Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.
+
+**Session preparation** lists upcoming and in-progress classes with their saved-plan status. Choose **Prepare plan** or **Open plan** to go directly to the session. Use **Previous week** for attendance history or **Next week** to prepare. The review uses each class's local date and time and is available to scheduling managers.
+
 ### Use existing LD Tennis dates
 
 After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.
