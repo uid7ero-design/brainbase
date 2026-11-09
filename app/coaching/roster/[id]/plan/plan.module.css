@@ -1,0 +1,178 @@
+.page {
+  max-width: 76rem;
+  margin: auto;
+  padding: clamp(1rem, 4vw, 3rem);
+  color: var(--text-primary);
+}
+.page header {
+  margin: 1.5rem 0;
+}
+.page h1 {
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-weight: 650;
+}
+.page h2 {
+  font-weight: 650;
+  font-size: 1.15rem;
+}
+.page p,
+.page small {
+  color: var(--text-secondary);
+}
+.editor {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+.summary,
+.tools,
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.8rem;
+}
+.summary,
+.footer {
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+}
+.summary strong {
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 3fr);
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  overflow: hidden;
+}
+.workspace aside,
+.detail {
+  padding: clamp(0.8rem, 2vw, 1.6rem);
+  min-width: 0;
+}
+.workspace aside {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+}
+.order {
+  list-style: none;
+  padding: 0;
+  margin: 0.8rem 0;
+}
+.order button {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.order button[aria-current] {
+  border-color: currentColor;
+}
+.editor button,
+.editor input,
+.editor select,
+.editor textarea {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--border, #888);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg-surface, #222);
+  max-width: 100%;
+}
+.editor button {
+  min-height: 40px;
+  cursor: pointer;
+}
+.editor button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.editor label {
+  display: grid;
+  gap: 0.25rem;
+}
+.editor textarea {
+  width: 100%;
+}
+.editor input[type='number'] {
+  width: 6rem;
+}
+.editor button.save {
+  background: #ccf1ad;
+  color: #183220;
+  font-weight: 650;
+}
+.detail > * + *,
+.boardPanel > * + * {
+  margin-top: 0.8rem;
+}
+.board {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.6rem;
+}
+.board svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.spots {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  grid-template-rows: repeat(7, 1fr);
+}
+.spots button {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+}
+.spots button:focus-visible,
+.spots button:hover {
+  outline: 2px dashed white;
+  outline-offset: -2px;
+  background: #ffffff18;
+}
+.boardPanel ul {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+}
+@media (max-width: 700px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .workspace aside {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .editor button:not(.spots button) {
+    min-height: 44px;
+  }
+  .tools label {
+    max-width: 100%;
+  }
+  .order {
+    display: grid;
+    gap: 0.3rem;
+  }
+  .board {
+    min-height: 0;
+  }
+  .footer {
+    align-items: start;
+  }
+}

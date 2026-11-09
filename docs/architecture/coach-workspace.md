@@ -33,6 +33,16 @@ To leave or switch teams, open **End or transfer membership**, choose the first 
 
 The squad screen requires Scheduling management and staff booking access. Apply `scripts/create-coach-squads.sql` after the Coach terms schema before deploying this feature.
 
+### Plan and run a training session
+
+From the weekly calendar, open a class roster and select **Training plan**. Give the first drill a name and duration. Add coaching notes and use **Add drill** for each activity. The total shows how much of the booked session is planned. Use **Move earlier** to reorder a drill.
+
+Choose **Football pitch**, **Football half-pitch**, **Tennis court** or **Blank space** for each drill. Under **Place on board**, select a rostered player, cone or ball and choose a spot. Select a player again to move them. A movement arrow takes two spots, start and end. **Erase at position** clears a spot. Each drill keeps its own positions.
+
+Select **Save plan**, then **Run session** to step through the drills in order. Managers can edit until the scheduled session ends. Earlier saved plans remain available to authorised roster staff. If another coach saves first, reload to review their version before editing.
+
+To reuse a plan, enter a template name before saving. Templates are shared within the organisation. They copy coaching notes and convert rostered players to anonymous position markers. Open another session, choose the template, adjust its drills and save. This feature requires the separate local migration in `scripts/create-coach-training-plans.sql`.
+
 ### Use existing LD Tennis dates
 
 After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.

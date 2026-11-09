@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { authorizeSchedulingRequest } from './access';
 import { addClassDate } from './coachClassDates';
 import {
+  trainingSession,
+  persistTrainingPlan,
   changePublication,
   coachLinkPattern,
   groupTennisTerm,
@@ -11,6 +13,7 @@ import {
   enrolTerm,
   updateMember,
 } from './coachClasses';
+import { decodePlan, templateDrills } from './trainingPlan';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 type Result = { message: string; ok: boolean };
@@ -156,4 +159,53 @@ export async function bookPublicClass(
   if (!checkRateLimit('public-coach:' + ip, 20, 60 * 60_000))
     return result('Too many requests. Try again later.');
   return submitBooking(org, { link }, form);
+}
+
+export async function saveTrainingPlan(
+  org: string,
+  id: string,
+  version: number,
+  input: unknown,
+  template: string,
+) {
+  const [manage, roster] = await Promise.all([
+    authorizeSchedulingRequest('scheduling.manage'),
+    authorizeSchedulingRequest('scheduling.reserve'),
+  ]);
+  if (
+    !manage.ok ||
+    !roster.ok ||
+    manage.session.organisationId !== org ||
+    roster.session.organisationId !== org ||
+    manage.session.userId !== roster.session.userId
+  )
+    return { error: 'Reopen the plan in an authorised workspace.' };
+  if (!Number.isSafeInteger(version) || version < 0 || typeof template !== 'string' || template.length > 100)
+    return { error: 'Review the template name and reload the saved plan.' };
+  try {
+    const session = await trainingSession(org, id);
+    if (!session?.editable || session.version !== version)
+      return { error: 'The session changed. Reload the saved plan before editing.' };
+    let drills;
+    try {
+      drills = decodePlan(input, new Set(session.players.map((p) => p.id)));
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Review the drills.' };
+    }
+    const saved = await persistTrainingPlan(
+      org,
+      id,
+      version,
+      drills,
+      template.trim(),
+      templateDrills(drills),
+    );
+    if (!saved) return { error: 'The session changed. Reload the saved plan before editing.' };
+    revalidatePath('/coaching/roster/[id]/plan', 'page');
+    return { version: saved };
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505')
+      return { error: 'A template already has that name. Choose another name.' };
+    return { error: 'Save could not be confirmed. Reload and check the saved plan before retrying.' };
+  }
 }
