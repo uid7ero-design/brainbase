@@ -45,7 +45,7 @@ describe('Phase 2A wires nothing into the application', () => {
     // Tennis integration rehearsal: these exact injected-executor services are
     // still unreachable from application entry points. No general SQL exemption.
     expect(offenders.sort()).toEqual([
-      'lib/scheduling/coachClassDates.ts', 'lib/scheduling/coachClasses.ts',
+      'lib/scheduling/coachClassDates.ts', 'lib/scheduling/coachClasses.ts', 'lib/scheduling/coachSquadActions.ts', 'lib/scheduling/coachSquads.ts',
       'lib/scheduling/compatibility/tennis/coachingBookings.ts',
       'lib/scheduling/compatibility/tennis/coachingClasses.ts',
       'lib/scheduling/compatibility/tennis/coachingCommands.ts',

@@ -17,6 +17,22 @@ If a date conflicts with a saved class or resource hold, term creation rolls bac
 
 The release requires the additive schema in `scripts/create-coach-terms.sql` before deploying the application. Existing single classes have no term membership.
 
+### Example for a gymnastics coach
+
+Create a group schedule called **Junior gymnastics** and a **Floor skills** offering. To reserve the gym floor for each class, add it as a Scheduling resource of kind **Space** and link it to the offering. In the Coach calendar, choose **Weekly term**, select Floor skills at that location, and enter the first and last dates.
+
+For a gymnast joining in week two, open the second class roster and choose **Remaining term**. Mark attendance on each class roster. Reopening an earlier week from the calendar shows that week's attendance, including the original roster from before the gymnast joined.
+
+### Run a football team or tennis squad
+
+Open **Coach → Teams and squads**, create the squad and select its name. Add each player once with their booking email and joining date. From the weekly calendar, create a training term using the club's group offering and playing space (for example, **U12 training** at **Pitch 2**). Return to the squad, review the dates and fee per class, and select **Assign training term**. Assign the next term to the same squad to carry its membership forward. This also works with a shared Coach tennis offering. Imported LD Tennis terms keep their existing enrolment controls.
+
+The calendar and class rosters show the squad name. Membership creates ordinary unpaid bookings on eligible upcoming dates. A full class or a conflicting booking blocks the entire change. The existing booking system uses one email per active place per class. A coach can still mark attendance or cancel an individual date on its roster.
+
+To leave or switch teams, open **End or transfer membership**, choose the first date outside the old squad and, for a transfer, the destination squad. Earlier attendance stays on the original roster. Future unpaid, unmarked squad bookings are cancelled from that date. A transfer books eligible destination dates in the same transaction. A conflict or a past, marked or paid booking that would need changing blocks the change. Independently booked places are managed on their class rosters.
+
+The squad screen requires Scheduling management and staff booking access. Apply `scripts/create-coach-squads.sql` after the Coach terms schema before deploying this feature.
+
 ### Use existing LD Tennis dates
 
 After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.

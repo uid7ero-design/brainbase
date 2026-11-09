@@ -77,6 +77,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
                       )}
                     </strong>
                     <small>
+                      {c.squad && <>{c.squad} · </>}
                       {c.archived && 'Archived class · '}
                       {c.term && <>{c.term} · </>}
                       {c.schedule} · {c.timezone}

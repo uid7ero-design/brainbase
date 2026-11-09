@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/app';
 import { requireSession } from '@/lib/org';
 import { visibleCapabilities } from '@/lib/organisationUsers/access';
 import { resolveSchedulingPage } from '@/app/scheduling/_components/pageAccess';
+import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibility';
 import CoachSchedules from './CoachSchedules';
 import styles from './workspace.module.css';
 
@@ -25,7 +26,10 @@ export default async function CoachPage() {
   const links = tools.filter(tool => capabilities?.some(row => row.key === tool.module));
   return <main className={styles.page}>
     <PageHeader title="Coach" description="Group classes, one-to-one appointments and the business tools for your practice." />
-    <Link href="/coaching/calendar">Weekly class calendar</Link>
+    <nav aria-label="Coach tools" className={styles.controls}>
+      <Link href="/coaching/calendar">Weekly class calendar</Link>
+      {canManage && await getStaffBookingVisibility() && <Link href="/coaching/squads">Teams and squads</Link>}
+    </nav>
     <div className={styles.columns}>
       <section className={styles.panel} aria-label="Coaching schedules">
         <CoachSchedules canManage={canManage} />

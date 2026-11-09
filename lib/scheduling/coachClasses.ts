@@ -35,6 +35,10 @@ const fields = `o.id,f.name,s.name AS schedule,to_char(o.local_date,'YYYY-MM-DD'
   (o.status='scheduled' AND o.starts_at>now()) AS open,
   (SELECT COALESCE(sum(r.party_size),0)::int FROM scheduling_reservations r WHERE r.organisation_id=o.organisation_id
     AND r.occurrence_id=o.id AND r.status<>'cancelled') AS enrolled`;
+const squadName = `(SELECT q.name FROM scheduling_coach_term_dates d
+  JOIN scheduling_coach_squad_terms st USING (organisation_id,offering_id,term_id)
+  JOIN scheduling_coach_squads q ON q.organisation_id=st.organisation_id AND q.id=st.squad_id
+  WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id AND o.starts_at>=st.assigned_at) AS squad`;
 export type ClassDate = {
   id: string;
   name: string;
@@ -52,8 +56,8 @@ export type ClassDate = {
 export type CoachSchedule = { id: string; name: string; slug: string | null };
 
 export async function weekDates(org: string, from: string) {
-  return db().query<ClassDate & { term: string | null; tennis: boolean; archived: boolean }>(
-    `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,
+  return db().query<ClassDate & { squad: string | null; term: string | null; tennis: boolean; archived: boolean }>(
+    `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},${squadName},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,
     (SELECT t.name FROM scheduling_coach_term_dates d JOIN scheduling_coach_terms t ON t.organisation_id=d.organisation_id
       AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${staffDates}
     AND o.local_date >= $2::date AND o.local_date < $2::date+7 ORDER BY o.local_date,o.local_start_time,f.name,o.id`,
@@ -88,6 +92,7 @@ export async function publicClasses(org: string, slug: string) {
 export async function readRoster(org: string, id: string) {
   const rows = await db().query<
     ClassDate & {
+      squad: string | null;
       tennis: boolean;
       archived: boolean;
       term: { name: string; dates: string[]; last: string | null } | null;
@@ -103,7 +108,7 @@ export async function readRoster(org: string, id: string) {
     }
   >(
     `
-    WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,(SELECT jsonb_build_object('name',t.name,'dates',coalesce(array_agg(future.id ORDER BY future.starts_at) FILTER(WHERE future.id IS NOT NULL),'{}'),
+    WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},${squadName},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,(SELECT jsonb_build_object('name',t.name,'dates',coalesce(array_agg(future.id ORDER BY future.starts_at) FILTER(WHERE future.id IS NOT NULL),'{}'),
       'last',max(future.local_date)) FROM scheduling_coach_term_dates base
       JOIN scheduling_coach_terms t ON t.organisation_id=base.organisation_id AND t.offering_id=base.offering_id AND t.id=base.term_id
       JOIN scheduling_coach_term_dates d ON d.organisation_id=t.organisation_id AND d.offering_id=t.offering_id AND d.term_id=t.id
