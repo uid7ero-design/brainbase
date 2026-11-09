@@ -87,8 +87,12 @@ const cancelRoute = (await import('@/app/api/scheduling/reservations/[reservatio
 const basisRoute = (await import('@/app/api/scheduling/reservations/basis/route')) as unknown as { GET: Handler };
 const { fetchBasis } = await import('@/lib/scheduling/staffBooking/basisClient');
 const { postReservation, lookupReservation } = await import('@/lib/scheduling/staffBooking/submitClient');
-const { createMachine, initialState } = await import('@/lib/scheduling/staffBooking/machine');
-const { createBookingKeyHolder } = await import('@/lib/scheduling/staffBooking/key');
+const { createMachine, initialState, recoveredState, recoverySettled, settlesAttempt, provableNotBooked } = await import('@/lib/scheduling/staffBooking/machine');
+const { createBookingKeyHolder, canonicalContent } = await import('@/lib/scheduling/staffBooking/key');
+const { createPendingStore } = await import('@/lib/scheduling/staffBooking/pendingStore');
+type PendingStoreT = ReturnType<typeof createPendingStore>;
+/** Faults injected AT THE BROWSER'S NETWORK (the route and the Neon driver run for real): the reply is lost AFTER the commit, or the reconcile lookups fail. */
+const netFault = { loseReply: 0, blockLookups: false };
 
 type Q = { query(text: string, params?: unknown[], opts?: Record<string, unknown>): Promise<unknown>; transaction: (q: unknown[], o?: Record<string, unknown>) => Promise<unknown[]> };
 let sql: Q;
@@ -142,6 +146,12 @@ async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const bodyText = typeof init?.body === 'string' ? init.body : undefined;
   const route = (handler: Handler, params: Record<string, string> = {}) => handler(new Request(url.toString(), { method, headers, ...(bodyText !== undefined ? { body: bodyText } : {}) }), { params: Promise.resolve(params) });
   if (url.pathname === '/api/scheduling/reservations/basis') return route(basisRoute.GET);
+  if (url.pathname === '/api/scheduling/reservations' && method === 'GET' && netFault.blockLookups) throw new TypeError('network down for lookups');
+  if (url.pathname === '/api/scheduling/reservations' && method === 'POST' && netFault.loseReply > 0) {
+    netFault.loseReply -= 1;
+    await (await route(collection.POST)).text(); // the server (and the Neon commit) finished; the reply never reaches the browser
+    throw new TypeError('network lost the reply');
+  }
   if (url.pathname === '/api/scheduling/reservations') return route(method === 'POST' ? collection.POST : collection.GET);
   let m: RegExpMatchArray | null;
   if ((m = url.pathname.match(/^\/api\/scheduling\/reservations\/([^/]+)\/cancel$/))) return route(cancelRoute.POST, { reservationId: decodeURIComponent(m[1]) });
@@ -221,16 +231,29 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
   }
   type Target = Awaited<ReturnType<typeof offered>>;
 
-  function ui() {
+  function ui(opts: { store?: PendingStoreT; pending?: { key: string; fp: string } } = {}) {
     const holder = createBookingKeyHolder();
-    const reduce = createMachine(holder);
-    let st = initialState();
+    const reduce = createMachine(holder, opts.store ? { fingerprint: c => opts.store!.fingerprint(c) } : {});
+    let st = opts.pending ? recoveredState(opts.pending) : initialState(); // a reopened or reloaded dialog: a FRESH holder, started from the record alone
     const send = (a: Parameters<typeof reduce>[1]) => (st = reduce(st, a));
     const run = async () => {
       for (let i = 0; i < 60; i += 1) {
-        if (st.step === 'submitting') send({ type: 'RESPONSE', outcome: await postReservation(st.attempt!.body, st.attempt!.key) });
-        else if (st.step === 'checking') send({ type: 'POLL', outcome: await lookupReservation(st.attempt!.key) });
-        else return;
+        if (st.step === 'submitting') {
+          if (opts.store && !opts.store.ensure(st.attempt!.key, canonicalContent(st.attempt!.content)).ok) send({ type: 'STORE_FAILED' }); // write-ahead, as the dialog does
+          else {
+            const uncertainBefore = !provableNotBooked(st);
+            const outcome = await postReservation(st.attempt!.body, st.attempt!.key);
+            if (opts.store && settlesAttempt(outcome, uncertainBefore)) opts.store.clear();
+            send({ type: 'RESPONSE', outcome });
+          }
+        } else if (st.step === 'recovering' && !recoverySettled(st)) {
+          send({ type: 'POLL', outcome: await lookupReservation(st.pending!.key) });
+          if (opts.store && st.step === 'done') opts.store.clear();
+        } else if (st.step === 'checking') send({ type: 'POLL', outcome: await lookupReservation(st.attempt!.key) });
+        else {
+          if (opts.store && st.step === 'done') opts.store.clear();
+          return;
+        }
       }
       throw new Error('the machine did not settle');
     };
@@ -245,7 +268,10 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       await run();
       return st;
     };
-    return { send, run, toSubmit, book, get state() { return st; } };
+    const fill = (d: ReturnType<typeof details>) => {
+      for (const [field, value] of Object.entries(d)) send({ type: 'FIELD', field: field as 'name', value });
+    };
+    return { send, run, toSubmit, book, fill, get state() { return st; } };
   }
 
   describe('UI slice 2: the dialog’s machine and client over the Neon driver', () => {
@@ -313,6 +339,111 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       expect(keys).toHaveLength(2);
       expect(new Set(keys).size).toBe(1);
       expect([await total(f), await holds(f)]).toEqual([1, 1]);
+    });
+
+    // ── reload recovery over the real Neon driver ────────────────────────────────────────────────────────────────────────────────
+    const memory = (): Storage => {
+      const m = new Map<string, string>();
+      return { get length() { return m.size; }, clear: () => m.clear(), getItem: k => m.get(k) ?? null, key: i => [...m.keys()][i] ?? null, removeItem: k => void m.delete(k), setItem: (k, v) => void m.set(k, v) };
+    };
+    const SECRET = 'rs_neon_recovery_secret_012345678901234567890';
+    const keysSent = () => [...new Set(requests.filter(r => r.method === 'POST').map(r => r.key))];
+    async function firstLife(storage: Storage, target: Target) {
+      const store = createPendingStore(SECRET, storage);
+      netFault.loseReply = 1;
+      netFault.blockLookups = true;
+      const u = ui({ store });
+      u.toSubmit(target);
+      await u.run();
+      netFault.blockLookups = false;
+      expect(['unsure', 'checking']).toContain(u.state.step);
+      const record = store.read();
+      expect(record?.key).toBe(u.state.attempt!.key);
+      return { store, record: record!, key: u.state.attempt!.key };
+    }
+    afterEach(() => {
+      netFault.loseReply = 0;
+      netFault.blockLookups = false;
+    });
+
+    it('U9 (D1): committed write, lost reply, lookups failing; close and reopen from the record RECOVERS the original booking by its key. One POST, one key, one reservation, one hold', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      expect(await total(f)).toBe(1); // it DID commit
+      const u = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } });
+      expect(u.state.step).toBe('recovering');
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(u.state.reservation!.customer.name).toBe(PII.name);
+      expect(keysSent()).toEqual([first.key]);
+      expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U10: committed, lookups failing: the booked time is no longer offered, so retyping cannot create a second booking; "Check again" then finds the ORIGINAL; a wrong retype is refused before any send', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      netFault.blockLookups = true;
+      const u = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } });
+      await u.run();
+      expect(recoverySettled(u.state)).toBe(true);
+      u.send({ type: 'ENTER_AGAIN' });
+      await expect(offered(f, '10:00')).rejects.toThrow(/not offered/); // the engine no longer offers the held hour
+      u.send({ type: 'START', target: await offered(f, '11:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.step).toBe('details'); // a different start time is a different booking
+      expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+      netFault.blockLookups = false;
+      const again = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } }); // Check again, on a fresh page
+      await again.run();
+      expect(again.state.step).toBe('done');
+      expect(keysSent()).toEqual([first.key]);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U10b: the request never reached the database: the lookup finds nothing, "Enter the booking again" replays the ORIGINAL key and creates the booking once', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const store = createPendingStore(SECRET, storage);
+      state.failNextBeforeSend = true;
+      netFault.blockLookups = true;
+      const first = ui({ store });
+      first.toSubmit(await offered(f));
+      await first.run();
+      netFault.blockLookups = false;
+      expect(await total(f)).toBe(0);
+      const record = store.read()!;
+      const u = ui({ store, pending: { key: record.key, fp: record.fp } });
+      await u.run();
+      expect(recoverySettled(u.state)).toBe(true);
+      u.send({ type: 'ENTER_AGAIN' });
+      u.send({ type: 'START', target: await offered(f, '10:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.reviewKey).toBe(record.key);
+      u.send({ type: 'SUBMIT' });
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(keysSent()).toEqual([record.key]);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U11: the record holds no customer detail, resource, offering, date or secret, and another user\'s secret cannot see it', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      const raw = JSON.stringify(Object.fromEntries(Array.from({ length: storage.length }, (_, i) => [storage.key(i)!, storage.getItem(storage.key(i)!)])));
+      for (const s of [...UI_SECRETS, f.court, f.offering, MONDAY, SECRET]) expect(raw).not.toContain(s);
+      expect(createPendingStore('rs_another_users_secret_0123456789012345678', storage).read()).toBeNull();
+      expect(first.store.read()?.key).toBe(first.key);
+      as('neon-ui2-u2', OTHER); // another organisation cannot find the booking by the recovered key either
+      expect(await lookupReservation(first.key)).toEqual({ kind: 'missing' });
     });
 
     it('U5: stale availability cannot be booked (AVAILABILITY_CHANGED, nothing written, details kept); the fresh basis books the same details', async () => {

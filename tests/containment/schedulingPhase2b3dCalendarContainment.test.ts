@@ -135,7 +135,7 @@ describe('the pages authorise themselves', () => {
     expect(src).toMatch(/if \(denied\) return denied;/);
     // 2B.3e follow-up: the page also hands the screen the organisation's timezone (read beside the access check), so the screen need not ask /status for it
     // 2C.3c UI slice 1: the resource page also hands over the server's `canBook` decision (schedulingStaffBookingUiGate.test.ts pins it)
-    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\}( canBook=\{canBook\})? organisationTimezone=\{timezone\} \/>/);
+    expect(src).toMatch(/<CalendarScreen kind="(offering|resource)" id=\{\w+\} canManage=\{canManage\}( canBook=\{canBook\} recoverySecret=\{recoverySecret\})? organisationTimezone=\{timezone\} \/>/);
     expect(src).toMatch(/export const dynamic = 'force-dynamic'/);
   });
 });

@@ -2,12 +2,11 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 // Phase 2C.3c RELOAD-RECOVERY: FAILING-FIRST contract tests for the two small modules the design introduces. Nothing here exists yet.
-//   lib/scheduling/staffBooking/recoverySecret.ts   (server only)  deriveRecoverySecret(sessionSecret, userId, organisationId): string
+//   lib/scheduling/recoverySecret.ts   (server only)  deriveRecoverySecret(sessionSecret, userId, organisationId): string
 //   lib/scheduling/staffBooking/pendingStore.ts      (client)       createPendingStore(secret, storage): { read, write, clear, fingerprint }
-// Registered with recovery(...): it.fails until implemented (suite stays green, failure proven); RECOVERY_IMPLEMENTED=1 makes them plain tests (the red run).
+// Registered with it(...): it.fails until implemented (suite stays green, failure proven); RECOVERY_IMPLEMENTED=1 makes them plain tests (the red run).
 // See docs/architecture/scheduling-phase2c3c-reload-recovery-design.md. The component/browser/database tests are in their own files.
 
-const recovery: typeof it = (process.env.RECOVERY_IMPLEMENTED === '1' ? it : it.fails) as typeof it;
 
 type Derive = (sessionSecret: string, userId: string, organisationId: string) => string;
 type Store = {
@@ -18,7 +17,7 @@ type Store = {
 };
 type CreateStore = (secret: string, storage: Storage) => Store;
 
-const derive = async (): Promise<Derive> => ((await import('@/lib/scheduling/staffBooking/recoverySecret' as string)) as { deriveRecoverySecret: Derive }).deriveRecoverySecret;
+const derive = async (): Promise<Derive> => ((await import('@/lib/scheduling/recoverySecret' as string)) as { deriveRecoverySecret: Derive }).deriveRecoverySecret;
 const createStore = async (): Promise<CreateStore> => ((await import('@/lib/scheduling/staffBooking/pendingStore' as string)) as { createPendingStore: CreateStore }).createPendingStore;
 
 function memoryStorage(): Storage & { dump: () => Record<string, string> } {
@@ -39,12 +38,12 @@ const CONTENT = JSON.stringify(['off-1', 'court-1', '2027-01-11', '10:00', 2, 'P
 const PII = ['Pat Customer', 'pat@example.test', '0400 000 000', 'Bring a ball hopper', 'court-1', 'off-1'];
 
 describe('recovery secret: server-derived, per user and organisation, opaque', () => {
-  recovery('the same session secret, user and organisation always give the same value', async () => {
+  it('the same session secret, user and organisation always give the same value', async () => {
     const d = await derive();
     expect(d('server-secret', 'user-1', 'org-1')).toBe(d('server-secret', 'user-1', 'org-1'));
   });
 
-  recovery('a different user, a different organisation or a different server secret gives a different value', async () => {
+  it('a different user, a different organisation or a different server secret gives a different value', async () => {
     const d = await derive();
     const base = d('server-secret', 'user-1', 'org-1');
     expect(d('server-secret', 'user-2', 'org-1')).not.toBe(base);
@@ -52,13 +51,13 @@ describe('recovery secret: server-derived, per user and organisation, opaque', (
     expect(d('other-secret', 'user-1', 'org-1')).not.toBe(base);
   });
 
-  recovery('the encoding is unambiguous: moving characters between the user id and the organisation id changes the value', async () => {
+  it('the encoding is unambiguous: moving characters between the user id and the organisation id changes the value', async () => {
     const d = await derive();
     expect(d('s', 'a|b', 'c')).not.toBe(d('s', 'a', 'b|c'));
     expect(d('s', 'ab', 'c')).not.toBe(d('s', 'a', 'bc'));
   });
 
-  recovery('the value contains neither id nor the server secret, is url-safe and at least 256 bits', async () => {
+  it('the value contains neither id nor the server secret, is url-safe and at least 256 bits', async () => {
     const d = await derive();
     const v = d('server-secret-VALUE', 'user-1-VALUE', 'org-1-VALUE');
     expect(v).toMatch(/^[A-Za-z0-9_-]{43,}$/);
@@ -67,7 +66,7 @@ describe('recovery secret: server-derived, per user and organisation, opaque', (
 });
 
 describe('pending store: scoped, write-ahead, no personal data', () => {
-  recovery('a record holds exactly {v, key, fp, savedAt} and nothing a customer typed, no resource or offering id, no secret', async () => {
+  it('a record holds exactly {v, key, fp, savedAt} and nothing a customer typed, no resource or offering id, no secret', async () => {
     const storage = memoryStorage();
     const store = (await createStore())('secret-A', storage);
     expect(await store.write(KEY, CONTENT)).toEqual({ ok: true });
@@ -81,7 +80,7 @@ describe('pending store: scoped, write-ahead, no personal data', () => {
     expect(everything).not.toContain('secret-A');
   });
 
-  recovery('the fingerprint is a keyed MAC: deterministic per secret, different under another secret, and never a plain SHA-256 of the content', async () => {
+  it('the fingerprint is a keyed MAC: deterministic per secret, different under another secret, and never a plain SHA-256 of the content', async () => {
     const create = await createStore();
     const a = create('secret-A', memoryStorage());
     const b = create('secret-B', memoryStorage());
@@ -93,7 +92,7 @@ describe('pending store: scoped, write-ahead, no personal data', () => {
     for (const enc of [plain.toString('hex'), plain.toString('base64'), plain.toString('base64url')]) expect(fpA).not.toContain(enc);
   });
 
-  recovery('isolation: a store built from another secret cannot read, overwrite or clear the record', async () => {
+  it('isolation: a store built from another secret cannot read, overwrite or clear the record', async () => {
     const storage = memoryStorage();
     const create = await createStore();
     const a = create('secret-A', storage);
@@ -105,7 +104,7 @@ describe('pending store: scoped, write-ahead, no personal data', () => {
     expect(Object.keys(storage.dump()).join(' ')).not.toContain('secret-');
   });
 
-  recovery('NO EXPIRY: a record written a day (or a year) ago is still returned; age never turns an unresolved attempt into a failure', async () => {
+  it('NO EXPIRY: a record written a day (or a year) ago is still returned; age never turns an unresolved attempt into a failure', async () => {
     const storage = memoryStorage();
     const store = (await createStore())('secret-A', storage);
     await store.write(KEY, CONTENT);
@@ -116,7 +115,7 @@ describe('pending store: scoped, write-ahead, no personal data', () => {
     }
   });
 
-  recovery('a write that fails is reported (the caller must then send nothing); a malformed or foreign-version record reads as absent and is never trusted', async () => {
+  it('a write that fails is reported (the caller must then send nothing); a malformed or foreign-version record reads as absent and is never trusted', async () => {
     const create = await createStore();
     const failing = { ...memoryStorage(), setItem: () => { throw new DOMException('quota', 'QuotaExceededError'); } } as unknown as Storage;
     expect(await create('secret-A', failing).write(KEY, CONTENT)).toEqual({ ok: false });

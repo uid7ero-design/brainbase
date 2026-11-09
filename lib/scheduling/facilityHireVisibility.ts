@@ -2,6 +2,7 @@ import 'server-only';
 import { requireSession, type OrgSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { getUserPermissions } from '@/lib/organisationUsers/access';
+import { deriveRecoverySecret } from './recoverySecret';
 import { SCHEDULING_CAPABILITY_KEY, SCHEDULING_FACILITY_HIRE_CAPABILITY_KEY, permissionsForRole, facilityHireKillSwitchOn } from './adapters/brainbase';
 
 // "May THIS page show the facility-hire booking controls at all?". A server component calls this and passes the
@@ -19,31 +20,49 @@ import { SCHEDULING_CAPABILITY_KEY, SCHEDULING_FACILITY_HIRE_CAPABILITY_KEY, per
 // It shares NOTHING with getStaffBookingVisibility (Coach squads/enrolment): neither switch nor capability of the other feature is read here, and neither can satisfy this check.
 // Fail closed everywhere: any refusal, any unreadable state and any thrown error is `false`. It returns no data and writes nothing.
 
-export async function getFacilityHireVisibility(): Promise<boolean> {
-  if (!facilityHireKillSwitchOn()) return false;
+async function visibleSession(): Promise<OrgSession | null> {
+  if (!facilityHireKillSwitchOn()) return null;
   try {
     let session: OrgSession;
     try {
       session = await requireSession();
     } catch {
-      return false;
+      return null;
     }
-    if (!session || !session.organisationId || !session.userId) return false;
+    if (!session || !session.organisationId || !session.userId) return null;
 
     const [hire, base] = await Promise.all([
       checkCapability(session.organisationId, SCHEDULING_FACILITY_HIRE_CAPABILITY_KEY),
       checkCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY),
     ]);
-    if (!hire.allowed || !base.allowed) return false;
+    if (!hire.allowed || !base.allowed) return null;
 
-    if (!permissionsForRole(session.role).includes('scheduling.reserve')) return false;
+    if (!permissionsForRole(session.role).includes('scheduling.reserve')) return null;
 
     if (session.role !== 'super_admin') {
       const managed = await getUserPermissions(session.organisationId, session.userId);
-      if (managed !== null && managed.scheduling !== 'use') return false;
+      if (managed !== null && managed.scheduling !== 'use') return null;
     }
-    return true;
+    return session;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function getFacilityHireVisibility(): Promise<boolean> {
+  return (await visibleSession()) !== null;
+}
+
+/**
+ * The page's whole facility-hire booking decision: whether to show the controls, and the reload-recovery secret for THIS user and organisation
+ * (see recoverySecret.ts). The secret is derived only when every facility-hire gate above holds, so with the switch off, or without the
+ * scheduling.facility_hire capability, nothing is derived, read or sent. A Coach-only organisation (SCHEDULING_STAFF_BOOKING on, scheduling.staff_booking
+ * entitled) gets { canBook: false, recoverySecret: null }: nothing in this file reads the Coach switch or capability. Fail closed: no SESSION_SECRET means
+ * no booking (a booking build must not have a mode without recovery).
+ */
+export async function getFacilityHireContext(): Promise<{ canBook: boolean; recoverySecret: string | null }> {
+  const session = await visibleSession();
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!session || !sessionSecret) return { canBook: false, recoverySecret: null };
+  return { canBook: true, recoverySecret: deriveRecoverySecret(sessionSecret, session.userId, session.organisationId) };
 }

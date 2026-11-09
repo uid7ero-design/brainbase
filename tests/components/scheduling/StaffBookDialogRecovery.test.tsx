@@ -2,10 +2,11 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StaffBookDialog from '@/app/scheduling/_components/StaffBookDialog';
+import { createPendingStore } from '@/lib/scheduling/staffBooking/pendingStore';
+import { expectNoAxeViolations } from '../../a11y/axe';
 
-// Phase 2C.3c RELOAD-RECOVERY: FAILING-FIRST regression tests (design PR). Synthetic data only.
-// Each test is registered with recovery(...): while the fix is not implemented it is it.fails (the suite stays green and the test is PROVEN to fail today);
-// with RECOVERY_IMPLEMENTED=1 it is a plain it, i.e. the red run the implementation PR must turn green. See docs/architecture/scheduling-phase2c3c-reload-recovery-design.md.
+// Phase 2C.3c RELOAD RECOVERY: permanent regression tests (they were written failing-first in the design PR, #554). Synthetic data only.
+// D1 (close and reopen after a committed write with a lost reply) is a PERMANENT regression: see the first describe block.
 
 const TODAY = '2027-01-11'; // a Monday
 const RES_ID = 'res_0123456789abcdef0123456789abcdef0123';
@@ -113,7 +114,6 @@ afterEach(() => {
 });
 
 
-const recovery: typeof it = (process.env.RECOVERY_IMPLEMENTED === '1' ? it : it.fails) as typeof it;
 const Dlg = StaffBookDialog as unknown as React.ComponentType<Record<string, unknown>>;
 const SECRET_A = 'rs_A_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const SECRET_B = 'rs_B_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -153,7 +153,7 @@ function fakeServer(): Srv {
         s.lostReplies -= 1;
         throw new TypeError('network down'); // the write COMMITTED; the reply is lost
       }
-      if (s.hang) return new Promise<Response>(() => undefined);
+      if (s.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))); // never answers; the client's own timeout aborts it
       return Response.json({ reservation: s.committed.get(key!), replayed: already }, { status: already ? 200 : 201 });
     }
     const key = url.searchParams.get('idempotencyKey') ?? '';
@@ -184,7 +184,7 @@ describe('D1 permanent regression: close and reopen after an unresolved outcome'
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
-  recovery('steps 1-7: committed write, lost reply, uncertain, close, reopen: the ORIGINAL booking is recovered; one key; one reservation; no second POST', async () => {
+  it('steps 1-7: committed write, lost reply, uncertain, close, reopen: the ORIGINAL booking is recovered; one key; one reservation; no second POST', async () => {
     const s = fakeServer();
     const user = await lostReplyThenUnsure(s);
     const original = s.posts[0].key;
@@ -200,7 +200,7 @@ describe('D1 permanent regression: close and reopen after an unresolved outcome'
     expect(s.committed.size).toBe(1);
   });
 
-  recovery('reopen while the lookup still finds nothing: no booking form and no new key; only the original attempt can be resumed, and it keeps the original key', async () => {
+  it('reopen while the lookup still finds nothing: no booking form and no new key; only the original attempt can be resumed, and it keeps the original key', async () => {
     const s = fakeServer();
     const user = await lostReplyThenUnsure(s);
     const original = s.posts[0].key;
@@ -219,7 +219,7 @@ describe('D1 permanent regression: close and reopen after an unresolved outcome'
     expect(s.committed.size).toBe(1);
   });
 
-  recovery('a DIFFERENT booking cannot be started while the earlier one is unresolved (no new key is minted)', async () => {
+  it('a DIFFERENT booking cannot be started while the earlier one is unresolved (no new key is minted)', async () => {
     const s = fakeServer();
     const user = await lostReplyThenUnsure(s);
     await user.click(screen.getByRole('button', { name: 'Close' }));
@@ -251,7 +251,7 @@ describe('browser refresh', () => {
     <Page resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} recoverySecret={SECRET_A} />
   );
 
-  recovery('after a refresh the original key is reconciled before anything else, and a found booking is shown as Booked', async () => {
+  it('after a refresh the original key is reconciled before anything else, and a found booking is shown as Booked', async () => {
     const s = fakeServer();
     await lostReplyThenUnsure(s);
     const original = s.posts[0].key;
@@ -264,7 +264,7 @@ describe('browser refresh', () => {
     expect(pendingKeys()).toHaveLength(0); // resolved: the record is gone
   });
 
-  recovery('after a refresh with nothing found there is NO booking form and no new key, and ten minutes passing does not turn it into a failure', async () => {
+  it('after a refresh with nothing found there is NO booking form and no new key, and ten minutes passing does not turn it into a failure', async () => {
     const s = fakeServer();
     await lostReplyThenUnsure(s);
     const { rtl, Page } = await reload();
@@ -283,7 +283,7 @@ describe('write-ahead record, timeout and storage failure', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
-  recovery('the record is written BEFORE the first byte is sent and holds only {v, key, fp, savedAt}: no customer data, no plain hash of the payload; a timeout is uncertain', async () => {
+  it('the record is written BEFORE the first byte is sent and holds only {v, key, fp, savedAt}: no customer data, no plain hash of the payload; a timeout is uncertain', async () => {
     const s = fakeServer();
     s.hang = true; // a request that never answers: the client gives up after 20 s
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -307,7 +307,7 @@ describe('write-ahead record, timeout and storage failure', () => {
     expect(pendingKeys()).toHaveLength(1);
   });
 
-  recovery('a definitive outcome clears the record (created, and a definite refusal)', async () => {
+  it('a definitive outcome clears the record (created, and a definite refusal)', async () => {
     const s = fakeServer();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     open();
@@ -327,7 +327,7 @@ describe('write-ahead record, timeout and storage failure', () => {
     expect(pendingKeys()).toHaveLength(0);
   });
 
-  recovery('storage that cannot be written: NOTHING is sent (fail closed) and the staff member is told why', async () => {
+  it('storage that cannot be written: NOTHING is sent (fail closed) and the staff member is told why', async () => {
     const s = fakeServer();
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     open();
@@ -341,7 +341,7 @@ describe('write-ahead record, timeout and storage failure', () => {
     spy.mockRestore();
   });
 
-  recovery('storage that cannot be read or written at all: the dialog offers no booking and sends nothing', async () => {
+  it('storage that cannot be read or written at all: the dialog offers no booking and sends nothing', async () => {
     const s = fakeServer();
     const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('denied', 'SecurityError');
@@ -357,7 +357,7 @@ describe('write-ahead record, timeout and storage failure', () => {
     get.mockRestore();
   });
 
-  recovery('no recovery secret from the server: no booking is offered (fail closed)', async () => {
+  it('no recovery secret from the server: no booking is offered (fail closed)', async () => {
     const s = fakeServer();
     open(null);
     expect(await screen.findByText(/safely/i)).toBeInTheDocument();
@@ -371,7 +371,7 @@ describe('user switching and tenant isolation', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
-  recovery('another user or organisation (a different server-derived secret) never sees, looks up or resumes the record; the first one still can', async () => {
+  it('another user or organisation (a different server-derived secret) never sees, looks up or resumes the record; the first one still can', async () => {
     const s = fakeServer();
     const user = await lostReplyThenUnsure(s, SECRET_A);
     const original = s.posts[0].key;
@@ -388,5 +388,211 @@ describe('user switching and tenant isolation', () => {
     open(SECRET_A);
     expect(await screen.findByTestId('confirmation', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(s.lookups.at(-1)).toBe(original);
+  });
+});
+
+// ── implemented-behaviour tests added with the recovery implementation ──────────────────────────────────────────────────────────────────
+
+describe('recovery: corrupted records, late commits, the in-page copy, replay after a reload', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  const scopeOf = (secret: string) => createPendingStore(secret, sessionStorage).scope;
+  const recordName = (secret: string) => `${PENDING}${scopeOf(secret)}`;
+
+  async function reload() {
+    cleanup();
+    vi.resetModules(); // page memory gone (tier 1 included); sessionStorage survives
+    const rtl = await import('@testing-library/react');
+    const ue = (await import('@testing-library/user-event')).default;
+    const mod = (await import('@/app/scheduling/_components/StaffBookDialog')) as unknown as { default: React.ComponentType<Record<string, unknown>> };
+    return { rtl, ue, Page: mod.default };
+  }
+
+  it('a CORRUPT record withholds booking: nothing is sent, nothing is looked up, no form is offered, and the record is NOT deleted', async () => {
+    const s = fakeServer();
+    const KEY = `bk_${'b'.repeat(32)}`;
+    const bad = ['not json', '{}', '[]', 'null', JSON.stringify({ v: 2, key: KEY, fp: 'x', savedAt: 1 }), JSON.stringify({ v: 1, key: 'nope', fp: 'x', savedAt: 1 }), JSON.stringify({ v: 1, key: KEY, fp: 'x', savedAt: 1, extra: 'customer' }), JSON.stringify({ v: 1, key: KEY, fp: '', savedAt: 1 })];
+    for (const raw of bad) {
+      sessionStorage.setItem(recordName(SECRET_A), raw);
+      open();
+      expect(await screen.findByRole('alert')).toHaveTextContent(/safely/i);
+      expect(screen.getByTestId('unsafe')).toHaveTextContent(/could not be read/i);
+      expect(screen.queryByText('Choose a date')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Review booking|Confirm booking|Try again|Enter the booking again/ })).not.toBeInTheDocument();
+      expect(sessionStorage.getItem(recordName(SECRET_A))).toBe(raw); // never silently cleared: that would abandon an unresolved attempt
+      cleanup();
+    }
+    expect(s.posts).toHaveLength(0);
+    expect(s.lookups).toHaveLength(0);
+  });
+
+  it('"Check again" finds a booking that committed late; the original key is the only one ever looked up or sent', async () => {
+    const s = fakeServer();
+    const user = await lostReplyThenUnsure(s);
+    const original = s.posts[0].key;
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    open();
+    await user.click(await screen.findByRole('button', { name: 'Check again' }));
+    expect(await screen.findByRole('heading', { name: /earlier booking/i })).toBeInTheDocument();
+    s.visible = true; // the write that was in flight is now readable
+    await user.click(await screen.findByRole('button', { name: 'Check again' }));
+    expect(await screen.findByTestId('confirmation')).toBeInTheDocument();
+    expect(new Set(s.lookups.slice(-3))).toEqual(new Set([original]));
+    expect(s.posts).toHaveLength(1);
+    expect(pendingKeys()).toHaveLength(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('tier 1: the reopened dialog offers "Try again", which re-sends the SAME frozen booking under the SAME key (a replay), never a new one', async () => {
+    const s = fakeServer();
+    const user = await lostReplyThenUnsure(s);
+    const original = s.posts[0].key;
+    const body = s.posts[0].body;
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    open();
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('confirmation')).toBeInTheDocument();
+    expect(keysSent(s)).toEqual([original]);
+    expect(s.posts).toHaveLength(2);
+    expect(s.posts[1].body).toEqual(body);
+    expect(s.committed.size).toBe(1);
+    expect(pendingKeys()).toHaveLength(0);
+  });
+
+  it('after a RELOAD there is no frozen copy: only "Enter the booking again" (no "Try again"), and the replay uses the ORIGINAL key and returns the original booking', async () => {
+    const s = fakeServer();
+    await lostReplyThenUnsure(s);
+    const original = s.posts[0].key;
+    const { rtl, ue, Page } = await reload();
+    const user = ue.setup({ advanceTimers: vi.advanceTimersByTime });
+    rtl.render(<Page resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} recoverySecret={SECRET_A} />);
+    await user.click(await rtl.screen.findByRole('button', { name: 'Enter the booking again' }));
+    expect(rtl.screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    // wrong content first: refused, nothing sent, no key
+    await rtl.screen.findByText('Choose a date');
+    await user.click(rtl.screen.getByRole('button', { name: /Mon 11 Jan, \d times/ }));
+    await user.click(await rtl.screen.findByRole('radio', { name: '10:00' }));
+    await user.click(rtl.screen.getByRole('button', { name: 'Continue to customer details' }));
+    await rtl.screen.findByRole('heading', { name: 'Customer details' });
+    await user.type(rtl.screen.getByLabelText(/Customer name/), 'Someone Else');
+    await user.click(rtl.screen.getByRole('button', { name: 'Review booking' }));
+    expect(await rtl.screen.findByRole('alert')).toHaveTextContent(/not the booking being checked/i);
+    expect(s.posts).toHaveLength(1);
+    // the same content: replayed under the original key
+    const nameField = rtl.screen.getByLabelText(/Customer name/);
+    await user.clear(nameField);
+    await user.type(nameField, 'Pat Customer');
+    await user.type(rtl.screen.getByLabelText(/Customer email/), 'pat@example.test');
+    await user.type(rtl.screen.getByLabelText(/Customer phone/), '0400 000 000');
+    await user.clear(rtl.screen.getByLabelText(/Party size/));
+    await user.type(rtl.screen.getByLabelText(/Party size/), '2');
+    await user.type(rtl.screen.getByLabelText(/Notes/), 'Bring a ball hopper');
+    await user.click(rtl.screen.getByRole('button', { name: 'Review booking' }));
+    await rtl.screen.findByRole('heading', { name: 'Review the booking' });
+    await user.click(rtl.screen.getByTestId('confirm-booking'));
+    expect(await rtl.screen.findByTestId('confirmation')).toBeInTheDocument();
+    expect(keysSent(s)).toEqual([original]);
+    expect(s.posts).toHaveLength(2);
+    expect(s.committed.size).toBe(1);
+    expect(pendingKeys()).toHaveLength(0);
+  });
+
+  it('a definitive refusal of the replay resolves the attempt (record removed) but never claims "Nothing was booked."', async () => {
+    const s = fakeServer();
+    const user = await lostReplyThenUnsure(s);
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    s.committed.clear();
+    s.refuse = 'RESOURCE_CONFLICT';
+    open();
+    await user.click(await screen.findByRole('button', { name: 'Enter the booking again' }));
+    await toReview(user);
+    await user.click(screen.getByTestId('confirm-booking'));
+    await waitFor(() => expect(pendingKeys()).toHaveLength(0));
+    const live = await screen.findByTestId('booking-live');
+    await waitFor(() => expect(live).toHaveTextContent(/just taken/i));
+    expect(live.textContent).not.toMatch(/Nothing was booked/);
+    expect(live.textContent).toMatch(/could not be confirmed/);
+    expect(s.posts.every(p => p.key === s.posts[0].key)).toBe(true);
+  });
+
+  it('user B finishing a booking never clears or reads user A\'s unresolved record; A still recovers it', async () => {
+    const s = fakeServer();
+    const user = await lostReplyThenUnsure(s, SECRET_A);
+    const original = s.posts[0].key;
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    open(SECRET_B);
+    await toReview(user);
+    await user.click(screen.getByTestId('confirm-booking'));
+    await screen.findByTestId('confirmation');
+    expect(s.posts[1].key).not.toBe(original);
+    expect(sessionStorage.getItem(recordName(SECRET_A))).not.toBeNull();
+    expect(sessionStorage.getItem(recordName(SECRET_B))).toBeNull();
+    cleanup();
+    s.visible = true;
+    open(SECRET_A);
+    expect(await screen.findByTestId('confirmation')).toBeInTheDocument();
+    expect(s.lookups.at(-1)).toBe(original);
+  });
+
+  it('sign out and back in as the SAME user (same secret, fresh page) recovers; a different organisation for the same user does not', async () => {
+    const s = fakeServer();
+    await lostReplyThenUnsure(s, SECRET_A);
+    const original = s.posts[0].key;
+    const { rtl, Page } = await reload();
+    const mount = (secret: string) => rtl.render(<Page resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} recoverySecret={secret} />);
+    const lookups = s.lookups.length;
+    mount(SECRET_B); // same user, another organisation: a different server-derived secret
+    expect(await rtl.screen.findByText('Choose a date')).toBeInTheDocument();
+    expect(s.lookups.length).toBe(lookups);
+    rtl.cleanup();
+    s.visible = true;
+    mount(SECRET_A);
+    expect(await rtl.screen.findByTestId('confirmation')).toBeInTheDocument();
+    expect(s.lookups.at(-1)).toBe(original);
+  });
+
+  it('no customer data is ever in sessionStorage or localStorage, at any point of the whole flow', async () => {
+    const s = fakeServer();
+    s.lostReplies = 1;
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const seen: string[] = [];
+    const scan = () => seen.push(JSON.stringify({ ...sessionStorage, ...localStorage }));
+    open();
+    scan();
+    await toReview(user);
+    scan();
+    await user.click(screen.getByTestId('confirm-booking'));
+    scan();
+    await polls();
+    await screen.findByRole('heading', { name: /could not confirm whether the booking was saved/ });
+    scan();
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    open();
+    await screen.findByRole('heading', { name: /earlier booking/i });
+    scan();
+    for (const snapshot of seen) for (const p of [...PII, 'court-1', 'off-1', '2027-01-11', RES_ID]) expect(snapshot).not.toContain(p);
+    expect(seen.some(x => x.includes(PENDING))).toBe(true);
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('the recovering and unsafe states have no axe violations and the heading takes focus', async () => {
+    const s = fakeServer();
+    const user = await lostReplyThenUnsure(s);
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    cleanup();
+    open();
+    const heading = await screen.findByRole('heading', { name: 'We could not confirm an earlier booking' });
+    await waitFor(() => expect(heading).toHaveFocus());
+    await expectNoAxeViolations(document.body);
+    cleanup();
+    open(null);
+    await screen.findByTestId('unsafe');
+    await expectNoAxeViolations(document.body);
   });
 });

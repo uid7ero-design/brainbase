@@ -261,18 +261,19 @@ describe('the Book button exists only when the server says so (static)', () => {
 
   it('canBook defaults to false and the button needs canBook, the resource calendar and an active resource', () => {
     expect(calendar).toMatch(/canBook = false/);
-    expect(calendar).toMatch(/const showBook = canBook && kind === 'resource' && !bookGone && view\?\.resource\?\.active === true;/);
+    expect(calendar).toMatch(/const showBook = canBook && !!recoverySecret && kind === 'resource' && !bookGone && view\?\.resource\?\.active === true;/);
     expect(calendar).toMatch(/\{showBook && \(\s*<Button[\s\S]*?data-testid="book-button"/);
     expect(calendar).toMatch(/const bookDialog =\s*showBook && bookOpen/);
   });
 
   it('only the resource calendar page asks for the decision, and it asks on the server', () => {
     const resourcePage = read('app/scheduling/resources/[resourceId]/calendar/page.tsx');
-    expect(resourcePage).toMatch(/getFacilityHireVisibility\(\)/);
+    expect(resourcePage).toMatch(/getFacilityHireContext\(\)/);
     expect(resourcePage).not.toMatch(/getStaffBookingVisibility|staffBookingVisibility/); // the Coach gate can never show the Book button
     expect(resourcePage).toMatch(/canBook=\{canBook\}/);
+    expect(resourcePage).toMatch(/recoverySecret=\{recoverySecret\}/);
     expect(resourcePage).not.toMatch(/'use client'/);
-    expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility/);
+    expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility|getFacilityHireContext|getFacilityHireVisibility|recoverySecret/);
   });
 
   it('the Coach visibility helper is server-only and is used only by the Coach pages; the facility-hire helper is used only by the resource calendar', () => {
@@ -315,4 +316,100 @@ describe('the Book button exists only when the server says so (static)', () => {
     expect(src).toMatch(/scheduling\.reserve/);
     expect(src).toMatch(/SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY/);
   });
+});
+
+// ── reload recovery: the page's whole facility-hire decision (canBook + the per-user recovery secret) ───────────────────────────────────
+
+import { getFacilityHireContext } from '@/lib/scheduling/facilityHireVisibility';
+
+const FH = 'scheduling.facility_hire';
+
+describe('getFacilityHireContext: the recovery secret exists only when facility-hire booking is visible, and only for that user and organisation', () => {
+  const SESSION = 'unit-test-session-secret-never-in-output';
+  beforeEach(() => {
+    process.env.SESSION_SECRET = SESSION;
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
+    state.entitled = new Set();
+    entitle('org-a', FH, BASE);
+  });
+
+  it.each([undefined, '', 'off', 'ON', 'true'])('facility-hire switch=%j: { canBook:false, recoverySecret:null } and the session and database are never touched (nothing is derived)', async value => {
+    if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+    else process.env.SCHEDULING_FACILITY_HIRE = value;
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+    expect(state.calls.session).toBe(0);
+    expect(state.calls.capability).toEqual([]);
+    expect(state.calls.managed).toBe(0);
+  });
+
+  it('every refusal of the facility-hire gate gives no secret', async () => {
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'viewer' };
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+    state.session = null;
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'manager' };
+    state.entitled = new Set();
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+    entitle('org-a', FH, BASE);
+    state.managed = { scheduling: 'view' };
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+  });
+
+  it('COACH ONLY gives no secret: the Coach switch ON and scheduling.staff_booking entitled (and the base capability) cannot authorise facility-hire recovery', async () => {
+    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    state.entitled = new Set();
+    entitle('org-a', SB, BASE); // Coach entitlement + base, but NOT scheduling.facility_hire
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+    // and the reverse: the facility-hire gate on with the Coach switch OFF still works (no coupling in either direction)
+    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    state.entitled = new Set();
+    entitle('org-a', FH, BASE);
+    expect((await getFacilityHireContext()).canBook).toBe(true);
+    expect(state.calls.capability.every(([, key]) => key !== SB)).toBe(true); // the Coach capability is never even read
+  });
+
+  it('another organisation entitlement does not count: the capability is checked for the own organisation of the session', async () => {
+    state.entitled = new Set();
+    entitle('org-b', FH, BASE);
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+  });
+
+  it('FAILS CLOSED without a session secret: no booking, because a booking build must not have a mode without recovery', async () => {
+    delete process.env.SESSION_SECRET;
+    expect(await getFacilityHireContext()).toEqual({ canBook: false, recoverySecret: null });
+  });
+
+  it('when visible: canBook with an opaque secret that differs per user and per organisation, is stable for one, and contains neither id nor the session secret', async () => {
+    const a = await getFacilityHireContext();
+    expect(a.canBook).toBe(true);
+    expect(a.recoverySecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(a.recoverySecret).not.toContain(SESSION);
+    expect(a.recoverySecret).not.toContain('u1');
+    expect(await getFacilityHireContext()).toEqual(a);
+    state.session = { organisationId: 'org-a', userId: 'u2', role: 'manager' };
+    const otherUser = await getFacilityHireContext();
+    entitle('org-b', FH, BASE);
+    state.session = { organisationId: 'org-b', userId: 'u1', role: 'manager' };
+    const otherOrg = await getFacilityHireContext();
+    expect(new Set([a.recoverySecret, otherUser.recoverySecret, otherOrg.recoverySecret]).size).toBe(3);
+    process.env.SESSION_SECRET = 'a-different-session-secret';
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'manager' };
+    expect((await getFacilityHireContext()).recoverySecret).not.toBe(a.recoverySecret);
+  });
+
+  it('structure (static): the Coach gate file has no recovery path at all, and recovery is imported only by the facility-hire helper', () => {
+    expect(strip(read('lib/scheduling/staffBookingVisibility.ts'))).not.toMatch(/recoverySecret|deriveRecoverySecret|getStaffBookingContext/);
+    expect(strip(read('lib/scheduling/facilityHireVisibility.ts'))).toMatch(/deriveRecoverySecret/);
+    const importers: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.next') continue;
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walk(rel);
+        else if (/\.(ts|tsx)$/.test(entry.name) && /recoverySecret'/.test(read(rel))) importers.push(rel);
+      }
+    };
+    for (const dir of ['app', 'lib', 'components']) walk(dir);
+    expect(importers.sort()).toEqual(['lib/scheduling/facilityHireVisibility.ts']);
+  }, 60_000);
 });

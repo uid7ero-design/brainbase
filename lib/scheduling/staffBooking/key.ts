@@ -7,7 +7,8 @@
 //   - a different content yields a new key (the staff member changed the booking);
 //   - the key lives in memory only. It is not written to sessionStorage, localStorage, a log or the DOM. It travels only in the
 //     Idempotency-Key header of the one POST and in the reconcile lookup's query (GET ?idempotencyKey=), as the API contract defines.
-//     Slice 2 does NOT add a reload-recovery record: nothing is stored, so a reload forgets the attempt (the database's exclusive hold still refuses an overlapping second booking);
+//     This module never stores the key. Reload recovery (pendingStore.ts) keeps only the ORIGINAL key of an UNRESOLVED attempt, in sessionStorage, written before
+//     the first send and removed on an authoritative outcome; the holder gets it back through adopt() and nowhere else;
 //   - there is deliberately NO "rotate" operation here. The only ways to a new key are a changed content or an explicit `discard()`, which
 //     slice 2 calls it solely from the IDEMPOTENCY_CONFLICT state, on the staff member's explicit choice to start a new booking. During an uncertain outcome nothing in this module can change the key.
 
@@ -30,7 +31,7 @@ export function newBookingKey(randomUuid: () => string = () => globalThis.crypto
   return `bk_${randomUuid().replace(/-/g, '').toLowerCase()}`;
 }
 
-const canonical = (c: BookingContent): string =>
+export const canonicalContent = (c: BookingContent): string =>
   JSON.stringify([c.offeringId, c.resourceId, c.date, c.time, c.partySize ?? null, c.customerName ?? null, c.email ?? null, c.phone ?? null, c.notes ?? null]);
 
 export interface BookingKeyHolder {
@@ -38,6 +39,11 @@ export interface BookingKeyHolder {
   keyFor(content: BookingContent): string;
   /** The held key, or null. Never creates one. */
   current(): string | null;
+  /**
+   * RELOAD RECOVERY ONLY: hold an EXISTING key (the original of an unresolved attempt) for this content. Called from exactly one place: REVIEW in
+   * resume mode, after the content's keyed fingerprint matched the pending record. Never mints a key; ignores anything that is not a booking key.
+   */
+  adopt(key: string, content: BookingContent): void;
   /** Forget the held key. Only the IDEMPOTENCY_CONFLICT state calls it, on the staff member's choice; never during an uncertain outcome. */
   discard(): void;
 }
@@ -46,10 +52,13 @@ export function createBookingKeyHolder(randomUuid?: () => string): BookingKeyHol
   let held: { content: string; key: string } | null = null;
   return {
     keyFor(content) {
-      const next = canonical(content);
+      const next = canonicalContent(content);
       if (held && held.content === next) return held.key;
       held = { content: next, key: newBookingKey(randomUuid) };
       return held.key;
+    },
+    adopt(key, content) {
+      if (BOOKING_KEY_PATTERN.test(key)) held = { content: canonicalContent(content), key };
     },
     current: () => held?.key ?? null,
     discard() {

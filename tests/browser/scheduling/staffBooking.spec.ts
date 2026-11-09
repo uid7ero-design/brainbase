@@ -464,10 +464,8 @@ for (const scheme of ['light', 'dark'] as const) {
       await context.close();
     });
 
-    // ── RELOAD-RECOVERY (design PR): FAILING-FIRST. Expected to FAIL until the recovery fix lands (test.fail); RECOVERY_IMPLEMENTED=1 makes them ordinary tests. ──
-    test(`RECOVERY D1: lost reply, "could not confirm", Close, reopen: the ORIGINAL booking is recovered; one key; one reservation (${scheme})`, async ({ browser }) => {
-      test.fail(process.env.RECOVERY_IMPLEMENTED !== '1', 'reload-recovery is not implemented yet');
-      test.setTimeout(150_000);
+    // ── RELOAD RECOVERY (permanent regression): D1 close/reopen and a real page reload, each with the reply lost AFTER the write committed. ──
+    test(`RECOVERY D1: lost reply, "could not confirm", Close, reopen: the ORIGINAL booking is recovered; one key; one reservation (${scheme})`, async ({ browser }) => {      test.setTimeout(150_000);
       const context = await contextFor(browser, 'manager');
       const page = await context.newPage();
       await themed(page, scheme);
@@ -503,9 +501,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await context.close();
     });
 
-    test(`RECOVERY refresh: a real page reload while the outcome is unknown reconciles the ORIGINAL key before anything else; no second booking (${scheme})`, async ({ browser }) => {
-      test.fail(process.env.RECOVERY_IMPLEMENTED !== '1', 'reload-recovery is not implemented yet');
-      test.setTimeout(150_000);
+    test(`RECOVERY refresh: a real page reload while the outcome is unknown reconciles the ORIGINAL key before anything else; no second booking (${scheme})`, async ({ browser }) => {      test.setTimeout(150_000);
       const context = await contextFor(browser, 'manager');
       const page = await context.newPage();
       await themed(page, scheme);
