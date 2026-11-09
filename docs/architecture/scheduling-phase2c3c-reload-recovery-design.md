@@ -1,6 +1,6 @@
-# Scheduling Phase 2C.3c: reload-recovery for staff booking (design v2, for approval)
+# Scheduling Phase 2C.3c: reload-recovery for staff booking (design v2, implemented)
 
-Status: **design, failing-first tests, wording fixes and Neon test isolation. The recovery mechanism itself is NOT implemented** (stops at the design approval gate). Stacked on #549 (head `ce3c4cf5`); main is `3ba7993f` and has not moved. No migration, no server change, no environment variable, no capability, nothing enabled.
+Status: **IMPLEMENTED on this branch (owner decisions O1-O4 approved; see section 14).** The design below is unchanged except where section 14 records a deliberate difference. Stops at the implementation review gate: nothing is merged, enabled, registered or activated.
 
 ## 0. What this PR contains
 
@@ -152,3 +152,60 @@ The 2C.3b and UI slice 2 Neon suites both wrote `neon-route-a/b`, and each finge
 
 ## 13. Out of scope
 Cancellation (slice 3), public booking, payments, recurrence, a short human reference, any server or schema change.
+
+## 14. Implementation (as built) and owner decisions
+
+### 14.1 Owner decisions (approved)
+
+| | Decision | Effect in the code |
+| --- | --- | --- |
+| O1 | No automatic abandonment of an unresolved attempt. Authoritative resolution or same-key replay only. | No expiry, quiet period, timer, sweep or "release" anywhere. `savedAt` is written and never read. A static pin forbids a clock in the machine, the attempt store and the boot module. |
+| O2 | While an attempt is unresolved, block ALL new booking attempts in the tab for that user and organisation. | The dialog opens `recovering` (or `unsafe`); the only way forward is the original attempt. |
+| O3 | Conflict explainer (B1) is deferred to a separate enhancement. | Not built. |
+| O4 | Per-tab `sessionStorage` for v1, limitations documented. | See 14.5. |
+
+### 14.2 Modules
+
+| File | Role |
+| --- | --- |
+| `lib/scheduling/recoverySecret.ts` (server only) | `deriveRecoverySecret(sessionSecret, userId, organisationId)`: HMAC-SHA-256 with a domain label and length-prefixed ids. |
+| `lib/scheduling/staffBookingVisibility.ts` | `getStaffBookingContext()` returns `{canBook, recoverySecret}`. The secret is derived only when every visibility gate holds, and not at all if `SESSION_SECRET` is missing (fail closed). `getStaffBookingVisibility()` is unchanged in behaviour. |
+| `lib/scheduling/staffBooking/hmac.ts` | A synchronous HMAC-SHA-256 for the browser (pinned byte-for-byte against `node:crypto`). Synchronous because the record must be written in the same tick that decides to send, and its storage name must be known synchronously; `crypto.subtle` is asynchronous and secure-context only. |
+| `lib/scheduling/staffBooking/pendingStore.ts` | The write-ahead record `{v, key, fp, savedAt}` under `bb.sched.pending.<scope>`; `status()` distinguishes none / record / corrupt / unavailable; `ensure()` never replaces a record of a different key. |
+| `lib/scheduling/staffBooking/attemptStore.ts` | Tier 1: unresolved machine state kept in page memory, keyed by scope; no storage. |
+| `lib/scheduling/staffBooking/recoveryBoot.ts` | Decides what the dialog opens on, once, before any request. |
+| `lib/scheduling/staffBooking/machine.ts` | Steps `recovering` and `unsafe`; actions `CHECK_AGAIN`, `RETRY_FROZEN`, `ENTER_AGAIN`, `STORE_FAILED`; `pending` / `resume` state; `settlesAttempt()`. |
+| `lib/scheduling/staffBooking/key.ts` | `adopt(key, content)`: the only way a holder is given an existing key; called from `machine.ts` REVIEW in resume mode only. |
+| `StaffBookDialog.tsx`, `CalendarScreen.tsx`, the calendar page | Boot, write-ahead before send, lookup, recovering/unsafe panels; no Book button without a secret. |
+
+### 14.3 Differences from the design text above (deliberate)
+
+1. **No `crypto.subtle`.** Scope and fingerprint use the synchronous HMAC in `hmac.ts`, so "crypto.subtle unavailable" is no longer a failure mode. A missing secret, unusable storage or a corrupt record still fails closed.
+2. **One lookup on opening, then "Check again".** The design polled 0.5/1.5/3/6 s on opening. A reload does not need that spacing (the original request is no longer attached to this page), and a user who wants another look presses **Check again**, which only reads. In-session `checking` keeps the original 0.5/1.5/3/6 s schedule.
+3. **Three actions when settled:** *Check again* (read only), *Try again* (only when the in-page copy of the frozen attempt exists: same key, same body), *Enter the booking again* (resume by replay).
+4. **A corrupt record withholds booking** and is never deleted automatically (deleting it would abandon an unresolved attempt). Closing the tab clears it. There is deliberately no "clear it" button (O1).
+5. **A found booking, a definitive refusal under the key and `IDEMPOTENCY_CONFLICT` remove the record; `CONTENTION_TIMEOUT`, uncertain outcomes and (after an uncertain send) 401/403/404 do not** (`settlesAttempt`, proved equal to the reducer for every outcome).
+
+### 14.4 Security of exposing a server-derived value to the browser
+
+* The value is an HMAC over a **domain label** and the length-prefixed user and organisation ids, keyed by the session secret. HMAC is one-way; it does not reveal the key, and the label means it cannot equal any other use of that key.
+* It is **not** a session token, a cookie or a JWT, and **no route, middleware or request helper reads it** (static pin). It is never sent in a request, a header, a URL, a log or the DOM. Holding it authorises nothing; the API still authorises every request from the session.
+* The browser derives from it a storage name and a fingerprint key, and never stores it.
+* An attacker who could read the page props could already act as the signed-in user; the secret adds no capability. What it prevents is one user's or organisation's record being found, read, resumed or cleared by another in the same browser.
+* It is stable per (user, organisation), so the same user signing back in finds their record; a rotated session secret orphans one unresolved record (residual risk, section 12).
+
+### 14.5 Limitations (not global guarantees)
+
+* **New tab, cleared site data, a new device, another browser:** the record is not there. No duplicate is possible (the exclusive hold refuses the same slot); the loss is that the earlier booking is not pointed out. The staff member must look in the calendar. The optional server enhancement B1 would address this and is deferred (O3).
+* **`sessionStorage` is per tab:** a record is not visible to a second tab, and a duplicated tab starts with a copy of storage. A second tab for the same user can therefore start a booking that the first tab has unresolved; the database still prevents an overlapping hold.
+* **Tier 1 lives in page memory** and holds the frozen request (including customer details) until the attempt is resolved or the page unloads. This is what the dialog's state already held while open; nothing is persisted by it.
+* **"Enter the booking again" only works when the earlier request did NOT commit.** If it did commit, the engine no longer offers that hour, so the same booking cannot even be entered (proved on PostgreSQL and Neon); the staff member uses **Check again**, which finds the original by its key once a lookup succeeds. Replay is therefore the path for a request that never arrived; lookup is the path for one that committed. Both keep the original key, and neither can create a second booking.
+* **Private browsing / blocked storage:** the dialog offers no booking (fail closed).
+* **An unresolved attempt blocks new bookings in that tab** until it is found, replayed to an authoritative answer, or the tab is closed (O1/O2). That is the intended cost.
+
+### 14.6 Tests (all permanent; the failing-first markers are removed)
+
+* `tests/components/scheduling/StaffBookDialogRecovery.test.tsx` (D1 steps 1-7, refresh, timeout, storage failure, corrupt record, user/organisation isolation, no customer data in storage at any point, axe).
+* `tests/containment/schedulingStaffBookingReloadRecovery.test.ts` (secret and store contract) and `schedulingStaffBookingRecoveryDesign.test.ts` (HMAC vs node, machine inertness and property tests, `settlesAttempt` vs reducer, source pins).
+* `scripts/tests/schedulingStaffBookingUi2c3cBooking.integration.test.ts` (recovery through the real routes on PostgreSQL 16/17, and the Neon-driver variant).
+* `tests/browser/scheduling/staffBooking.spec.ts` (D1 and a real page reload, three viewports, both themes).

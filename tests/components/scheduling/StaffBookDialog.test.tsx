@@ -2,6 +2,8 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StaffBookDialog from '@/app/scheduling/_components/StaffBookDialog';
+
+const TEST_SECRET = 'rs_test_secret_0123456789012345678901234567'; // what the server passes (lib/scheduling/recoverySecret.ts); the dialog offers no booking without one
 import { expectNoAxeViolations } from '../../a11y/axe';
 
 // Phase 2C.3c UI slice 1: the SELECTION half of the staff booking dialog (offering, date, engine start) against a stubbed fetch. Synthetic data only.
@@ -54,7 +56,7 @@ function mount(props: Partial<React.ComponentProps<typeof StaffBookDialog>> = {}
   const onClose = vi.fn();
   const onUnavailable = vi.fn();
   const user = userEvent.setup();
-  const view = render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onUnavailable={onUnavailable} {...props} />);
+  const view = render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onUnavailable={onUnavailable} {...props} />);
   return { user, onClose, onUnavailable, ...view };
 }
 

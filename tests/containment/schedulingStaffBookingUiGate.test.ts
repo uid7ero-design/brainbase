@@ -261,17 +261,18 @@ describe('the Book button exists only when the server says so (static)', () => {
 
   it('canBook defaults to false and the button needs canBook, the resource calendar and an active resource', () => {
     expect(calendar).toMatch(/canBook = false/);
-    expect(calendar).toMatch(/const showBook = canBook && kind === 'resource' && !bookGone && view\?\.resource\?\.active === true;/);
+    expect(calendar).toMatch(/const showBook = canBook && !!recoverySecret && kind === 'resource' && !bookGone && view\?\.resource\?\.active === true;/);
     expect(calendar).toMatch(/\{showBook && \(\s*<Button[\s\S]*?data-testid="book-button"/);
     expect(calendar).toMatch(/const bookDialog =\s*showBook && bookOpen/);
   });
 
   it('only the resource calendar page asks for the decision, and it asks on the server', () => {
     const resourcePage = read('app/scheduling/resources/[resourceId]/calendar/page.tsx');
-    expect(resourcePage).toMatch(/getStaffBookingVisibility\(\)/);
+    expect(resourcePage).toMatch(/getStaffBookingContext\(\)/);
     expect(resourcePage).toMatch(/canBook=\{canBook\}/);
+    expect(resourcePage).toMatch(/recoverySecret=\{recoverySecret\}/);
     expect(resourcePage).not.toMatch(/'use client'/);
-    expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility/);
+    expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility|getStaffBookingContext|recoverySecret/);
   });
 
   it('the visibility helper is server-only and is imported by exactly one page', () => {
@@ -295,5 +296,61 @@ describe('the Book button exists only when the server says so (static)', () => {
     expect(src.indexOf('staffBookingKillSwitchOn()')).toBeLessThan(src.indexOf('requireSession()'));
     expect(src).toMatch(/scheduling\.reserve/);
     expect(src).toMatch(/SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY/);
+  });
+});
+
+// ── reload recovery: the page's whole decision (canBook + the per-user recovery secret) ──────────────────────────────────────────────────
+
+import { getStaffBookingContext } from '@/lib/scheduling/staffBookingVisibility';
+
+describe('getStaffBookingContext: the recovery secret exists only when booking is visible, and only for that user and organisation', () => {
+  const SESSION = 'unit-test-session-secret-never-in-output';
+  beforeEach(() => {
+    process.env.SESSION_SECRET = SESSION;
+  });
+
+  it.each([undefined, '', 'off', 'ON', 'true'])('switch=%j: { canBook:false, recoverySecret:null } and the session and database are never touched (nothing is derived)', async value => {
+    if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
+    else process.env.SCHEDULING_STAFF_BOOKING = value;
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+    expect(state.calls.session).toBe(0);
+    expect(state.calls.capability).toEqual([]);
+    expect(state.calls.managed).toBe(0);
+  });
+
+  it('every refusal of the visibility gate gives no secret', async () => {
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'viewer' };
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+    state.session = null;
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'manager' };
+    state.entitled = new Set();
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+    entitle('org-a', SB, BASE);
+    state.managed = { scheduling: 'view' };
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+  });
+
+  it('FAILS CLOSED without a session secret: no booking, because a booking build must not have a mode without recovery', async () => {
+    delete process.env.SESSION_SECRET;
+    expect(await getStaffBookingContext()).toEqual({ canBook: false, recoverySecret: null });
+  });
+
+  it('when visible: canBook with an opaque secret that differs per user and per organisation, is stable for one, and contains neither id nor the session secret', async () => {
+    const a = await getStaffBookingContext();
+    expect(a.canBook).toBe(true);
+    expect(a.recoverySecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(a.recoverySecret).not.toContain(SESSION);
+    expect(a.recoverySecret).not.toContain('u1');
+    expect(await getStaffBookingContext()).toEqual(a);
+    state.session = { organisationId: 'org-a', userId: 'u2', role: 'manager' };
+    const otherUser = await getStaffBookingContext();
+    entitle('org-b', SB, BASE);
+    state.session = { organisationId: 'org-b', userId: 'u1', role: 'manager' };
+    const otherOrg = await getStaffBookingContext();
+    expect(new Set([a.recoverySecret, otherUser.recoverySecret, otherOrg.recoverySecret]).size).toBe(3);
+    process.env.SESSION_SECRET = 'a-different-session-secret';
+    state.session = { organisationId: 'org-a', userId: 'u1', role: 'manager' };
+    expect((await getStaffBookingContext()).recoverySecret).not.toBe(a.recoverySecret);
   });
 });

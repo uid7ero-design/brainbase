@@ -54,12 +54,12 @@ function stub(opts: { active?: boolean; basis?: () => Response } = {}) {
 }
 const bookingCalls = () => requests.filter(r => /\/reservations|\/api\/scheduling\/schedules|\/offerings\/[^/?]+\/resources/.test(r.path));
 
-function open(props: { kind?: 'resource' | 'offering'; canBook?: boolean | undefined } = {}) {
+function open(props: { kind?: 'resource' | 'offering'; canBook?: boolean | undefined; recoverySecret?: string | null } = {}) {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
   const element =
     props.canBook === undefined
       ? <CalendarScreen kind={props.kind ?? 'resource'} id="court-1" canManage organisationTimezone="Australia/Adelaide" />
-      : <CalendarScreen kind={props.kind ?? 'resource'} id="court-1" canManage canBook={props.canBook} organisationTimezone="Australia/Adelaide" />;
+      : <CalendarScreen kind={props.kind ?? 'resource'} id="court-1" canManage canBook={props.canBook} recoverySecret={props.recoverySecret === undefined ? "rs_test_secret_0123456789012345678901234567" : props.recoverySecret} organisationTimezone="Australia/Adelaide" />;
   return render(element);
 }
 

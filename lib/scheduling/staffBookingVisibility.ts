@@ -2,6 +2,7 @@ import 'server-only';
 import { requireSession, type OrgSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { getUserPermissions } from '@/lib/organisationUsers/access';
+import { deriveRecoverySecret } from './recoverySecret';
 import { SCHEDULING_CAPABILITY_KEY, SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY, permissionsForRole, staffBookingKillSwitchOn } from './adapters/brainbase';
 
 // Phase 2C.3c UI slice 1: "may THIS page show the staff booking controls at all?". A server component calls this and passes the
@@ -18,31 +19,47 @@ import { SCHEDULING_CAPABILITY_KEY, SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY, per
 //   5. a managed-access row (if any) puts Scheduling at `use` (a platform owner has no row and is decided by role)
 // Fail closed everywhere: any refusal, any unreadable state and any thrown error is `false`. It returns no data and writes nothing.
 
-export async function getStaffBookingVisibility(): Promise<boolean> {
-  if (!staffBookingKillSwitchOn()) return false;
+async function visibleSession(): Promise<OrgSession | null> {
+  if (!staffBookingKillSwitchOn()) return null;
   try {
     let session: OrgSession;
     try {
       session = await requireSession();
     } catch {
-      return false;
+      return null;
     }
-    if (!session || !session.organisationId || !session.userId) return false;
+    if (!session || !session.organisationId || !session.userId) return null;
 
     const [staff, base] = await Promise.all([
       checkCapability(session.organisationId, SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY),
       checkCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY),
     ]);
-    if (!staff.allowed || !base.allowed) return false;
+    if (!staff.allowed || !base.allowed) return null;
 
-    if (!permissionsForRole(session.role).includes('scheduling.reserve')) return false;
+    if (!permissionsForRole(session.role).includes('scheduling.reserve')) return null;
 
     if (session.role !== 'super_admin') {
       const managed = await getUserPermissions(session.organisationId, session.userId);
-      if (managed !== null && managed.scheduling !== 'use') return false;
+      if (managed !== null && managed.scheduling !== 'use') return null;
     }
-    return true;
+    return session;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function getStaffBookingVisibility(): Promise<boolean> {
+  return (await visibleSession()) !== null;
+}
+
+/**
+ * The page's whole booking decision: whether to show the controls, and the reload-recovery secret for THIS user and organisation (see recoverySecret.ts).
+ * The secret is derived only when every gate above holds, so with the switch off nothing is derived, read or sent. Fail closed: no SESSION_SECRET means
+ * no booking (a booking build must not have a mode without recovery).
+ */
+export async function getStaffBookingContext(): Promise<{ canBook: boolean; recoverySecret: string | null }> {
+  const session = await visibleSession();
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!session || !sessionSecret) return { canBook: false, recoverySecret: null };
+  return { canBook: true, recoverySecret: deriveRecoverySecret(sessionSecret, session.userId, session.organisationId) };
 }

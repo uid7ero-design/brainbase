@@ -1,6 +1,6 @@
 import { resolveSchedulingPage } from '../../../_components/pageAccess';
 import CalendarScreen from '../../../_components/CalendarScreen';
-import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibility';
+import { getStaffBookingContext } from '@/lib/scheduling/staffBookingVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +10,7 @@ export default async function ResourceCalendarPage({ params }: { params: Promise
   if (denied) return denied;
   const { resourceId } = await params;
   // Staff booking (2C.3c slice 1): decided here, on the server, once. False unless the switch, the organisation capability and scheduling.reserve all hold.
-  const canBook = await getStaffBookingVisibility();
-  return <CalendarScreen kind="resource" id={resourceId} canManage={canManage} canBook={canBook} organisationTimezone={timezone} />;
+  // The recovery secret (reload recovery) is derived only when canBook holds; with the switch off it is null and nothing is derived.
+  const { canBook, recoverySecret } = await getStaffBookingContext();
+  return <CalendarScreen kind="resource" id={resourceId} canManage={canManage} canBook={canBook} recoverySecret={recoverySecret} organisationTimezone={timezone} />;
 }
