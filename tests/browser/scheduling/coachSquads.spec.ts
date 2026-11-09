@@ -116,7 +116,9 @@ test('a football squad trains across terms and a transfer preserves the original
     await page.getByLabel('Destination').selectOption({ label: teams[1] });
     await page.getByLabel('First day outside this squad').fill(second);
     await page.getByRole('button', { name: 'Save membership change' }).click();
-    await expect(page.locator('form').getByRole('alert')).toContainText('Review the roster and effective date');
+    await expect(page.locator('form').getByRole('alert')).toContainText(
+      'Review the roster and effective date',
+    );
     expect(await reservations()).toHaveLength(3);
     await page.getByLabel('Destination').selectOption({ label: teams[1] });
     await page.getByLabel('First day outside this squad').fill(next);
@@ -136,6 +138,35 @@ test('a football squad trains across terms and a transfer preserves the original
     await expect(page.getByText('End or transfer membership')).toHaveCount(0);
     await open(teams[1]);
     await expect(page.getByRole('heading', { name: 'Junior Player' })).toBeVisible();
+    // The transferred player's history belongs to the original squad and term.
+    await query("UPDATE scheduling_occurrences SET status='completed' WHERE id=$1 AND offering_id=$2", [
+      before[0].id,
+      offering.id,
+    ]);
+    await open(teams[0]);
+    await page.getByRole('link', { name: new RegExp('^Review .*' + terms[0]) }).click();
+    const reviewUrl = page.url();
+    await expect(page.getByRole('heading', { name: teams[0] + ' term review' })).toBeVisible();
+    await expect(page.getByText('100% present across 1 marked squad place')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Player attendance' }).getByRole('listitem')).toContainText(
+      'Junior Player',
+    );
+    await expect(page.getByRole('link', { name: 'Open roster' })).toHaveAttribute(
+      'href',
+      '/coaching/roster/' + before[0].id,
+    );
+    for (const denied of [viewer, other]) {
+      const tab = await denied.newPage();
+      await tab.goto(reviewUrl);
+      await expect(tab.getByRole('heading', { name: 'Player attendance' })).toHaveCount(0);
+      await tab.close();
+    }
+    await page.getByRole('link', { name: 'Back to ' + teams[0] }).click();
+    await page.getByRole('link', { name: new RegExp('^Review .*' + terms[1]) }).click();
+    await expect(page.getByRole('region', { name: 'Term sessions' }).getByText(/0 squad places/)).toHaveCount(
+      2,
+    );
+    await expect(page.getByRole('link', { name: 'Prepare plan' })).toHaveCount(2);
     const after = await reservations();
     expect(after.map((r) => [r.day, r.status, r.attendance])).toEqual([
       [second, 'confirmed', 'attended'],

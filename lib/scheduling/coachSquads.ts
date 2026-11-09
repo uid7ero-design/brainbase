@@ -63,3 +63,36 @@ export async function squadDetails(org: string, id: string) {
   ]);
   return { members, terms };
 }
+
+export async function squadTermReview(org: string, squad: string, term: Term) {
+  return createSchedulingExecutor().query<{
+    id: string;
+    day: string;
+    time: string;
+    zone: string;
+    ended: boolean;
+    cancelled: boolean;
+    archived: boolean;
+    planned: boolean;
+    players: { id: string; name: string; mark: string | null; status: string }[];
+  }>(
+    `SELECT o.id,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,o.timezone AS zone,
+       (o.ends_at<=now() OR o.status='completed') AS ended,o.status='cancelled' AS cancelled,
+       (s.archived_at IS NOT NULL OR f.archived_at IS NOT NULL) AS archived,p.version IS NOT NULL AS planned,
+       coalesce((SELECT jsonb_agg(jsonb_build_object('id',m.id,'name',m.name,'mark',r.attendance,'status',r.status)
+         ORDER BY lower(m.name),m.id)
+         FROM scheduling_reservations r JOIN scheduling_coach_squad_members m
+           ON m.organisation_id=r.organisation_id AND m.squad_id=st.squad_id
+           AND r.idempotency_key='squad:'||m.id||':'||r.occurrence_id
+         WHERE (r.organisation_id,r.occurrence_id)=(o.organisation_id,o.id) AND r.status<>'cancelled'),'[]') AS players
+     FROM scheduling_coach_squad_terms st JOIN scheduling_coach_term_dates d USING (organisation_id,offering_id,term_id)
+     JOIN scheduling_occurrences o ON (o.organisation_id,o.offering_id,o.id)=(d.organisation_id,d.offering_id,d.occurrence_id)
+     JOIN scheduling_offerings f ON (f.organisation_id,f.id)=(o.organisation_id,o.offering_id)
+     JOIN scheduling_schedules s ON (s.organisation_id,s.id)=(f.organisation_id,f.schedule_id)
+     LEFT JOIN scheduling_coach_training_plans p ON (p.organisation_id,p.occurrence_id)=(o.organisation_id,o.id)
+     WHERE st.organisation_id=$1 AND st.squad_id=$2 AND st.offering_id=$3 AND st.term_id=$4
+       AND s.preset_key='classes_coaching' AND s.id<>'tennis-coaching' AND o.starts_at>=st.assigned_at
+     ORDER BY o.starts_at,o.id`,
+    [org, squad, term.offering, term.id],
+  );
+}

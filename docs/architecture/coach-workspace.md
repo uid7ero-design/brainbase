@@ -33,6 +33,12 @@ To leave or switch teams, open **End or transfer membership**, choose the first 
 
 The squad screen requires Scheduling management and staff booking access. Apply `scripts/create-coach-squads.sql` after the Coach terms schema before deploying this feature.
 
+### Review a squad across a term
+
+In **Teams and squads**, choose the squad and then **Term review** beside an assigned training term. Each date links to its plan or finished roster. **Attendance so far** counts attended and late as present, divided by all marked squad places on finished sessions. Unmarked places are shown separately. Cancelled sessions and bookings are excluded from attendance. Independently booked places remain on the class roster.
+
+**Player attendance** follows the original squad membership, so transferring squads preserves earlier attendance in the original term. Future bookings show in the destination term once assigned. Archived dates remain visible as history.
+
 ### Plan and run a training session
 
 From the weekly calendar, open a class roster and select **Training plan**. Give the first drill a name and duration. Add coaching notes and use **Add drill** for each activity. The total shows how much of the booked session is planned. Use **Move earlier** to reorder a drill.
@@ -42,6 +48,12 @@ Choose **Football pitch**, **Football half-pitch**, **Tennis court** or **Blank 
 Select **Save plan**, then **Run session** to step through the drills in order. Managers can edit until the scheduled session ends. Earlier saved plans remain available to authorised roster staff. If another coach saves first, reload to review their version before editing.
 
 To reuse a plan, enter a template name before saving. Templates are shared within the organisation. They copy coaching notes and convert rostered players to anonymous position markers. Open another session, choose the template, adjust its drills and save. This feature requires the separate local migration in `scripts/create-coach-training-plans.sql`.
+
+### Review the coaching week
+
+Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.
+
+**Session preparation** lists upcoming and in-progress classes with their saved-plan status. Choose **Prepare plan** or **Open plan** to go directly to the session. Use **Previous week** for attendance history or **Next week** to prepare. The review uses each class's local date and time and is available to scheduling managers.
 
 ### Use existing LD Tennis dates
 

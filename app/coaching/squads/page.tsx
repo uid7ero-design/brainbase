@@ -1,24 +1,36 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { squadDetails, squadDirectory, squadSession } from '@/lib/scheduling/coachSquads';
+import { squadDetails, squadDirectory, squadSession, squadTermReview } from '@/lib/scheduling/coachSquads';
+import TermReview from './TermReview';
 import ClassForm from '../ClassForm';
 import styles from '../workspace.module.css';
 import { changeSquad } from '@/lib/scheduling/coachSquadActions';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Squads({ searchParams }: { searchParams: Promise<{ squad?: string }> }) {
+export default async function Squads({
+  searchParams,
+}: {
+  searchParams: Promise<{ squad?: string; term?: string; offering?: string }>;
+}) {
   const session = await squadSession();
   if (!session) notFound();
   const org = session.organisationId;
   const squads = await squadDirectory(org);
-  const selected = (await searchParams).squad;
+  const { squad: selected, term, offering } = await searchParams;
   const squad = squads.find((s) => s.id === selected);
   if (selected && !squad) notFound();
   const details = squad && (await squadDetails(org, squad.id));
   const action = changeSquad.bind(null, org);
   const available = details?.terms.filter((t) => !t.squad) ?? [];
   const assigned = details?.terms.filter((t) => t.squad === selected) ?? [];
+  if (term !== undefined || offering !== undefined) {
+    const match = assigned.find((t) => t.id === term && t.offering === offering);
+    if (!squad || !match) notFound();
+    return (
+      <TermReview squad={squad} term={match.name} sessions={await squadTermReview(org, squad.id, match)} />
+    );
+  }
   const fee = (t: { cents: number; currency: string }) =>
     new Intl.NumberFormat('en-AU', { style: 'currency', currency: t.currency }).format(t.cents / 100);
   return (
@@ -51,6 +63,12 @@ export default async function Squads({ searchParams }: { searchParams: Promise<{
                 <small>
                   {t.first} to {t.last} · {fee(t)} per class
                 </small>
+                <Link
+                  aria-label={'Review ' + t.name}
+                  href={'?' + new URLSearchParams({ squad: squad.id, offering: t.offering, term: t.id })}
+                >
+                  Term review
+                </Link>
               </li>
             ))}
           </ul>
