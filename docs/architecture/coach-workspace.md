@@ -33,6 +33,12 @@ To leave or switch teams, open **End or transfer membership**, choose the first 
 
 The squad screen requires Scheduling management and staff booking access. Apply `scripts/create-coach-squads.sql` after the Coach terms schema before deploying this feature.
 
+### Review a squad across a term
+
+In **Teams and squads**, choose the squad and then **Term review** beside an assigned training term. Each date links to its plan or finished roster. **Attendance so far** counts attended and late as present, divided by all marked squad places on finished sessions. Unmarked places are shown separately. Cancelled sessions and bookings are excluded from attendance. Independently booked places remain on the class roster.
+
+**Player attendance** follows the original squad membership, so transferring squads preserves earlier attendance in the original term. Future bookings show in the destination term once assigned. Archived dates remain visible as history.
+
 ### Plan and run a training session
 
 From the weekly calendar, open a class roster and select **Training plan**. Give the first drill a name and duration. Add coaching notes and use **Add drill** for each activity. The total shows how much of the booked session is planned. Use **Move earlier** to reorder a drill.
