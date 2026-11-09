@@ -8,6 +8,7 @@
 #   packages/scheduling-postgres/tests/offeringConfigAtCommit.integration.test.ts  Phase 2C.3 preflight: an offering edit after the read is refused at commit (the edit token)
 #   packages/scheduling-postgres/tests/hireRepository.integration.test.ts        Phase 2C.3a: createHire (guarded batch, idempotency, retries, unknown outcomes, DST, deadlock stress)
 #   packages/scheduling-postgres/tests/bookingReads.integration.test.ts           Phase 2C.2: tenant-scoped range reads, viewer-reduced shape, read-only proof (a READ ONLY connection)
+#   packages/scheduling-postgres/tests/rangeIndexes.integration.test.ts          Migration 041: GiST range indexes (apply/rollback/idempotent, predicate equivalence, plan)
 #   scripts/tests/schedulingBookingOverlay2c2.integration.test.ts                  Phase 2C.2: the guarded overlay API (permissions, redaction, bounds)
 #   scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts              Phase 2C.3c-B: the staff availability basis (gates, permissions, contract, bounds, offered-equals-bookable, stale basis, DST)
 #   scripts/tests/schedulingStaffBookingUi2c3c.integration.test.ts                 Phase 2C.3c UI slice 1: the visibility gate over the real tables and the dialog's read path (offerings of a resource, basis, tenant isolation)
@@ -86,6 +87,7 @@ run packages/scheduling-postgres/tests/offeringConfigAtCommit.integration.test.t
 run packages/scheduling-postgres/tests/hireRepository.integration.test.ts
 run packages/scheduling-postgres/tests/hireLockOrder.integration.test.ts
 run packages/scheduling-postgres/tests/bookingReads.integration.test.ts
+run packages/scheduling-postgres/tests/rangeIndexes.integration.test.ts
 run scripts/tests/schedulingBookingOverlay2c2.integration.test.ts
 run scripts/tests/schedulingStaffBooking2c3b.integration.test.ts
 run scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts
