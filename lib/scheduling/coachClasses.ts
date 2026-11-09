@@ -56,7 +56,9 @@ export type ClassDate = {
 export type CoachSchedule = { id: string; name: string; slug: string | null };
 
 export async function weekDates(org: string, from: string) {
-  return db().query<ClassDate & { squad: string | null; term: string | null; tennis: boolean; archived: boolean }>(
+  return db().query<
+    ClassDate & { squad: string | null; term: string | null; tennis: boolean; archived: boolean }
+  >(
     `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},${squadName},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,
     (SELECT t.name FROM scheduling_coach_term_dates d JOIN scheduling_coach_terms t ON t.organisation_id=d.organisation_id
       AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${staffDates}
@@ -317,4 +319,69 @@ export function updateMember(
     RETURNING r.id`,
     [org, occurrence, member, version, action],
   );
+}
+
+type TrainingDrill = import('./trainingPlan').Drill;
+type TrainingPlayer = import('./trainingPlan').Player;
+
+async function trainingScope(org: string) {
+  return `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}),
+    session AS (SELECT o.*,f.name,f.archived_at,s.name AS schedule,r.name AS venue ${dateScope}
+      LEFT JOIN scheduling_resources r ON (r.organisation_id,r.id)=(o.organisation_id,o.resource_id)
+      WHERE o.id=$2 AND (f.archived_at IS NULL OR s.id='tennis-coaching'))`;
+}
+
+export async function trainingSession(org: string, id: string) {
+  const rows = await db().query<{
+    name: string;
+    day: string;
+    time: string;
+    schedule: string;
+    venue: string | null;
+    minutes: number;
+    editable: boolean;
+    version: number;
+    drills: TrainingDrill[] | null;
+    players: TrainingPlayer[];
+    templates: { name: string; drills: TrainingDrill[] }[];
+  }>(
+    `${await trainingScope(org)}
+    SELECT o.name,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,o.schedule,o.venue,
+      round(extract(epoch FROM o.ends_at-o.starts_at)/60)::int AS minutes,
+      (o.status='scheduled' AND o.ends_at>now() AND o.archived_at IS NULL) AS editable,
+      coalesce(p.version,0) AS version,p.drills,
+      coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'name',r.customer_name,'status',r.status,'attendance',r.attendance)
+        ORDER BY r.customer_name,r.id) FROM scheduling_reservations r WHERE r.organisation_id=o.organisation_id AND r.occurrence_id=o.id),'[]') AS players,
+      coalesce((SELECT jsonb_agg(jsonb_build_object('name',t.name,'drills',t.drills) ORDER BY t.name)
+        FROM scheduling_coach_training_templates t WHERE t.organisation_id=o.organisation_id),'[]') AS templates
+    FROM session o LEFT JOIN scheduling_coach_training_plans p ON (p.organisation_id,p.occurrence_id)=(o.organisation_id,o.id)`,
+    [org, id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function persistTrainingPlan(
+  org: string,
+  id: string,
+  version: number,
+  drills: TrainingDrill[],
+  template: string,
+  reusable: TrainingDrill[],
+) {
+  const rows = await db().query<{ version: number }>(
+    `${await trainingScope(org)},
+    basis AS (SELECT organisation_id,id FROM session WHERE status='scheduled' AND ends_at>now() AND archived_at IS NULL),
+    saved AS (${
+      version === 0
+        ? `INSERT INTO scheduling_coach_training_plans AS p(organisation_id,occurrence_id,version,drills)
+      SELECT organisation_id,id,1,$3::jsonb FROM basis WHERE $4::int=0 ON CONFLICT DO NOTHING`
+        : `UPDATE scheduling_coach_training_plans p SET version=p.version+1,drills=$3::jsonb FROM basis b
+       WHERE (p.organisation_id,p.occurrence_id)=(b.organisation_id,b.id) AND p.version=$4::int`
+    } RETURNING p.organisation_id,p.version),
+    template AS (INSERT INTO scheduling_coach_training_templates(organisation_id,name,drills)
+      SELECT organisation_id,$5,$6::jsonb FROM saved WHERE $5<>'' RETURNING name)
+    SELECT version FROM saved`,
+    [org, id, JSON.stringify(drills), version, template, JSON.stringify(reusable)],
+  );
+  return rows[0]?.version ?? null;
 }

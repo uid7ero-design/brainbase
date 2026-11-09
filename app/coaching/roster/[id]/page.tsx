@@ -37,6 +37,7 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
     <main className={styles.page}>
       <Link href={'/coaching/calendar?week=' + date.day}>Back to class calendar</Link>
       <h1>{date.name}</h1>
+      <Link href={'/coaching/roster/'+encodeURIComponent(date.id)+'/plan'}>Training plan</Link>
       <p>
         {date.day} · {date.time} {date.timezone} · {date.schedule}
       </p>

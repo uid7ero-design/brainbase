@@ -154,7 +154,7 @@ describe('the TypeScript modules are staged, not wired', () => {
 
   it('only the private Coach roster imports the access gate directly outside lib/scheduling', () => {
     const offenders = sources.filter(f => !rel(f).startsWith('lib/scheduling/')).filter(f => /lib\/scheduling\/(access|crmLink)/.test(readFileSync(f, 'utf8'))).map(rel);
-    expect(offenders).toEqual(['app/coaching/roster/[id]/page.tsx']);
+    expect(offenders.sort()).toEqual(['app/coaching/roster/[id]/page.tsx','app/coaching/roster/[id]/plan/page.tsx']);
     expect(read(offenders[0])).toContain("authorizeSchedulingRequest('scheduling.reserve')");
     expect(read(offenders[0])).not.toContain('lib/scheduling/crmLink');
   });
