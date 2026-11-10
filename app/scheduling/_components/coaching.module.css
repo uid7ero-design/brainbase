@@ -38,3 +38,5 @@
 .empty { color: var(--text-secondary); line-height: 1.6; }
 @media (max-width: 1000px) { .columns { grid-template-columns: minmax(0, 1fr); } .agenda { max-height: 60vh; overflow-y: auto; } }
 @media (max-width: 480px) { .period, .agenda, .roster, .empty { padding: 14px; } .dateForm label { flex: 1; min-width: 110px; } .session { gap: 8px; padding: 10px; } }
+
+.playerContact { display: block; color: var(--text-secondary); overflow-wrap: anywhere; }
