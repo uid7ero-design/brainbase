@@ -155,11 +155,12 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
     await expect(page.getByRole('heading',{name:'Winter juniors'})).toBeVisible();
     const rows=page.getByRole('list',{name:'Class dates'}).getByRole('listitem');
     await expect(rows).toHaveCount(3);
+    await expect(page.getByText('Booked places across dates', { exact: true }).locator('..').locator('dd')).toHaveText(String(expectedCounts.rows.reduce((sum, row) => sum + row.n, 0)));
     await expect(rows.nth(0)).toContainText('3 booked places · 1 cancelled booking');
     await expect(rows.nth(0)).toContainText('1 attended');
     for (const [i,occurrence] of [[1,'fixture-third'],[2,'fixture-fourth']]) {
       const n=expectedCounts.rows.find(r=>r.occurrence_id===occurrence).n;
-      await expect(rows.nth(i)).toContainText(n+' booked places');
+      await expect(rows.nth(i)).toContainText(n+' booked '+(n === 1 ? 'place' : 'places'));
     }
     await expect(page.getByText('0 of 3 upcoming or in-progress sessions have a saved plan.')).toBeVisible();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
