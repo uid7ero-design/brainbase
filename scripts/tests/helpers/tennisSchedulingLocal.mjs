@@ -114,10 +114,28 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
     (SELECT jsonb_agg(to_jsonb(m) ORDER BY reservation_id) FROM scheduling_coaching_markers m WHERE organisation_id=$1) paid_markers,
     (SELECT jsonb_agg(to_jsonb(h) ORDER BY source_table,source_id) FROM scheduling_tennis_history h WHERE organisation_id=$1) history`,[org])).rows[0];
   const before = await preserved();
-  await page.goto(origin+'/coaching/calendar?week='+fixture.day);
-  await page.getByRole('link',{name:'Synthetic Juniors',exact:true}).click();
-  await page.getByText('Synthetic Cancelled',{exact:true}).waitFor();
-  await expect(page.getByRole('listitem').filter({has:page.getByText('Synthetic Original',{exact:true})})).toContainText('attended');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin + '/coaching/calendar?week=' + fixture.day);
+    await expect(page.getByRole('navigation', { name: 'Calendar weeks' })).toBeVisible();
+    const session = page.getByRole('link', { name: 'Synthetic Juniors', exact: true });
+    await expect(session.locator('xpath=ancestor::article')).toContainText('3 / 3 enrolled');
+    const assertFits = async (locator) => {
+      const box = await locator.boundingBox();
+      assert.ok(box && box.x >= 0 && box.x + box.width <= width + 1);
+    };
+    await assertFits(session);
+    if (process.env.COACH_LAYOUT_SCREENSHOTS) await page.screenshot({ path: process.env.COACH_LAYOUT_SCREENSHOTS + '/calendar-' + width + '.png' });
+    await session.click();
+    const roster = page.getByRole('region', { name: 'Class roster' });
+    await expect(page.getByText('3 of 3 places filled')).toBeVisible();
+    await expect(roster.getByText('Synthetic Cancelled', { exact: true })).toBeVisible();
+    const player = roster.getByRole('listitem').filter({ has: page.getByText('Synthetic Original', { exact: true }) });
+    await expect(player).toContainText('attended');
+    await assertFits(player.getByRole('button', { name: 'Clear attendance' }));
+    await assertFits(page.getByRole('link', { name: 'Class term review' }));
+    if (process.env.COACH_LAYOUT_SCREENSHOTS) await page.screenshot({ path: process.env.COACH_LAYOUT_SCREENSHOTS + '/roster-' + width + '.png' });
+  }
   await page.getByRole('link',{name:'Class term review'}).click();
   await expect(page.getByText(/This date is outside a term/)).toBeVisible();
   await page.getByRole('link',{name:'Back to class roster'}).click();

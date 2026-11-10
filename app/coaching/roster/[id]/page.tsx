@@ -8,6 +8,7 @@ import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibili
 import ClassTermReview from './ClassTermReview';
 import ClassForm from '../../ClassForm';
 import BookingFields from '../../BookingFields';
+import layout from '../../classWorkspace.module.css';
 import styles from '../../workspace.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -40,21 +41,20 @@ export default async function Roster({ params, searchParams }: { params: Promise
     day: '2-digit',
   }).format(new Date());
   return (
-    <main className={styles.page}>
-      <Link href={'/coaching/calendar?week=' + date.day}>Back to class calendar</Link>
-      <h1>{date.name}</h1>
-      <nav className={styles.controls} aria-label="Class tools">
-        <Link href={'/coaching/roster/'+encodeURIComponent(date.id)+'/plan'}>Training plan</Link>
-        {date.tennis && <Link href="?view=term">Class term review</Link>}
-      </nav>
-      <p>
-        {date.day} · {date.time} {date.timezone} · {date.schedule}
-      </p>
-      <p>
-        {date.squad && <>{date.squad} · </>}
-        {date.term && <>{date.term.name} · </>}
-        {date.enrolled} of {date.capacity} places filled
-      </p>
+    <main className={`${styles.page} ${layout.page}`}>
+      <Link className={layout.back} href={'/coaching/calendar?week=' + date.day}>Back to class calendar</Link>
+      <header className={layout.header}>
+        <h1>{date.name}</h1>
+        <p><time dateTime={date.day}>{date.day}</time> · {date.time} {date.timezone} · {date.schedule}</p>
+        {(date.squad || date.term) && <p>{[date.squad, date.term?.name].filter(Boolean).join(' · ')}</p>}
+      </header>
+      <div className={layout.toolbar}>
+        <p className={layout.occupancy}><strong>{date.enrolled} of {date.capacity}</strong> places filled</p>
+        <nav aria-label="Class tools" className={styles.controls}>
+          <Link href={'/coaching/roster/' + encodeURIComponent(date.id) + '/plan'}>Training plan</Link>
+          {date.tennis && <Link href="?view=term">Class term review</Link>}
+        </nav>
+      </div>
       {date.tennis ? (
         <RosterScreen
           key={date.id + ':' + date.enrolled}

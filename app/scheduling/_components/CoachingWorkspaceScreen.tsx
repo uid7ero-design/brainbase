@@ -129,9 +129,11 @@ function TennisRoster({id,active,today,onChanged}: RosterProps & {onChanged:()=>
       <p>{roster.occurrence.date} {roster.occurrence.startTime} · {roster.occurrence.status}</p>
       <p className={layout.note}>Manual paid markers do not record a Commercial payment.</p>
       <ul className={layout.players}>{roster.rows.map(row=><li key={row.id}>
-        <strong>{row.name}</strong>{row.email ? ` · ${row.email}`:''} · {row.status} · {row.attendance ?? 'Attendance not marked'} · {row.paidMarker ? 'Marked paid':'Not marked paid'}
-        {row.priceCents===null && <span> · Historical price not recorded</span>}
-        {row.historyOnly ? <span> · Original history (read only)</span> : row.status!=='cancelled' && <div className={layout.playerActions}>
+        <strong>{row.name}</strong>
+        {row.email && <small className={layout.playerContact}>{row.email}</small>}
+        <p>{row.status} · {row.attendance ?? 'Attendance not marked'} · {row.paidMarker ? 'Marked paid' : 'Not marked paid'}</p>
+        {row.priceCents===null && <p>Historical price not recorded</p>}
+        {row.historyOnly ? <p>Original history (read only)</p> : row.status!=='cancelled' && <div className={layout.playerActions}>
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:'attended',expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Here</Button>{' '}
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:'absent',expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Absent</Button>{' '}
           <Button disabled={disabled} onClick={()=>act({kind:'attendance',bookingId:row.id,value:null,expectedVersion:row.attendanceVersion!,idempotencyKey:key()})}>Clear attendance</Button>{' '}

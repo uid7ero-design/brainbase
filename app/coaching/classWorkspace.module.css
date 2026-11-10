@@ -1,0 +1,33 @@
+.page { max-width: 74rem; color: var(--text-primary); overflow-wrap: anywhere; }
+.back { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; color: var(--text-secondary); }
+.back::before { content: '←' / ''; }
+.header { border-inline-start: 4px solid var(--brand-brainbase-accent); padding-inline-start: 1.2rem; }
+.page .header h1 { font-size: clamp(1.85rem, 4vw, 3.2rem); font-weight: 680; letter-spacing: -.045em; line-height: 1.1; }
+.header p { color: var(--text-secondary); margin-top: .5rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1.25rem; justify-content: space-between; background: var(--bg-raised); border: 1px solid var(--border); padding: 1rem; border-radius: 1rem; }
+.toolbar a, .toolbar button { display: inline-flex; align-items: center; min-height: 44px; padding-inline: .7rem; border: 1px solid var(--border-strong); border-radius: .55rem; }
+.toolbar form, .toolbar nav { gap: .45rem; align-items: center; }
+.occupancy strong { font-size: 1.5rem; letter-spacing: -.045em; }
+.agenda { border: 1px solid var(--border); background: var(--bg-surface); border-radius: 1rem; }
+.day { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 4fr); padding: 1rem 1.2rem; gap: 1rem; }
+.day + .day, .sessions article + article { border-top: 1px solid var(--border); }
+.day h2 { font-size: 1rem; font-weight: 650; padding-block: .45rem; }
+.sessions article { display: grid; grid-template-columns: 4rem minmax(0,1fr) auto; align-items: baseline; gap: .35rem 1rem; padding-block: .6rem; }
+.clock, .capacity, .occupancy { font-variant-numeric: tabular-nums; }
+.clock { font-weight: 650; }
+.capacity { background: var(--bg-raised); border-radius: .45rem; padding: .25rem .55rem; font-size: .88rem; }
+.description { display: grid; gap: .2rem; }
+.description small, .empty { color: var(--text-secondary); }
+.description a, .back { text-decoration: underline; text-underline-offset: .2em; }
+.empty { padding-block: .45rem; }
+.page a:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.page [aria-label="Class roster"] li { border: 1px solid var(--border); border-radius: .75rem; padding: 1rem; background: var(--bg-raised); }
+.page [aria-label="Class roster"] li > strong { display: block; font-size: 1.1rem; }
+@media (max-width: 42rem) {
+  .day { grid-template-columns: minmax(0, 1fr); gap: 0; padding: .8rem 1rem; }
+  .sessions article { grid-template-columns: 3.3rem minmax(0, 1fr); gap: .3rem .55rem; }
+  .capacity { grid-column: 2; justify-self: start; }
+  .toolbar { align-items: start; padding: .8rem; }
+  .toolbar form { align-items: end; }
+  .toolbar nav { flex-wrap: wrap; }
+}
