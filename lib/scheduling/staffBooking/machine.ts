@@ -1,4 +1,4 @@
-import type { BookingContent, BookingKeyHolder } from './key';
+import { canonicalContent, type BookingContent, type BookingKeyHolder } from './key';
 import type { BookedReservation, CreateBody, DefinitiveCode, SubmitOutcome, LookupOutcome } from './submitClient';
 
 // Phase 2C.3c UI slice 2: the booking state machine, from "customer details" to "booked". PURE (no I/O, no clock, no React): the dialog
@@ -19,6 +19,8 @@ export const NOTES_MAX = 1000;
 export const PARTY_MAX = 1000;
 /** Reconcile lookups after an uncertain outcome: wait this long, look, repeat. Bounded; then only a same-key retry is offered. */
 export const POLL_DELAYS_MS = [500, 1500, 3000, 6000] as const;
+/** On opening with an unresolved earlier attempt: look it up this many times at once, then leave further looks to the staff member ("Check again"). */
+export const RECOVERY_LOOKUPS = 1;
 
 export type FieldKey = 'name' | 'email' | 'phone' | 'partySize' | 'notes';
 export interface Details {
@@ -46,9 +48,21 @@ export interface Target {
   basis: CreateBody['basis'];
 }
 
-export type Step = 'idle' | 'details' | 'review' | 'submitting' | 'checking' | 'unsure' | 'retry' | 'conflict' | 'done' | 'unavailable' | 'denied';
-/** Outcome unknown: the booking may exist. Nothing may change the content or the key, and nothing may start a second attempt except a same-key retry. */
-export const UNCERTAIN_STEPS: readonly Step[] = ['submitting', 'checking', 'unsure'];
+export type Step = 'idle' | 'details' | 'review' | 'submitting' | 'checking' | 'unsure' | 'retry' | 'conflict' | 'done' | 'unavailable' | 'denied' | 'recovering' | 'unsafe';
+/**
+ * Outcome unknown: the booking may exist. Nothing may change the content or the key, and nothing may start a second attempt except a same-key retry.
+ * `recovering` is the same situation after the dialog was closed or the page reloaded: an earlier attempt is unresolved.
+ */
+export const UNCERTAIN_STEPS: readonly Step[] = ['submitting', 'checking', 'unsure', 'recovering'];
+
+/** Why booking is withheld in the `unsafe` step. Nothing is ever sent from it. */
+export type UnsafeReason = 'cannot_store' | 'corrupt_record' | 'no_secret';
+
+/** An unresolved earlier attempt, as the write-ahead record holds it: the ORIGINAL key and the keyed fingerprint of its content. Never customer data. */
+export interface Pending {
+  key: string;
+  fp: string;
+}
 
 export interface Attempt {
   key: string;
@@ -80,13 +94,57 @@ export interface MachineState {
   refetch: number;
   /** IDEMPOTENCY_CONFLICT: what already exists under the key, once looked up. */
   conflictFound: BookedReservation | null;
+  /**
+   * Keys that have had an UNCERTAIN outcome: the booking may exist under them. "Nothing was booked." may only be said about an attempt whose key is
+   * not in this list (see provableNotBooked). Grows only; never cleared, because a key that may have committed stays unconfirmed.
+   */
+  unconfirmedKeys: readonly string[];
+  /** RELOAD RECOVERY: the unresolved earlier attempt this dialog opened on (from the write-ahead record). While set, no other booking may be started. */
+  pending: Pending | null;
+  /** RELOAD RECOVERY: "Enter the booking again" was chosen. The next REVIEW must match `pending.fp` and then sends under `pending.key`. */
+  resume: Pending | null;
+  unsafeReason: UnsafeReason | null;
 }
 
 export const initialDetails: Details = { name: '', email: '', phone: '', partySize: '1', notes: '' };
 
 export function initialState(): MachineState {
-  return { step: 'idle', target: null, details: initialDetails, errors: {}, errorTick: 0, notice: null, preferTime: null, reviewKey: null, attempt: null, sends: 0, poll: 0, reservation: null, mismatch: false, refetch: 0, conflictFound: null };
+  return { step: 'idle', target: null, details: initialDetails, errors: {}, errorTick: 0, notice: null, preferTime: null, reviewKey: null, attempt: null, sends: 0, poll: 0, reservation: null, mismatch: false, refetch: 0, conflictFound: null, unconfirmedKeys: [], pending: null, resume: null, unsafeReason: null };
 }
+
+/** The dialog opens withheld: no secret, unusable storage or an unreadable record. Nothing can be started or sent. */
+export function unsafeState(reason: UnsafeReason): MachineState {
+  return { ...initialState(), step: 'unsafe', unsafeReason: reason };
+}
+
+/**
+ * The dialog opens on an unresolved earlier attempt (a write-ahead record exists). `frozen` is the in-page copy of that attempt (tier 1) when the page
+ * still has it: it must belong to the same key, otherwise it is ignored. The key joins `unconfirmedKeys`: it may have committed.
+ */
+export function recoveredState(pending: Pending, frozen: MachineState | null = null): MachineState {
+  const base = frozen && frozen.attempt && frozen.attempt.key === pending.key ? frozen : initialState();
+  const unconfirmedKeys = base.unconfirmedKeys.includes(pending.key) ? base.unconfirmedKeys : [...base.unconfirmedKeys, pending.key];
+  return { ...base, step: 'recovering', pending, resume: null, poll: 0, notice: null, errors: {}, conflictFound: null, unconfirmedKeys };
+}
+
+/** Has the reconcile lookup run its course in the recovering step? Then the staff member is offered the ways forward. */
+export const recoverySettled = (state: Pick<MachineState, 'step' | 'poll'>): boolean => state.step === 'recovering' && state.poll >= RECOVERY_LOOKUPS;
+
+/**
+ * Does this answer to a send RESOLVE the attempt, so the write-ahead record may be removed? Only an authoritative answer does:
+ *   - a booking exists under the key (created / replayed);
+ *   - the server refused it with a stable code (anything but CONTENTION_TIMEOUT, which says "busy, try the same key again");
+ *   - a 404 gate-off or 401/403 refusal, but only if no earlier send of this key was uncertain (otherwise that earlier send may have committed).
+ * An uncertain outcome never resolves anything, and neither does elapsed time.
+ */
+export function settlesAttempt(outcome: SubmitOutcome, earlierSendWasUncertain: boolean): boolean {
+  if (outcome.kind === 'created') return true;
+  if (outcome.kind === 'refused') return outcome.code !== 'CONTENTION_TIMEOUT';
+  if (outcome.kind === 'gate_off' || outcome.kind === 'denied') return !earlierSendWasUncertain;
+  return false;
+}
+
+export const RESUME_MISMATCH = 'This is not the booking being checked. Enter exactly the same details as the earlier booking, or look in the calendar.';
 
 export type Action =
   | { type: 'START'; target: Target }
@@ -98,7 +156,11 @@ export type Action =
   | { type: 'POLL'; outcome: LookupOutcome }
   | { type: 'RETRY' }
   | { type: 'CONFLICT_LOOKUP'; outcome: LookupOutcome }
-  | { type: 'NEW_ATTEMPT' };
+  | { type: 'NEW_ATTEMPT' }
+  | { type: 'STORE_FAILED' }
+  | { type: 'CHECK_AGAIN' }
+  | { type: 'RETRY_FROZEN' }
+  | { type: 'ENTER_AGAIN' };
 
 // ── validation (a convenience for the staff member: the API is the authority and re-checks everything) ──────────────────────────────
 
@@ -178,6 +240,17 @@ export const RETURN_TO_TIME: Readonly<Partial<Record<DefinitiveCode, string>>> =
   NOT_FOUND: 'This resource or offering no longer exists, or you no longer have access to it. Nothing was booked.',
 };
 
+/** "Nothing was booked." is a CLAIM. It is only made when the system can prove it: this attempt's key has never had an uncertain outcome. */
+export function provableNotBooked(state: Pick<MachineState, 'attempt' | 'unconfirmedKeys'>): boolean {
+  return !state.attempt || !state.unconfirmedKeys.includes(state.attempt.key);
+}
+export const UNCONFIRMED_NOTE = 'Your earlier attempt could not be confirmed, so look in the calendar before booking again.';
+
+/** The refusal text for a definitive code. The claim is kept only when provable; otherwise it is replaced by the unconfirmed-attempt note. */
+export function refusalNotice(base: string, provable: boolean): string {
+  return provable ? base : `${base.replace(/ ?Nothing was booked\./, '')} ${UNCONFIRMED_NOTE}`;
+}
+
 const PROBLEM_FIELD: Readonly<Record<string, FieldKey>> = {
   'customer.name': 'name',
   'customer.email': 'email',
@@ -205,7 +278,12 @@ const done = (state: MachineState, reservation: BookedReservation): MachineState
   notice: null,
   errors: {},
   conflictFound: null,
+  pending: null,
+  resume: null,
 });
+
+/** An authoritative answer under the key (a booking exists, or the server refused it): the earlier attempt is resolved. */
+const resolved = { pending: null, resume: null } as const;
 
 // ── the reducer ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -215,7 +293,8 @@ export type Reduce = (state: MachineState, action: Action) => MachineState;
  * `holder` is the one idempotency-key holder (lib/scheduling/staffBooking/key.ts). It is touched in REVIEW (keyFor) and NEW_ATTEMPT
  * (discard) and nowhere else. keyFor is idempotent for unchanged content, so a re-run of the reducer (React strict mode) is harmless.
  */
-export function createMachine(holder: BookingKeyHolder): Reduce {
+export function createMachine(holder: BookingKeyHolder, options: { fingerprint?: (canonicalContent: string) => string } = {}): Reduce {
+  const fingerprint = options.fingerprint;
   return function reduce(state, action) {
     switch (action.type) {
       case 'START': {
@@ -227,14 +306,21 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
         if (state.step !== 'details') return state;
         const { [action.field]: _cleared, ...errors } = state.errors;
         void _cleared;
-        return { ...state, details: { ...state.details, [action.field]: action.value }, errors };
+        return { ...state, details: { ...state.details, [action.field]: action.value }, errors, notice: state.resume ? null : state.notice }; // an edited retype no longer carries the old "not the same booking" alert
       }
 
       case 'REVIEW': {
         if (state.step !== 'details' || !state.target) return state;
         const errors = validateDetails(state.details, state.target.capacity);
         if (Object.keys(errors).length > 0) return { ...state, errors, errorTick: state.errorTick + 1, notice: null };
-        const reviewKey = holder.keyFor(contentOf(state.target, state.details)); // the ONLY place a key is asked for
+        const content = contentOf(state.target, state.details);
+        if (state.resume) {
+          // RESUME MODE (after a reload or a close): the only key that may be used is the ORIGINAL one, and only for the SAME content. No key is minted here.
+          if (!fingerprint || fingerprint(canonicalContent(content)) !== state.resume.fp) return { ...state, notice: RESUME_MISMATCH, errorTick: state.errorTick + 1 };
+          holder.adopt(state.resume.key, content); // the ONLY call to adopt()
+          return { ...state, step: 'review', errors: {}, reviewKey: state.resume.key, notice: null };
+        }
+        const reviewKey = holder.keyFor(content); // the ONLY place a key is asked for
         return { ...state, step: 'review', errors: {}, reviewKey, notice: null };
       }
 
@@ -259,26 +345,29 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
         if (state.step !== 'submitting' || !state.attempt || !state.target) return state;
         const o = action.outcome;
         if (o.kind === 'created') return done(state, o.reservation);
-        if (o.kind === 'uncertain') return { ...state, step: 'checking', poll: 0 };
-        if (o.kind === 'gate_off') return { ...state, step: 'unavailable' };
-        if (o.kind === 'denied') return { ...state, step: 'denied' };
+        if (o.kind === 'uncertain') return { ...state, step: 'checking', poll: 0, unconfirmedKeys: state.unconfirmedKeys.includes(state.attempt.key) ? state.unconfirmedKeys : [...state.unconfirmedKeys, state.attempt.key] };
+        // A 404 gate-off or a 401/403 says THIS request was not processed. That settles the attempt only if no earlier send of this key was uncertain.
+        const settled = provableNotBooked(state) ? resolved : {};
+        if (o.kind === 'gate_off') return { ...state, ...settled, step: 'unavailable' };
+        if (o.kind === 'denied') return { ...state, ...settled, step: 'denied' };
         const code = o.code;
-        if (code === 'CONTENTION_TIMEOUT') return { ...state, step: 'retry' };
-        if (code === 'BOOKING_NOT_READY') return { ...state, step: 'unavailable' };
-        if (code === 'IDEMPOTENCY_CONFLICT') return { ...state, step: 'conflict', conflictFound: null };
-        if (code === 'PARTY_NOT_ALLOWED') return { ...state, step: 'details', attempt: null, errors: { partySize: `This resource holds ${state.target.capacity}. Enter ${state.target.capacity} or fewer.` }, errorTick: state.errorTick + 1 };
+        if (code === 'CONTENTION_TIMEOUT') return { ...state, step: 'retry' }; // not settled: the key stays pending
+        if (code === 'BOOKING_NOT_READY') return { ...state, ...resolved, step: 'unavailable' };
+        if (code === 'IDEMPOTENCY_CONFLICT') return { ...state, ...resolved, step: 'conflict', conflictFound: null };
+        if (code === 'PARTY_NOT_ALLOWED') return { ...state, ...resolved, step: 'details', attempt: null, errors: { partySize: `This resource holds ${state.target.capacity}. Enter ${state.target.capacity} or fewer.` }, errorTick: state.errorTick + 1 };
         if (code === 'VALIDATION') {
           const errors: FieldErrors = {};
           for (const p of o.problems) {
             const f = PROBLEM_FIELD[p];
             if (f) errors[f] = FIELD_MESSAGE[f];
           }
-          const notice = Object.keys(errors).length === 0 ? 'The booking was not accepted. Check the details. Nothing was booked.' : null;
-          return { ...state, step: 'details', attempt: null, errors, errorTick: state.errorTick + 1, notice };
+          const notice = Object.keys(errors).length === 0 ? refusalNotice('The booking was not accepted. Check the details. Nothing was booked.', provableNotBooked(state)) : null;
+          return { ...state, ...resolved, step: 'details', attempt: null, errors, errorTick: state.errorTick + 1, notice };
         }
-        const text = RETURN_TO_TIME[code] ?? 'That time can’t be booked. Nothing was booked.';
+        const text = refusalNotice(RETURN_TO_TIME[code] ?? 'That time can’t be booked. Nothing was booked.', provableNotBooked(state));
         return {
           ...state,
+          ...resolved,
           step: 'idle',
           attempt: null,
           notice: text,
@@ -289,6 +378,11 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
       }
 
       case 'POLL': {
+        if (state.step === 'recovering') {
+          if (recoverySettled(state)) return state; // the lookups ran their course; only the staff member's choice moves on
+          if (action.outcome.kind === 'found') return done(state, action.outcome.reservation);
+          return { ...state, poll: state.poll + 1 }; // not found or a failed lookup is NOT proof of anything: the attempt stays unresolved
+        }
         if (state.step !== 'checking') return state;
         if (action.outcome.kind === 'found') return done(state, action.outcome.reservation);
         // missing OR a failed lookup: still not provable (an in-flight write may land late). Keep checking, then offer only a same-key retry.
@@ -299,6 +393,29 @@ export function createMachine(holder: BookingKeyHolder): Reduce {
       case 'CONFLICT_LOOKUP': {
         if (state.step !== 'conflict') return state;
         return { ...state, conflictFound: action.outcome.kind === 'found' ? action.outcome.reservation : null };
+      }
+
+      case 'STORE_FAILED': {
+        // The write-ahead record could not be kept, so NOTHING was sent: this request is provably not booked, and no key has left the page.
+        if (state.step !== 'submitting') return state;
+        return { ...state, step: 'unsafe', unsafeReason: 'cannot_store', attempt: null, reviewKey: null };
+      }
+
+      case 'CHECK_AGAIN': {
+        if (!recoverySettled(state)) return state;
+        return { ...state, poll: 0 };
+      }
+
+      case 'RETRY_FROZEN': {
+        // In-page copy of the unresolved attempt (tier 1): the SAME key and the SAME frozen body, exactly like RETRY.
+        if (!recoverySettled(state) || !state.attempt || !state.target || state.attempt.key !== state.pending?.key) return state;
+        return { ...state, step: 'submitting', sends: state.sends + 1, poll: 0 };
+      }
+
+      case 'ENTER_AGAIN': {
+        // Retype the SAME booking: the next REVIEW must match the record's fingerprint and then reuses the ORIGINAL key. Nothing is minted or discarded.
+        if (!recoverySettled(state) || !state.pending) return state;
+        return { ...state, step: 'idle', resume: state.pending, target: null, attempt: null, reviewKey: null, details: initialDetails, errors: {}, notice: null, preferTime: null, poll: 0 };
       }
 
       case 'NEW_ATTEMPT': {

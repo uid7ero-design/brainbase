@@ -143,13 +143,15 @@ const total = async (f: Fx, org = ORG) => Number((await rows('SELECT count(*)::i
 const holds = async (f: Fx, org = ORG) => Number((await rows('SELECT count(*)::int AS n FROM scheduling_resource_holds h WHERE h.organisation_id = $1 AND h.released_at IS NULL AND h.resource_id IN ($2, $3)', [org, f.court, f.court2]))[0].n);
 const overlaps = async (f: Fx) => Number((await rows('SELECT count(*)::int AS n FROM scheduling_resource_holds a JOIN scheduling_resource_holds b ON a.organisation_id = b.organisation_id AND a.resource_id = b.resource_id AND a.id < b.id AND a.during && b.during WHERE a.released_at IS NULL AND b.released_at IS NULL AND a.organisation_id = $1 AND a.resource_id IN ($2, $3)', [ORG, f.court, f.court2]))[0].n);
 
+// ISOLATION RULE: every synthetic organisation of every Neon suite is named 'neon-*' (this suite: neon-route-*). "Other organisations" means everything NOT 'neon-*', so suites can run in
+// parallel or in any order without seeing each other's rows. The Production-data copy uses uuid ids and is never matched by this prefix.
 const OTHERS_SNAPSHOT_SQL = `SELECT
-  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT IN ($1, $2)) AS reservations,
-  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT IN ($1, $2)) AS holds,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT IN ($1, $2)) AS reservation_rows,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT IN ($1, $2)) AS rules,
-  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT IN ($1, $2)) AS versions,
-  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT IN ($1, $2)) AS offerings`;
+  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT LIKE 'neon-%') AS reservations,
+  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT LIKE 'neon-%') AS holds,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT LIKE 'neon-%') AS reservation_rows,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT LIKE 'neon-%') AS rules,
+  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT LIKE 'neon-%') AS versions,
+  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT LIKE 'neon-%') AS offerings`;
 let othersBefore: Record<string, unknown>;
 const timings: Record<string, number | string> = {};
 
@@ -165,12 +167,12 @@ suite('Staff booking routes through the REAL Neon HTTP driver', () => {
       await sql.query('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $1, $1, now(), $2) ON CONFLICT (id) DO NOTHING', [org, TZ]);
       await sql.query("INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, 'AUD') ON CONFLICT DO NOTHING", [org]);
     }
-    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL))[0];
   }, 60_000);
 
   afterAll(async () => {
     if (!sql) return;
-    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL))[0];
     for (const org of [ORG, OTHER]) {
       await sql.query("DELETE FROM audit_logs WHERE organisation_id = $1 AND action LIKE 'scheduling.%'", [org]).catch(() => undefined);
       for (const t of ['scheduling_resource_holds', 'scheduling_reservations', 'scheduling_availability_rules', 'scheduling_availability_exceptions', 'scheduling_availability_zones', 'scheduling_offering_resources', 'scheduling_offerings', 'scheduling_resources', 'scheduling_schedules', 'scheduling_settings']) {

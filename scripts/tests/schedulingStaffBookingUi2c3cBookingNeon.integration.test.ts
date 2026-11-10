@@ -8,15 +8,15 @@ import { staff, uid } from '../../packages/scheduling-postgres/tests/support/pgH
 // Phase 2C.3c UI slice 2: the staff booking UI's OWN client code (state machine + postReservation + lookupReservation) driven through the real routes with the REAL
 // @neondatabase/serverless HTTP driver as `@/lib/db`, against a DISPOSABLE Neon branch only. Opt-in: skipped unless NEON_REHEARSAL_URL is set. Same safety guard as the 2C.3b Neon test:
 // refuses to run unless NEON_REHEARSAL_HOST equals the host of NEON_REHEARSAL_URL, the login role is exactly rehearsal_037, and migration 037 is present. Only two synthetic organisations
-// (neon-route-a, neon-route-b) are written and removed afterwards; every other organisation's rows (the Production-data copy, including the pilot and LD Tennis) are fingerprinted before
+// (neon-ui2-a, neon-ui2-b) are written and removed afterwards; every other organisation's rows (the Production-data copy, including the pilot and LD Tennis) are fingerprinted before
 // and after and must be identical. No credential is stored here.
 
 const URL_ = process.env.NEON_REHEARSAL_URL ?? '';
 const EXPECTED_HOST = process.env.NEON_REHEARSAL_HOST ?? '';
 const suite = URL_ !== '' ? describe : describe.skip;
 
-const ORG = 'neon-route-a';
-const OTHER = 'neon-route-b';
+const ORG = 'neon-ui2-a';
+const OTHER = 'neon-ui2-b';
 
 const state = vi.hoisted(() => ({ loseNextReply: false, failNextBeforeSend: false, unexpectedBefore: false, unexpectedAfter: false, batches: 0, session: null as null | { userId: string; organisationId: string; role: string }, noCapability: false }));
 
@@ -87,8 +87,12 @@ const cancelRoute = (await import('@/app/api/scheduling/reservations/[reservatio
 const basisRoute = (await import('@/app/api/scheduling/reservations/basis/route')) as unknown as { GET: Handler };
 const { fetchBasis } = await import('@/lib/scheduling/staffBooking/basisClient');
 const { postReservation, lookupReservation } = await import('@/lib/scheduling/staffBooking/submitClient');
-const { createMachine, initialState } = await import('@/lib/scheduling/staffBooking/machine');
-const { createBookingKeyHolder } = await import('@/lib/scheduling/staffBooking/key');
+const { createMachine, initialState, recoveredState, recoverySettled, settlesAttempt, provableNotBooked } = await import('@/lib/scheduling/staffBooking/machine');
+const { createBookingKeyHolder, canonicalContent } = await import('@/lib/scheduling/staffBooking/key');
+const { createPendingStore } = await import('@/lib/scheduling/staffBooking/pendingStore');
+type PendingStoreT = ReturnType<typeof createPendingStore>;
+/** Faults injected AT THE BROWSER'S NETWORK (the route and the Neon driver run for real): the reply is lost AFTER the commit, or the reconcile lookups fail. */
+const netFault = { loseReply: 0, blockLookups: false };
 
 type Q = { query(text: string, params?: unknown[], opts?: Record<string, unknown>): Promise<unknown>; transaction: (q: unknown[], o?: Record<string, unknown>) => Promise<unknown[]> };
 let sql: Q;
@@ -142,6 +146,12 @@ async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const bodyText = typeof init?.body === 'string' ? init.body : undefined;
   const route = (handler: Handler, params: Record<string, string> = {}) => handler(new Request(url.toString(), { method, headers, ...(bodyText !== undefined ? { body: bodyText } : {}) }), { params: Promise.resolve(params) });
   if (url.pathname === '/api/scheduling/reservations/basis') return route(basisRoute.GET);
+  if (url.pathname === '/api/scheduling/reservations' && method === 'GET' && netFault.blockLookups) throw new TypeError('network down for lookups');
+  if (url.pathname === '/api/scheduling/reservations' && method === 'POST' && netFault.loseReply > 0) {
+    netFault.loseReply -= 1;
+    await (await route(collection.POST)).text(); // the server (and the Neon commit) finished; the reply never reaches the browser
+    throw new TypeError('network lost the reply');
+  }
   if (url.pathname === '/api/scheduling/reservations') return route(method === 'POST' ? collection.POST : collection.GET);
   let m: RegExpMatchArray | null;
   if ((m = url.pathname.match(/^\/api\/scheduling\/reservations\/([^/]+)\/cancel$/))) return route(cancelRoute.POST, { reservationId: decodeURIComponent(m[1]) });
@@ -149,13 +159,15 @@ async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   return Response.json({ error: 'not_found' }, { status: 404 });
 }
 
+// ISOLATION RULE: every synthetic organisation of every Neon suite is named 'neon-*' (this suite: neon-ui2-*). "Other organisations" means everything NOT 'neon-*', so suites can run in
+// parallel or in any order without seeing each other's rows. The Production-data copy uses uuid ids and is never matched by this prefix.
 const OTHERS_SNAPSHOT_SQL = `SELECT
-  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT IN ($1, $2)) AS reservations,
-  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT IN ($1, $2)) AS holds,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT IN ($1, $2)) AS reservation_rows,
-  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT IN ($1, $2)) AS rules,
-  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT IN ($1, $2)) AS versions,
-  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT IN ($1, $2)) AS offerings`;
+  (SELECT count(*)::int FROM scheduling_reservations WHERE organisation_id NOT LIKE 'neon-%') AS reservations,
+  (SELECT count(*)::int FROM scheduling_resource_holds WHERE organisation_id NOT LIKE 'neon-%') AS holds,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_reservations r WHERE organisation_id NOT LIKE 'neon-%') AS reservation_rows,
+  (SELECT md5(string_agg(r::text, '|' ORDER BY id)) FROM scheduling_availability_rules r WHERE organisation_id NOT LIKE 'neon-%') AS rules,
+  (SELECT md5(string_agg(v::text, '|' ORDER BY organisation_id, owner_kind, owner_id)) FROM scheduling_availability_versions v WHERE organisation_id NOT LIKE 'neon-%') AS versions,
+  (SELECT md5(string_agg(o::text, '|' ORDER BY id)) FROM scheduling_offerings o WHERE organisation_id NOT LIKE 'neon-%') AS offerings`;
 let othersBefore: Record<string, unknown>;
 const timings: Record<string, number | string> = {};
 
@@ -171,12 +183,12 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       await sql.query('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $1, $1, now(), $2) ON CONFLICT (id) DO NOTHING', [org, TZ]);
       await sql.query("INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, 'AUD') ON CONFLICT DO NOTHING", [org]);
     }
-    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    othersBefore = (await rows(OTHERS_SNAPSHOT_SQL))[0];
   }, 60_000);
 
   afterAll(async () => {
     if (!sql) return;
-    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL, [ORG, OTHER]))[0];
+    const othersAfter = (await rows(OTHERS_SNAPSHOT_SQL))[0];
     for (const org of [ORG, OTHER]) {
       await sql.query("DELETE FROM audit_logs WHERE organisation_id = $1 AND action LIKE 'scheduling.%'", [org]).catch(() => undefined);
       for (const t of ['scheduling_resource_holds', 'scheduling_reservations', 'scheduling_availability_rules', 'scheduling_availability_exceptions', 'scheduling_availability_zones', 'scheduling_offering_resources', 'scheduling_offerings', 'scheduling_resources', 'scheduling_schedules', 'scheduling_settings']) {
@@ -195,7 +207,7 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
     state.failNextBeforeSend = false;
     state.unexpectedBefore = false;
     state.unexpectedAfter = false;
-    as('neon-u1', ORG);
+    as('neon-ui2-u1', ORG);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
   });
@@ -219,16 +231,29 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
   }
   type Target = Awaited<ReturnType<typeof offered>>;
 
-  function ui() {
+  function ui(opts: { store?: PendingStoreT; pending?: { key: string; fp: string } } = {}) {
     const holder = createBookingKeyHolder();
-    const reduce = createMachine(holder);
-    let st = initialState();
+    const reduce = createMachine(holder, opts.store ? { fingerprint: c => opts.store!.fingerprint(c) } : {});
+    let st = opts.pending ? recoveredState(opts.pending) : initialState(); // a reopened or reloaded dialog: a FRESH holder, started from the record alone
     const send = (a: Parameters<typeof reduce>[1]) => (st = reduce(st, a));
     const run = async () => {
       for (let i = 0; i < 60; i += 1) {
-        if (st.step === 'submitting') send({ type: 'RESPONSE', outcome: await postReservation(st.attempt!.body, st.attempt!.key) });
-        else if (st.step === 'checking') send({ type: 'POLL', outcome: await lookupReservation(st.attempt!.key) });
-        else return;
+        if (st.step === 'submitting') {
+          if (opts.store && !opts.store.ensure(st.attempt!.key, canonicalContent(st.attempt!.content)).ok) send({ type: 'STORE_FAILED' }); // write-ahead, as the dialog does
+          else {
+            const uncertainBefore = !provableNotBooked(st);
+            const outcome = await postReservation(st.attempt!.body, st.attempt!.key);
+            if (opts.store && settlesAttempt(outcome, uncertainBefore)) opts.store.clear();
+            send({ type: 'RESPONSE', outcome });
+          }
+        } else if (st.step === 'recovering' && !recoverySettled(st)) {
+          send({ type: 'POLL', outcome: await lookupReservation(st.pending!.key) });
+          if (opts.store && st.step === 'done') opts.store.clear();
+        } else if (st.step === 'checking') send({ type: 'POLL', outcome: await lookupReservation(st.attempt!.key) });
+        else {
+          if (opts.store && st.step === 'done') opts.store.clear();
+          return;
+        }
       }
       throw new Error('the machine did not settle');
     };
@@ -243,7 +268,10 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       await run();
       return st;
     };
-    return { send, run, toSubmit, book, get state() { return st; } };
+    const fill = (d: ReturnType<typeof details>) => {
+      for (const [field, value] of Object.entries(d)) send({ type: 'FIELD', field: field as 'name', value });
+    };
+    return { send, run, toSubmit, book, fill, get state() { return st; } };
   }
 
   describe('UI slice 2: the dialog’s machine and client over the Neon driver', () => {
@@ -313,6 +341,111 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       expect([await total(f), await holds(f)]).toEqual([1, 1]);
     });
 
+    // ── reload recovery over the real Neon driver ────────────────────────────────────────────────────────────────────────────────
+    const memory = (): Storage => {
+      const m = new Map<string, string>();
+      return { get length() { return m.size; }, clear: () => m.clear(), getItem: k => m.get(k) ?? null, key: i => [...m.keys()][i] ?? null, removeItem: k => void m.delete(k), setItem: (k, v) => void m.set(k, v) };
+    };
+    const SECRET = 'rs_neon_recovery_secret_012345678901234567890';
+    const keysSent = () => [...new Set(requests.filter(r => r.method === 'POST').map(r => r.key))];
+    async function firstLife(storage: Storage, target: Target) {
+      const store = createPendingStore(SECRET, storage);
+      netFault.loseReply = 1;
+      netFault.blockLookups = true;
+      const u = ui({ store });
+      u.toSubmit(target);
+      await u.run();
+      netFault.blockLookups = false;
+      expect(['unsure', 'checking']).toContain(u.state.step);
+      const record = store.read();
+      expect(record?.key).toBe(u.state.attempt!.key);
+      return { store, record: record!, key: u.state.attempt!.key };
+    }
+    afterEach(() => {
+      netFault.loseReply = 0;
+      netFault.blockLookups = false;
+    });
+
+    it('U9 (D1): committed write, lost reply, lookups failing; close and reopen from the record RECOVERS the original booking by its key. One POST, one key, one reservation, one hold', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      expect(await total(f)).toBe(1); // it DID commit
+      const u = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } });
+      expect(u.state.step).toBe('recovering');
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(u.state.reservation!.customer.name).toBe(PII.name);
+      expect(keysSent()).toEqual([first.key]);
+      expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U10: committed, lookups failing: the booked time is no longer offered, so retyping cannot create a second booking; "Check again" then finds the ORIGINAL; a wrong retype is refused before any send', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      netFault.blockLookups = true;
+      const u = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } });
+      await u.run();
+      expect(recoverySettled(u.state)).toBe(true);
+      u.send({ type: 'ENTER_AGAIN' });
+      await expect(offered(f, '10:00')).rejects.toThrow(/not offered/); // the engine no longer offers the held hour
+      u.send({ type: 'START', target: await offered(f, '11:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.step).toBe('details'); // a different start time is a different booking
+      expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+      netFault.blockLookups = false;
+      const again = ui({ store: first.store, pending: { key: first.record.key, fp: first.record.fp } }); // Check again, on a fresh page
+      await again.run();
+      expect(again.state.step).toBe('done');
+      expect(keysSent()).toEqual([first.key]);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U10b: the request never reached the database: the lookup finds nothing, "Enter the booking again" replays the ORIGINAL key and creates the booking once', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const store = createPendingStore(SECRET, storage);
+      state.failNextBeforeSend = true;
+      netFault.blockLookups = true;
+      const first = ui({ store });
+      first.toSubmit(await offered(f));
+      await first.run();
+      netFault.blockLookups = false;
+      expect(await total(f)).toBe(0);
+      const record = store.read()!;
+      const u = ui({ store, pending: { key: record.key, fp: record.fp } });
+      await u.run();
+      expect(recoverySettled(u.state)).toBe(true);
+      u.send({ type: 'ENTER_AGAIN' });
+      u.send({ type: 'START', target: await offered(f, '10:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.reviewKey).toBe(record.key);
+      u.send({ type: 'SUBMIT' });
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(keysSent()).toEqual([record.key]);
+      expect([await total(f), await holds(f), await overlaps(f)]).toEqual([1, 1, 0]);
+      expect(storage.length).toBe(0);
+    });
+
+    it('U11: the record holds no customer detail, resource, offering, date or secret, and another user\'s secret cannot see it', async () => {
+      const f = await fixture();
+      const storage = memory();
+      const first = await firstLife(storage, await offered(f));
+      const raw = JSON.stringify(Object.fromEntries(Array.from({ length: storage.length }, (_, i) => [storage.key(i)!, storage.getItem(storage.key(i)!)])));
+      for (const s of [...UI_SECRETS, f.court, f.offering, MONDAY, SECRET]) expect(raw).not.toContain(s);
+      expect(createPendingStore('rs_another_users_secret_0123456789012345678', storage).read()).toBeNull();
+      expect(first.store.read()?.key).toBe(first.key);
+      as('neon-ui2-u2', OTHER); // another organisation cannot find the booking by the recovered key either
+      expect(await lookupReservation(first.key)).toEqual({ kind: 'missing' });
+    });
+
     it('U5: stale availability cannot be booked (AVAILABILITY_CHANGED, nothing written, details kept); the fresh basis books the same details', async () => {
       const f = await fixture();
       const target = await offered(f, '15:00');
@@ -350,12 +483,12 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       expect(s.step).toBe('done');
       const key = s.attempt!.key;
       const before = await total(f);
-      as('neon-u2', OTHER);
+      as('neon-ui2-u2', OTHER);
       expect(await lookupReservation(key)).toEqual({ kind: 'missing' });
       expect((await postReservation(s.attempt!.body, `bk_${'e'.repeat(32)}`)).kind).toBe('refused'); // org-b cannot book org-a's court: NOT_FOUND family
-      as('neon-viewer', ORG, 'viewer');
+      as('neon-ui2-viewer', ORG, 'viewer');
       expect((await postReservation(s.attempt!.body, `bk_${'f'.repeat(32)}`)).kind).toBe('denied');
-      as('neon-u1', ORG);
+      as('neon-ui2-u1', ORG);
       process.env.SCHEDULING_STAFF_BOOKING = 'off';
       expect(await postReservation(s.attempt!.body, `bk_${'9'.repeat(32)}`)).toEqual({ kind: 'gate_off' });
       process.env.SCHEDULING_STAFF_BOOKING = 'on';

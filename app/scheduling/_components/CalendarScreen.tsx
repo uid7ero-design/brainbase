@@ -58,7 +58,9 @@ function useNarrow(): boolean {
 
 // `canBook` is the SERVER's decision (lib/scheduling/staffBookingVisibility.ts: switch on, organisation capability, scheduling.reserve). It defaults to false and only
 // the resource calendar acts on it; with it false the Book button and the dialog do not exist and nothing booking-related is requested.
-export default function CalendarScreen({ kind, id, canManage, canBook = false, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; canBook?: boolean; organisationTimezone?: string | null }) {
+// `recoverySecret` is the server's per-(user, organisation) value for reload recovery (lib/scheduling/recoverySecret.ts). Without it there is no Book button:
+// a booking build must not have a mode without recovery.
+export default function CalendarScreen({ kind, id, canManage, canBook = false, recoverySecret = null, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; canBook?: boolean; recoverySecret?: string | null; organisationTimezone?: string | null }) {
   const ownerPath = kind === 'offering' ? `/offerings/${seg(id)}` : `/resources/${seg(id)}`;
   const params = useSearchParams();
   // The page already knows the organisation's zone (it is read beside the access check), so the calendar can start loading at once. Only without it
@@ -98,7 +100,7 @@ export default function CalendarScreen({ kind, id, canManage, canBook = false, o
   const selected = lanes.find(l => l.id === laneId) ?? lanes[0] ?? null;
   const names = useMemo(() => Object.fromEntries(lanes.map(l => [l.id, l.name])), [lanes]);
 
-  const showBook = canBook && kind === 'resource' && !bookGone && view?.resource?.active === true;
+  const showBook = canBook && !!recoverySecret && kind === 'resource' && !bookGone && view?.resource?.active === true;
   const back = <Link href={kind === 'offering' ? '/scheduling/schedules' : '/scheduling/resources'}>{kind === 'offering' ? 'Schedules' : 'Resources'}</Link>;
   const header = (
     <PageHeader
@@ -126,6 +128,7 @@ export default function CalendarScreen({ kind, id, canManage, canBook = false, o
         resourceId={view.resource.id}
         resourceName={view.resource.name}
         today={today}
+        recoverySecret={recoverySecret}
         onClose={() => setBookOpen(false)}
         onBooked={calendar.reload}
         onUnavailable={() => {

@@ -2,6 +2,8 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StaffBookDialog from '@/app/scheduling/_components/StaffBookDialog';
+
+const TEST_SECRET = 'rs_test_secret_0123456789012345678901234567'; // what the server passes (lib/scheduling/recoverySecret.ts); the dialog offers no booking without one
 import { expectNoAxeViolations } from '../../a11y/axe';
 
 // Phase 2C.3c UI slice 2: customer details, review, submit, recovery and confirmation, against a stubbed fetch. Synthetic data only.
@@ -73,7 +75,7 @@ function mount(props: Partial<React.ComponentProps<typeof StaffBookDialog>> = {}
   const onBooked = vi.fn();
   const onUnavailable = vi.fn();
   const user = userEvent.setup();
-  render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={onUnavailable} {...props} />);
+  render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={onUnavailable} {...props} />);
   return { user, onClose, onBooked, onUnavailable };
 }
 type U = ReturnType<typeof userEvent.setup>;
@@ -392,7 +394,7 @@ describe('uncertain outcomes', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onClose = vi.fn();
     const onBooked = vi.fn();
-    render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={vi.fn()} />);
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={vi.fn()} />);
     await toReview(user);
     await user.click(screen.getByTestId('confirm-booking'));
     await screen.findByRole('heading', { name: 'Checking whether your booking was saved' });
@@ -419,7 +421,7 @@ describe('uncertain outcomes', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onClose = vi.fn();
     const onBooked = vi.fn();
-    render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={vi.fn()} />);
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onBooked={onBooked} onUnavailable={vi.fn()} />);
     await toReview(user);
     await user.click(screen.getByTestId('confirm-booking'));
     for (const ms of [500, 1500, 3000, 6000]) await act(async () => { await vi.advanceTimersByTimeAsync(ms + 50); });
@@ -488,5 +490,81 @@ describe('accessibility', () => {
     await second.user.click(screen.getByTestId('confirm-booking'));
     await screen.findByRole('heading', { name: 'Checking whether your booking was saved' });
     await expectNoAxeViolations(document.body);
+  });
+});
+
+describe('"Nothing was booked." is only said when it can be proven', () => {
+  async function toUnsure(user: U) {
+    await toReview(user);
+    await user.click(screen.getByTestId('confirm-booking'));
+    for (const ms of [500, 1500, 3000, 6000]) await act(async () => { await vi.advanceTimersByTimeAsync(ms + 50); });
+    await screen.findByRole('heading', { name: /could not confirm whether the booking was saved/ });
+  }
+  const CLAIM = /Nothing was booked/i;
+
+  it('a clean first attempt refused as a conflict says it plainly', async () => {
+    posts = [refusal(409, 'RESOURCE_CONFLICT')];
+    const { user } = mount();
+    await toReview(user);
+    await user.click(screen.getByTestId('confirm-booking'));
+    expect(await screen.findByTestId('booking-live')).toHaveTextContent(/just taken/i);
+    expect(screen.getByTestId('booking-live')).toHaveTextContent(CLAIM);
+  });
+
+  it('a conflict after an unresolved earlier attempt does NOT say nothing was booked, and tells the staff member to check the calendar', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    posts = [refusal(504, 'OUTCOME_UNKNOWN'), refusal(409, 'RESOURCE_CONFLICT')];
+    lookups = [() => Response.json({ error: 'not_found' }, { status: 404 })];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} />);
+    await toUnsure(user);
+    await user.click(screen.getByTestId('retry-booking'));
+    const live = await screen.findByTestId('booking-live');
+    await waitFor(() => expect(live).toHaveTextContent(/just taken/i));
+    expect(live).not.toHaveTextContent(CLAIM);
+    expect(live).toHaveTextContent(/could not be confirmed/i);
+    expect(live).toHaveTextContent(/look in the calendar/i);
+  });
+
+  it('a busy system after an unresolved attempt does not claim nothing was booked', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    posts = [refusal(504, 'OUTCOME_UNKNOWN'), refusal(503, 'CONTENTION_TIMEOUT')];
+    lookups = [() => Response.json({ error: 'not_found' }, { status: 404 })];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} />);
+    await toUnsure(user);
+    await user.click(screen.getByTestId('retry-booking'));
+    await screen.findByRole('heading', { name: 'The system was busy' });
+    expect(screen.queryByText(CLAIM)).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-live')).not.toHaveTextContent(CLAIM);
+    expect(screen.getAllByText(/could not be confirmed/i).length).toBeGreaterThan(0);
+  });
+
+  it('a session that ended after an unresolved attempt does not claim nothing was booked', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    posts = [refusal(504, 'OUTCOME_UNKNOWN'), refusal(403, 'FORBIDDEN')];
+    lookups = [() => Response.json({ error: 'not_found' }, { status: 404 })];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} />);
+    await toUnsure(user);
+    await user.click(screen.getByTestId('retry-booking'));
+    await screen.findByRole('heading', { name: 'You can’t book here' });
+    expect(screen.queryByText(CLAIM)).not.toBeInTheDocument();
+    expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument();
+  });
+
+  it('the "checking" and "could not confirm" screens never claim nothing was booked', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    posts = [refusal(504, 'OUTCOME_UNKNOWN')];
+    lookups = [() => Response.json({ error: 'not_found' }, { status: 404 })];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StaffBookDialog recoverySecret={TEST_SECRET} resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={vi.fn()} onBooked={vi.fn()} onUnavailable={vi.fn()} />);
+    await toReview(user);
+    await user.click(screen.getByTestId('confirm-booking'));
+    await screen.findByRole('heading', { name: 'Checking whether your booking was saved' });
+    expect(document.body).not.toHaveTextContent(CLAIM);
+    for (const ms of [500, 1500, 3000, 6000]) await act(async () => { await vi.advanceTimersByTimeAsync(ms + 50); });
+    await screen.findByRole('heading', { name: /could not confirm whether the booking was saved/ });
+    expect(document.body).not.toHaveTextContent(CLAIM);
   });
 });
