@@ -149,6 +149,39 @@ export async function readRoster(org: string, id: string) {
   );
   return rows[0] ?? null;
 }
+// Anchor the report to the signed-in roster. A booking is counted on its own date only.
+export async function tennisClassTermReview(org: string, id: string) {
+  return db().query<{
+    id: string; day: string; time: string; zone: string; ended: boolean; cancelled: boolean;
+    archived: boolean; planned: boolean; booked: number; cancellations: number;
+    attended: number; late: number; absent: number; unmarked: number;
+  }>(
+    `WITH eligible AS (SELECT s.* ${await staffSchedules(org)} AND s.id='tennis-coaching')
+     SELECT o.id,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,o.timezone AS zone,
+       (o.status='completed' OR o.ends_at<=now()) AS ended,o.status='cancelled' AS cancelled,
+       f.archived_at IS NOT NULL AS archived,p.version IS NOT NULL AS planned,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status<>'cancelled'),0)::int AS booked,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status='cancelled'),0)::int +
+         (SELECT count(*)::int FROM scheduling_tennis_history h
+          WHERE h.organisation_id=o.organisation_id AND h.source_table='bookings'
+            AND h.source_row->>'session_instance_id'=o.id AND h.source_row->>'status'='cancelled'
+            AND NOT EXISTS (SELECT 1 FROM scheduling_tennis_booking_origins mapped
+              WHERE mapped.organisation_id=h.organisation_id AND mapped.source_id=h.source_id)) AS cancellations,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status<>'cancelled' AND r.attendance='attended'),0)::int AS attended,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status<>'cancelled' AND r.attendance='late'),0)::int AS late,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status<>'cancelled' AND r.attendance='absent'),0)::int AS absent,
+       coalesce(sum(r.party_size) FILTER (WHERE r.status='confirmed' AND r.attendance IS NULL),0)::int AS unmarked
+     ${dateScope}
+     JOIN scheduling_coach_term_dates d ON (d.organisation_id,d.offering_id,d.occurrence_id)=(o.organisation_id,o.offering_id,o.id)
+     JOIN scheduling_coach_term_dates anchor ON (anchor.organisation_id,anchor.offering_id,anchor.term_id)=(d.organisation_id,d.offering_id,d.term_id)
+     LEFT JOIN scheduling_coach_training_plans p ON (p.organisation_id,p.occurrence_id)=(o.organisation_id,o.id)
+     LEFT JOIN scheduling_reservations r ON (r.organisation_id,r.occurrence_id)=(o.organisation_id,o.id)
+     WHERE anchor.occurrence_id=$2
+     GROUP BY o.organisation_id,o.id,f.archived_at,p.version ORDER BY o.starts_at,o.id`,
+    [org,id],
+  );
+}
+
 // Group scheduled dates of one Tennis class at the same weekly time. Existing
 // term membership is a boundary even if its date was subsequently cancelled.
 async function tennisTermBasis(org: string) {

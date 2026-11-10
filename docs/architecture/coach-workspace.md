@@ -59,6 +59,8 @@ Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended 
 
 After the Tennis cutover, open an existing class in the shared weekly calendar. The roster includes the original bookings, attendance, weekly enrolments, payment markers and imported cancellation history. Earlier weeks and archived classes remain available in the calendar.
 
+Open **Class term review** from any imported Tennis roster. A grouped term shows attendance and missing marks for each date, cancellations retained from the old booking system, and saved-plan coverage. One-off and recurring places count only on the dates actually booked. The review does not enrol players, generate invoices or change attendance. An ungrouped date links back to the roster.
+
 From the first upcoming class, use **Group existing dates into a term**, name the term and choose its last scheduled class. The count covers the same class, weekday, time and location. Cancelled dates are skipped and an existing term ends the available range. To schedule further Tennis dates, use the existing Tennis class management screen to generate them first. Grouping only links dates and leaves the original class and player records in place.
 
 Open the joining date, then use **Enrol participant** for the remaining term when staff booking is enabled. The Tennis roster retains its existing one-off and open-ended weekly enrolment controls. The Tennis public booking page keeps its existing address.

@@ -2,21 +2,27 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { authorizeSchedulingRequest } from '@/lib/scheduling/access';
 import { RosterScreen } from '@/app/scheduling/_components/CoachingWorkspaceScreen';
-import { readRoster, tennisTermChoices } from '@/lib/scheduling/coachClasses';
+import { readRoster, tennisTermChoices, tennisClassTermReview } from '@/lib/scheduling/coachClasses';
 import { manageClass } from '@/lib/scheduling/coachActions';
 import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibility';
+import ClassTermReview from './ClassTermReview';
 import ClassForm from '../../ClassForm';
 import BookingFields from '../../BookingFields';
 import styles from '../../workspace.module.css';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Roster({ params }: { params: Promise<{ id: string }> }) {
+export default async function Roster({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ view?: string }> }) {
   const auth = await authorizeSchedulingRequest('scheduling.reserve');
   if (!auth.ok) notFound();
   const org = auth.session.organisationId;
   const date = await readRoster(org, (await params).id);
   if (!date) notFound();
+  if ((await searchParams).view === 'term') {
+    if (!date.tennis) notFound();
+    const sessions = date.term ? await tennisClassTermReview(org, date.id) : [];
+    return <ClassTermReview id={date.id} name={date.name} term={date.term?.name} sessions={sessions}/>;
+  }
   const staffBooking = await getStaffBookingVisibility();
   const canEnrol = staffBooking && date.open && date.enrolled < date.capacity;
   const action = manageClass.bind(null, org);
@@ -37,7 +43,10 @@ export default async function Roster({ params }: { params: Promise<{ id: string 
     <main className={styles.page}>
       <Link href={'/coaching/calendar?week=' + date.day}>Back to class calendar</Link>
       <h1>{date.name}</h1>
-      <Link href={'/coaching/roster/'+encodeURIComponent(date.id)+'/plan'}>Training plan</Link>
+      <nav className={styles.controls} aria-label="Class tools">
+        <Link href={'/coaching/roster/'+encodeURIComponent(date.id)+'/plan'}>Training plan</Link>
+        {date.tennis && <Link href="?view=term">Class term review</Link>}
+      </nav>
       <p>
         {date.day} · {date.time} {date.timezone} · {date.schedule}
       </p>

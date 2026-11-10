@@ -16,6 +16,7 @@ export async function setupTennisScheduling(q, env) {
   await q("INSERT INTO scheduling_settings(organisation_id,currency) VALUES($1,'AUD')",[org]);
   await q(readFileSync('scripts/create-coach-terms.sql','utf8'));
   await q(readFileSync('scripts/create-coach-squads.sql','utf8'));
+  await q(readFileSync('scripts/create-coach-training-plans.sql','utf8'));
   await seedDisposableStaffBooking(q,org,env);
   const day=(await q("SELECT to_char((now() AT TIME ZONE 'Australia/Adelaide')::date+1,'YYYY-MM-DD') AS fixture_day")).rows[0].fixture_day;
   await q(`INSERT INTO sessions(id,organisation_id,name,day_of_week,start_time,duration_minutes,max_capacity,session_type,price_per_session,start_date,end_mode)
@@ -117,6 +118,9 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
   await page.getByRole('link',{name:'Synthetic Juniors',exact:true}).click();
   await page.getByText('Synthetic Cancelled',{exact:true}).waitFor();
   await expect(page.getByRole('listitem').filter({has:page.getByText('Synthetic Original',{exact:true})})).toContainText('attended');
+  await page.getByRole('link',{name:'Class term review'}).click();
+  await expect(page.getByText(/This date is outside a term/)).toBeVisible();
+  await page.getByRole('link',{name:'Back to class roster'}).click();
   const another=await context.newPage();
   await another.goto(origin+'/coaching/roster/fixture-third');
   await another.getByLabel('Term name').fill('Overlapping term');
@@ -137,6 +141,38 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
   await page.getByText('Synthetic Term',{exact:true}).waitFor();
   assert.deepEqual((await q("SELECT occurrence_id FROM scheduling_reservations WHERE organisation_id=$1 AND customer_email='term@example.invalid' AND status='confirmed' ORDER BY occurrence_id",[org])).rows.map(r=>r.occurrence_id),['fixture-fourth','fixture-third']);
   assert.deepEqual(await preserved(),before);
+  const allPlaces=async()=> (await q('SELECT to_jsonb(r) AS booking FROM scheduling_reservations r WHERE organisation_id=$1 ORDER BY id',[org])).rows;
+  const savedPlaces=await allPlaces();
+  const invoices=async()=> (await q('SELECT count(*)::int AS n FROM commercial_invoices WHERE organisation_id=$1',[org])).rows[0].n;
+  assert.equal(await invoices(),0);
+  const expectedCounts=await q("SELECT occurrence_id,sum(party_size)::int AS n FROM scheduling_reservations WHERE organisation_id=$1 AND status<>'cancelled' GROUP BY occurrence_id",[org]);
+  await page.getByRole('link',{name:'Class term review'}).click();
+  await expect(page.getByRole('heading',{name:'Winter juniors'})).toBeVisible();
+  const reviewUrl=page.url();
+  for (const width of [1440,768,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.goto(reviewUrl);
+    await expect(page.getByRole('heading',{name:'Winter juniors'})).toBeVisible();
+    const rows=page.getByRole('list',{name:'Class dates'}).getByRole('listitem');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0)).toContainText('3 booked places · 1 cancelled booking');
+    await expect(rows.nth(0)).toContainText('1 attended');
+    for (const [i,occurrence] of [[1,'fixture-third'],[2,'fixture-fourth']]) {
+      const n=expectedCounts.rows.find(r=>r.occurrence_id===occurrence).n;
+      await expect(rows.nth(i)).toContainText(n+' booked places');
+    }
+    await expect(page.getByText('0 of 3 upcoming or in-progress sessions have a saved plan.')).toBeVisible();
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  }
+  await q("INSERT INTO scheduling_coach_training_plans(organisation_id,occurrence_id,version,drills) VALUES($1,'fixture-fourth',1,'[]'::jsonb)",[org]);
+  await page.reload();
+  await expect(page.getByText('1 of 3 upcoming or in-progress sessions have a saved plan.')).toBeVisible();
+  await expect(page.getByRole('link',{name:'Open plan'})).toHaveAttribute('href','/coaching/roster/fixture-fourth/plan');
+  assert.equal(await invoices(),0);
+  assert.deepEqual(await allPlaces(),savedPlaces);
+  assert.deepEqual(await preserved(),before);
+  console.log('PASS: read-only imported Tennis term review at desktop, tablet and mobile widths, including legacy cancellations.');
+  await page.setViewportSize({width:1440,height:900});
   console.log('PASS: imported class opened in Coach, archived cancellation and attendance visible, existing dates grouped and booked with original records preserved.');
   await page.goto(origin+'/scheduling/schedules/tennis-coaching');
   page.on('dialog',dialog=>dialog.accept());
@@ -162,6 +198,8 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
   await expect(page.getByRole('link',{name:'Synthetic Juniors',exact:true})).toHaveCount(0);
   await page.goto(origin+'/coaching/roster/fixture-date');
   await expect(page.getByText('Synthetic Original',{exact:true})).toHaveCount(0);
+  await page.goto(reviewUrl);
+  await expect(page.getByRole('heading',{name:'Winter juniors'})).toHaveCount(0);
   response=await context.request.get(origin+'/api/scheduling/status');assert.equal(response.status(),200);
   await q("DELETE FROM organisation_user_access WHERE user_id='local-admin'");
   await q("UPDATE organisation_modules SET enabled=false WHERE organisation_id=$1 AND module_key='scheduling'",[org]);
