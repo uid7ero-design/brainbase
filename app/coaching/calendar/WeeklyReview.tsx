@@ -5,6 +5,8 @@ import type { weeklyReview } from '@/lib/scheduling/coachClasses';
 import { addLocalDays } from '@/lib/scheduling/coachClassDates';
 
 import styles from '../workspace.module.css';
+import layout from '../classWorkspace.module.css';
+import review from './weeklyReview.module.css';
 
 type Sessions = Awaited<ReturnType<typeof weeklyReview>>;
 
@@ -19,7 +21,7 @@ const dateLabel = (day: string) =>
 
 function SessionList({ sessions }: { sessions: Sessions }) {
   return (
-    <ul className={styles.reviewList}>
+    <ul className={review.sessions}>
       {sessions.map((s) => {
         const roster = '/coaching/roster/' + encodeURIComponent(s.id);
 
@@ -66,16 +68,14 @@ export default function WeeklyReview({ start, sessions }: { start: string; sessi
   const unmarked = pending.reduce((count, s) => count + s.unmarked, 0);
 
   return (
-    <main className={styles.page}>
-      <Link href={'/coaching/calendar?week=' + start}>Weekly class calendar</Link>
+    <main className={`${styles.page} ${layout.page}`}>
+      <Link className={layout.back} href={'/coaching/calendar?week=' + start}>Weekly class calendar</Link>
 
-      <h1>Weekly coaching review</h1>
-
-      <p>
-        {dateLabel(start)} – {dateLabel(addLocalDays(start, 6))}
-      </p>
-
-      <nav className={styles.controls} aria-label="Review weeks">
+      <header className={layout.header}>
+        <h1>Weekly coaching review</h1>
+        <p>{dateLabel(start)} – {dateLabel(addLocalDays(start, 6))}</p>
+      </header>
+      <nav className={`${styles.controls} ${layout.toolbar}`} aria-label="Review weeks">
         <Link href={'?view=review&week=' + addLocalDays(start, -7)}>Previous week</Link>
 
         <Link href="?view=review">This week</Link>
@@ -83,8 +83,13 @@ export default function WeeklyReview({ start, sessions }: { start: string; sessi
         <Link href={'?view=review&week=' + addLocalDays(start, 7)}>Next week</Link>
       </nav>
 
-      <div className={styles.columns}>
-        <section className={styles.panel} aria-label="Attendance to finish">
+      <dl className={review.metrics}>
+        <div><dt>Attendance marks to finish</dt><dd>{unmarked}</dd></div>
+        <div><dt>Upcoming sessions</dt><dd>{upcoming.length}</dd></div>
+        <div><dt>Upcoming sessions needing a plan</dt><dd>{upcoming.filter((s) => !s.planned).length}</dd></div>
+      </dl>
+      <div className={review.sections}>
+        <section className={review.panel} aria-label="Attendance to finish">
           <h2>Attendance to finish</h2>
 
           {pending.length ? (
@@ -100,7 +105,7 @@ export default function WeeklyReview({ start, sessions }: { start: string; sessi
           )}
         </section>
 
-        <section className={styles.panel} aria-label="Session preparation">
+        <section className={review.panel} aria-label="Session preparation">
           <h2>Session preparation</h2>
 
           {upcoming.length ? (
@@ -117,7 +122,7 @@ export default function WeeklyReview({ start, sessions }: { start: string; sessi
       </div>
 
       {reviewed.length > 0 && (
-        <section className={styles.panel} aria-label="Finished classes with no outstanding marks">
+        <section className={review.panel} aria-label="Finished classes with no outstanding marks">
           <h2>Finished classes with no outstanding marks</h2>
           <SessionList sessions={reviewed} />
         </section>
