@@ -1,0 +1,21 @@
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.metrics div { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 1.25rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--bg-raised); }
+.metrics dt { color: var(--text-secondary); font-size: .9rem; }
+.metrics dd { font-size: 2.5rem; line-height: 1; font-weight: 650; margin: 0 0 .5rem; font-variant-numeric: tabular-nums; }
+.sections { display: grid; gap: 1rem; }
+.panel { padding: clamp(1rem, 2vw, 1.5rem); border: 1px solid var(--border); border-radius: 1rem; background: var(--bg-surface); min-width: 0; }
+.panel h2 { font-size: 1.35rem; font-weight: 650; margin-bottom: .5rem; }
+.panel > p { color: var(--text-secondary); }
+.sessions { list-style: none; padding: 0; margin: 1rem 0 0; }
+.sessions li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; padding-block: 1rem; gap: 1rem; border-top: 1px solid var(--border); }
+.sessions li > div { display: grid; gap: .35rem; }
+.sessions small, .sessions span { color: var(--text-secondary); }
+.sessions a { display: inline-flex; justify-self: start; min-height: 44px; padding: .5rem .8rem; border: 1px solid var(--border-strong); border-radius: .6rem; align-items: center; }
+.sessions a:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+@media (max-width: 40rem) {
+  .metrics { gap: .4rem; }
+  .metrics div { padding: .7rem .5rem; }
+  .metrics dd { font-size: 1.8rem; }
+  .metrics dt { font-size: .8rem; }
+  .sessions li { grid-template-columns: minmax(0, 1fr); }
+}
