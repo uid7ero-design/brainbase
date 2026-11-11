@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# NOTE (CRM duplicate prevention): this harness proves the PREVIOUS single-statement shape (advisory lock and read in one CTE). Under
+# forced overlap that shape duplicates (see docs/architecture/crm-contact-duplicate-prevention.md); lib/crm now takes the lock in its
+# own statement. scripts/tests/verify-crm-contact-duplicate-prevention.sh is the proof for the current code. Kept for history.
 # lib/crm/eventSync.ts's contact-dedupe SQL — real-concurrency proof.
 #
 # WHY THIS EXISTS: crm_contacts has no UNIQUE constraint on email or

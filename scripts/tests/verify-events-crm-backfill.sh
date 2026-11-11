@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# NOTE (CRM duplicate prevention): this harness proves the PREVIOUS single-statement shape (advisory lock and read in one CTE). Under
+# forced overlap that shape duplicates (see docs/architecture/crm-contact-duplicate-prevention.md); lib/crm now takes the lock in its
+# own statement. scripts/tests/verify-crm-contact-duplicate-prevention.sh is the proof for the current code. Kept for history.
 # lib/crm/eventBackfill.ts's match/create SQL — real-Postgres proof.
 #
 # WHY THIS EXISTS: executeEventContactBackfill's core operation is a
