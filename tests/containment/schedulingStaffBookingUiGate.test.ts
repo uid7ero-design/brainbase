@@ -218,13 +218,14 @@ describe('the Book button exists only when the server says so (static)', () => {
 
   it('only the resource calendar page asks for the decision, and it asks on the server', () => {
     const resourcePage = read('app/scheduling/resources/[resourceId]/calendar/page.tsx');
-    expect(resourcePage).toMatch(/getStaffBookingVisibility\(\)/);
+    expect(resourcePage).toMatch(/getFacilityHireVisibility\(\)/);
+    expect(resourcePage).not.toMatch(/getStaffBookingVisibility|staffBookingVisibility/); // the Coach gate can never show the Book button
     expect(resourcePage).toMatch(/canBook=\{canBook\}/);
     expect(resourcePage).not.toMatch(/'use client'/);
     expect(read('app/scheduling/offerings/[offeringId]/calendar/page.tsx')).not.toMatch(/canBook|StaffBook|getStaffBookingVisibility/);
   });
 
-  it('the visibility helper is server-only and is used only by the Coach roster and resource calendar', () => {
+  it('the Coach visibility helper is server-only and is used only by the Coach pages; the facility-hire helper is used only by the resource calendar', () => {
     expect(read('lib/scheduling/staffBookingVisibility.ts')).toMatch(/^import 'server-only';/);
     const importers: string[] = [];
     const walk = (dir: string) => {
@@ -236,7 +237,22 @@ describe('the Book button exists only when the server says so (static)', () => {
       }
     };
     for (const dir of ['app', 'lib', 'components']) walk(dir);
-    expect(importers.sort()).toEqual(['app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx', 'app/scheduling/resources/[resourceId]/calendar/page.tsx']);
+    expect(importers.sort()).toEqual(['app/coaching/page.tsx', 'app/coaching/roster/[id]/page.tsx']);
+    expect(read('lib/scheduling/facilityHireVisibility.ts')).toMatch(/^import 'server-only';/);
+    const hire: string[] = [];
+    const walkHire = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.next') continue;
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walkHire(rel);
+        else if (/.(ts|tsx)$/.test(entry.name) && /facilityHireVisibility'/.test(read(rel))) hire.push(rel);
+      }
+    };
+    for (const dir of ['app', 'lib', 'components']) walkHire(dir);
+    expect(hire.sort()).toEqual(['app/scheduling/resources/[resourceId]/calendar/page.tsx']);
+    // the two helpers share nothing: neither reads the other's switch or capability
+    expect(strip(read('lib/scheduling/facilityHireVisibility.ts'))).not.toMatch(/STAFF_BOOKING|staffBooking|staff_booking/);
+    expect(strip(read('lib/scheduling/staffBookingVisibility.ts'))).not.toMatch(/FACILITY_HIRE|facilityHire|facility_hire/);
     const roster = read('app/coaching/roster/[id]/page.tsx');
     expect(roster).toContain('await getStaffBookingVisibility()');
     expect(roster).toContain('staffBooking && date.open && date.enrolled < date.capacity');

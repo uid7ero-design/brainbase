@@ -11,7 +11,7 @@ test.describe.configure({ mode: 'serial' });
 // Phase 2C.3c UI slice 1: the read-only staff booking dialog in real Chromium at 390 / 768 / 1440 px, both themes, signed in through the real login form as synthetic accounts, against a
 // DISPOSABLE PostgreSQL. The harness runs this file in two modes (scripts/tests/verify-scheduling-browser-local.mjs):
 //   - SWITCH OFF (default; the capability IS held by organisation A): the Book button must not exist for anyone, the dialog must not render, and the page must make no booking-related request.
-//   - SWITCH ON (SCHED_BROWSER_STAFF_BOOKING=on): the button exists exactly for sessions the API would serve (manager with Scheduling "use" in the entitled organisation), and the dialog reads only.
+//   - SWITCH ON (SCHED_BROWSER_FACILITY_HIRE=on): the button exists exactly for sessions the API would serve (manager with Scheduling "use" in the entitled organisation), and the dialog reads only.
 // The spec reads which mode it is in from the app itself (GET basis: 404 means off), so it never assumes.
 
 const AXE = path.join(process.cwd(), 'node_modules/axe-core/axe.min.js');

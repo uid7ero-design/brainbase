@@ -3,7 +3,7 @@ import { schedulingJson, type SchedulingRouteContext } from '../route';
 
 // Phase 2C.3c-B: GET /api/scheduling/reservations/basis — what the staff booking form may offer, and the basis to hand back with the booking.
 //
-// Runs INSIDE the central guard with feature 'staff_booking' and permission 'scheduling.reserve' (route file): the kill switch is on, the session's organisation holds the capability,
+// Runs INSIDE the central guard with feature 'facility_hire' and permission 'scheduling.reserve' (route file): the kill switch is on, the session's organisation holds the capability,
 // the caller is staff with the reserve permission, and `context.tenant` is built from the session. It reads no session, cookie or organisation from the request and decides no rule: the
 // basis and the starts come from PostgresHireRepository.readHireOffer, which uses the same basis reader and the same pure availability engine as createHire.
 //

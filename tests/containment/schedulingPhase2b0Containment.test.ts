@@ -186,7 +186,7 @@ describe('the TypeScript modules are staged, not wired', () => {
     const cap = sources.filter(f => !rel(f).startsWith('lib/scheduling/adapters/')).filter(f => /SCHEDULING_CAPABILITY_KEY/.test(readFileSync(f, 'utf8'))).map(rel);
     // Phase 2B.2c (deliberate, reviewed change): the dashboard's page gate (lib/scheduling/pageAccess.ts) reads the key too, for UX only.
     // Phase 2C.3c UI slice 1 (deliberate, reviewed change): the staff-booking visibility helper reads the base key too, for UX only (it mirrors the API's checks; the API stays the boundary).
-    expect(cap).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/pageAccess.ts', 'lib/scheduling/staffBookingVisibility.ts']);
+    expect(cap).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/facilityHireVisibility.ts', 'lib/scheduling/pageAccess.ts', 'lib/scheduling/staffBookingVisibility.ts']); // facility-hire visibility helper: same UX-only base-key read
   });
 
   it('the access gate takes no organisation parameter and reads only the session organisation', () => {

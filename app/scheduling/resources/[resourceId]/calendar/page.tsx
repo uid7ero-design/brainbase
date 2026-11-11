@@ -1,6 +1,6 @@
 import { resolveSchedulingPage } from '../../../_components/pageAccess';
 import CalendarScreen from '../../../_components/CalendarScreen';
-import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibility';
+import { getFacilityHireVisibility } from '@/lib/scheduling/facilityHireVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +10,6 @@ export default async function ResourceCalendarPage({ params }: { params: Promise
   if (denied) return denied;
   const { resourceId } = await params;
   // Staff booking (2C.3c slice 1): decided here, on the server, once. False unless the switch, the organisation capability and scheduling.reserve all hold.
-  const canBook = await getStaffBookingVisibility();
+  const canBook = await getFacilityHireVisibility();
   return <CalendarScreen kind="resource" id={resourceId} canManage={canManage} canBook={canBook} organisationTimezone={timezone} />;
 }

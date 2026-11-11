@@ -40,7 +40,7 @@ describe('the route set: exactly four files, every method behind both gates and 
       expect(exported.map(m => `${m[1]} ${m[3]}`).sort(), file).toEqual([...expected].sort());
       for (const m of exported) {
         expect(m[2], `${file} ${m[1]}`).toBe('scheduling.reserve'); // viewer, analyst and unknown roles are refused
-        expect(m[4], `${file} ${m[1]}`).toMatch(/feature:\s*'staff_booking'/); // the kill switch and the organisation capability
+        expect(m[4], `${file} ${m[1]}`).toMatch(/feature:\s*'facility_hire'/); // ITS OWN kill switch and organisation capability (never the Coach pair)
       }
       expect(src, file).toMatch(/export const dynamic = 'force-dynamic'/);
       expect(src, file).not.toMatch(/export\s+(const|async function|function)\s+(PUT|PATCH|DELETE|HEAD|OPTIONS)\b/);
@@ -59,9 +59,9 @@ describe('the route set: exactly four files, every method behind both gates and 
 describe('the two gates, in order, in the one guard', () => {
   const access = noTsComments(read('lib/scheduling/access.ts'));
   it('the kill switch is checked BEFORE the session is read, and the organisation capability BEFORE the base capability', () => {
-    const killSwitch = access.indexOf('staffBookingKillSwitchOn()');
+    const killSwitch = access.indexOf('gate.switchOn()');
     const session = access.indexOf('await requireSession()');
-    const staffCap = access.indexOf('SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY)');
+    const staffCap = access.indexOf('gate.capability)');
     const baseCap = access.indexOf('requireCapability(session.organisationId, SCHEDULING_CAPABILITY_KEY)');
     expect(killSwitch).toBeGreaterThan(-1);
     expect(session).toBeGreaterThan(killSwitch);
@@ -77,15 +77,23 @@ describe('the two gates, in order, in the one guard', () => {
     expect(adapter).toMatch(/staffBookingKillSwitchOn = \(env: Readonly<Record<string, string \| undefined>> = process\.env\): boolean => env\[SCHEDULING_STAFF_BOOKING_ENV\] === 'on'/);
     expect(adapter).toContain("SCHEDULING_STAFF_BOOKING_ENV = 'SCHEDULING_STAFF_BOOKING'");
     expect(adapter).toContain("SCHEDULING_STAFF_BOOKING_CAPABILITY_KEY = 'scheduling.staff_booking'");
+    // facility hire has its OWN switch and key, with the same exact-"on" rule
+    expect(adapter).toMatch(/facilityHireKillSwitchOn = \(env: Readonly<Record<string, string \| undefined>> = process\.env\): boolean => env\[SCHEDULING_FACILITY_HIRE_ENV\] === 'on'/);
+    expect(adapter).toContain("SCHEDULING_FACILITY_HIRE_ENV = 'SCHEDULING_FACILITY_HIRE'");
+    expect(adapter).toContain("SCHEDULING_FACILITY_HIRE_CAPABILITY_KEY = 'scheduling.facility_hire'");
   });
   it('no code, script or SQL anywhere creates, enables or seeds the capability or the switch for anyone', () => {
     const files = [...walk('scripts'), ...walk('packages/scheduling/sql'), ...walk('lib'), ...walk('app'), ...walk('prisma')].filter(f => /\.(sql|ts|tsx|sh|cjs|mjs|js|prisma)$/.test(f));
-    const mentions = files.filter(f => /staff_booking/.test(read(f)) && !/\.test\.ts$|\.integration\.test\.ts$/.test(f));
-    expect(mentions.sort()).toEqual([...Object.keys(ROUTES), 'lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/booking/basis.ts', 'lib/scheduling/booking/reservations.ts', 'lib/scheduling/coachActions.ts', 'lib/scheduling/coachSquads.ts', 'lib/scheduling/route.ts', 'lib/scheduling/staffBookingVisibility.ts', 'scripts/tests/helpers/schedulingBrowserEnv.mjs'].sort()); // TypeScript only: the gate, the adapter, the guard option, the handlers' comment, the routes and (2C.3c UI slice 1) the page-level visibility helper and the DISPOSABLE browser harness helper
+    const notTest = (f: string) => !/.test.ts$|.integration.test.ts$/.test(f);
+    // Two independent features, two independent allow-lists. Neither key may appear in a file of the other feature.
+    const staffMentions = files.filter(f => /staff_booking/.test(read(f)) && notTest(f));
+    expect(staffMentions.sort()).toEqual(['lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/coachActions.ts', 'lib/scheduling/coachSquads.ts', 'lib/scheduling/route.ts', 'lib/scheduling/staffBookingVisibility.ts', 'scripts/tests/helpers/schedulingBrowserEnv.mjs', 'app/api/scheduling/reservations/route.ts'].sort());
+    const hireMentions = files.filter(f => /facility_hire/.test(read(f)) && notTest(f));
+    expect(hireMentions.sort()).toEqual([...Object.keys(ROUTES), 'lib/scheduling/access.ts', 'lib/scheduling/adapters/brainbase/index.ts', 'lib/scheduling/booking/basis.ts', 'lib/scheduling/booking/reservations.ts', 'lib/scheduling/facilityHireVisibility.ts', 'lib/scheduling/route.ts', 'scripts/tests/helpers/schedulingBrowserEnv.mjs'].sort());
     // 2C.3c UI slice 1 (deliberate, reviewed change): the DISPOSABLE browser harness may register and entitle the capability for one synthetic organisation and may set the switch for its own test server
     // (opt-in, default off). It runs only against a throwaway Docker database and never against Production, Preview or Neon.
-    for (const f of files.filter(f => /\.(sql|cjs|mjs|js)$/.test(f) && f !== 'scripts/tests/helpers/schedulingBrowserEnv.mjs')) expect(read(f), f).not.toMatch(/staff_booking|SCHEDULING_STAFF_BOOKING/);
-    expect(read('vercel.json')).not.toMatch(/SCHEDULING_STAFF_BOOKING/);
+    for (const f of files.filter(f => /\.(sql|cjs|mjs|js)$/.test(f) && f !== 'scripts/tests/helpers/schedulingBrowserEnv.mjs')) expect(read(f), f).not.toMatch(/staff_booking|SCHEDULING_STAFF_BOOKING|facility_hire|SCHEDULING_FACILITY_HIRE/);
+    expect(read('vercel.json')).not.toMatch(/SCHEDULING_STAFF_BOOKING|SCHEDULING_FACILITY_HIRE/);
   });
 });
 

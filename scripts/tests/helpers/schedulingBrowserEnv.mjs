@@ -48,10 +48,14 @@ export const USERS = {
 
 const SCHEDULING_SQL = ['010_shared_schema.sql', '030_resource_concurrency.sql', '031_reservation_integrity.sql', '032_schedule_archive_ordering.sql', '033_occurrence_integrity.sql', '034_availability_integrity.sql', '035_availability_partial_closures.sql', '036_availability_zones.sql', '037_availability_versions.sql']; // 037 (Production has it since 2026-11-02) is what makes the staff booking reads ready; the other specs run unchanged on top of it
 
+// Facility-hire booking and Coach squads are INDEPENDENT features with their own switch and capability. The harness registers and entitles BOTH capabilities for the synthetic organisation
+// (so an unset switch is the only thing standing between a user and the feature), and sets only the switch the caller asked for.
 export async function seedDisposableStaffBooking(q, organisationId, testServerEnv) {
-  await q("INSERT INTO modules(key,name,description,active,updated_at) VALUES('scheduling.staff_booking','Scheduling staff booking (disposable harness)','disposable harness only',true,now()) ON CONFLICT (key) DO UPDATE SET active=true");
-  await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES($1,'scheduling.staff_booking',true,now())", [organisationId]);
-  if (testServerEnv) testServerEnv.SCHEDULING_STAFF_BOOKING = 'on';
+  for (const key of ['scheduling.facility_hire', 'scheduling.staff_booking']) {
+    await q("INSERT INTO modules(key,name,description,active,updated_at) VALUES($1,$2,'disposable harness only',true,now()) ON CONFLICT (key) DO UPDATE SET active=true", [key, key + ' (disposable harness)']);
+    await q("INSERT INTO organisation_modules(organisation_id,module_key,enabled,updated_at) VALUES($1,$2,true,now())", [organisationId, key]);
+  }
+  if (testServerEnv) testServerEnv.SCHEDULING_FACILITY_HIRE = 'on';
 }
 
 export async function startSchedulingBrowserEnv({ root = process.cwd(), log = console.log } = {}) {
@@ -108,9 +112,13 @@ export async function startSchedulingBrowserEnv({ root = process.cwd(), log = co
       if (existsSync(path.join(root, file))) for (const match of readFileSync(path.join(root, file), 'utf8').matchAll(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/gm)) env[match[1]] = '';
     }
     Object.assign(env, { DATABASE_URL: appDatabaseUrl, DIRECT_URL: databaseUrl, SESSION_SECRET: randomUUID() + randomUUID(), NODE_ENV: production ? 'production' : 'development', NEXT_TELEMETRY_DISABLED: '1', CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' });
-    // Phase 2C.3c UI slice 1: the staff-booking kill switch is OFF unless the caller asks for it (SCHED_BROWSER_STAFF_BOOKING=on), whatever the parent shell holds. DISPOSABLE harness only.
+    // Both kill switches are OFF unless the caller asks for them, whatever the parent shell holds. DISPOSABLE harness only.
+    //   SCHED_BROWSER_FACILITY_HIRE=on -> SCHEDULING_FACILITY_HIRE=on  (facility-hire booking)
+    //   SCHED_BROWSER_COACH=on         -> SCHEDULING_STAFF_BOOKING=on  (Coach squads; must NOT enable facility hire)
     delete env.SCHEDULING_STAFF_BOOKING;
-    if (process.env.SCHED_BROWSER_STAFF_BOOKING === 'on') env.SCHEDULING_STAFF_BOOKING = 'on';
+    delete env.SCHEDULING_FACILITY_HIRE;
+    if (process.env.SCHED_BROWSER_FACILITY_HIRE === 'on') env.SCHEDULING_FACILITY_HIRE = 'on';
+    if (process.env.SCHED_BROWSER_COACH === 'on') env.SCHEDULING_STAFF_BOOKING = 'on';
 
     log('Applying the repository Prisma schema, user administration and the Scheduling schema chain (010, 110, 120, 030-033).');
     exec(process.execPath, ['node_modules/prisma/build/index.js', 'db', 'push', '--skip-generate'], { env, cwd: root });

@@ -187,7 +187,7 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
   });
 
   beforeEach(async () => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     signOut();
     state.loseNextBatchReply = false;
     state.failNextBatchBeforeSend = false;
@@ -200,14 +200,14 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
     await q('DELETE FROM audit_logs');
     await q('DELETE FROM users');
     await q('DELETE FROM organisations');
-    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.facility_hire', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
     for (const [id, tz] of [['org-a', TZ], ['org-b', TZ], ['org-c', TZ]] as const) {
       await q('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $2, $1, now(), $3)', [id, `Org ${id}`, tz]);
       await q('INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, $2)', [id, 'AUD']);
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling', true)", [id]);
     }
     // the second entitlement: org-a and org-b hold it; org-c (base scheduling only) does not
-    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.staff_booking', true)", [org]);
+    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.facility_hire', true)", [org]);
     for (const p of Object.values(PEOPLE)) await q('INSERT INTO users (id, organisation_id, email, name, role) VALUES ($1, $2, $3, $1, $4)', [p.id, p.org, `${p.id}@example.test`, p.role]);
     for (const p of Object.values(PEOPLE)) if (p.access) await q('INSERT INTO organisation_user_access (user_id, organisation_id, permissions, updated_by) VALUES ($1, $2, $3::jsonb, $1)', [p.id, p.org, JSON.stringify(p.access)]);
     await seedHire('org-a', 'a');
@@ -241,8 +241,8 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
     it('with the switch off (unset, "off", "ON", "true") every route answers 404 for a signed-in manager, and every table is byte-identical afterwards', async () => {
       const before = await hashAll();
       for (const value of [undefined, '', 'off', 'ON', 'true']) {
-        if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-        else process.env.SCHEDULING_STAFF_BOOKING = value;
+        if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+        else process.env.SCHEDULING_FACILITY_HIRE = value;
         for (const r of [await create(body()), await getById('res-1'), await getByKey(newKey()), await cancel('res-1')]) {
           expect(r.status, String(value)).toBe(404);
           expect(r.json).toEqual({ error: 'not_found' });
@@ -254,13 +254,13 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
 
     it('with the switch off an anonymous caller also gets the middleware answer for the session, never a booking; with it on the switch is irrelevant to anonymous users (401)', async () => {
       signOut();
-      process.env.SCHEDULING_STAFF_BOOKING = 'on';
+      process.env.SCHEDULING_FACILITY_HIRE = 'on';
       const r = await create(body());
       expect(r.status).toBe(401);
       expect(await reservations()).toBe(0);
     });
 
-    it('an organisation WITHOUT scheduling.staff_booking gets 404 although it has the base scheduling capability and the switch is on; nothing is written', async () => {
+    it('an organisation WITHOUT scheduling.facility_hire gets 404 although it has the base scheduling capability and the switch is on; nothing is written', async () => {
       await signIn(PEOPLE.noCap);
       const before = await hashAll();
       for (const r of [await create(bodyFor('a')), await getById('x'), await getByKey(newKey()), await cancel('x')]) expect(r.status).toBe(404);
@@ -269,17 +269,17 @@ suite('Scheduling 2C.3b staff booking: gates, permissions, isolation and concurr
 
     it('disabling the organisation row (enabled = false), or deactivating the module for everyone, closes it again', async () => {
       expect((await create(body())).status).toBe(201);
-      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
+      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
       expect((await create(body({ start: { date: MONDAY, time: '12:00' } }))).status).toBe(404);
-      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
+      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
       expect((await create(body({ start: { date: MONDAY, time: '12:00' } }))).status).toBe(201);
-      await q("UPDATE modules SET active = false WHERE key = 'scheduling.staff_booking'");
+      await q("UPDATE modules SET active = false WHERE key = 'scheduling.facility_hire'");
       expect((await create(body({ start: { date: MONDAY, time: '14:00' } }))).status).toBe(404);
     });
 
     it('an unregistered capability (no modules row at all, which is the state of every organisation today) is denied', async () => {
-      await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.staff_booking'");
-      await q("DELETE FROM modules WHERE key = 'scheduling.staff_booking'");
+      await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.facility_hire'");
+      await q("DELETE FROM modules WHERE key = 'scheduling.facility_hire'");
       expect((await create(body())).status).toBe(404);
       expect(await reservations()).toBe(0);
     });

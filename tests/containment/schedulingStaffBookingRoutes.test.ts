@@ -82,9 +82,9 @@ const reservation = (over: Partial<Reservation> = {}): Reservation =>
     price: { amountCents: 5000, currency: 'AUD' }, seriesId: null, notes: 'bring own balls', ...over,
   }) as Reservation;
 
-const on = () => { process.env.SCHEDULING_STAFF_BOOKING = 'on'; };
+const on = () => { process.env.SCHEDULING_FACILITY_HIRE = 'on'; };
 beforeEach(() => {
-  process.env.SCHEDULING_STAFF_BOOKING = 'on';
+  process.env.SCHEDULING_FACILITY_HIRE = 'on';
   for (const m of [requireSession, requireCapability, repo.createHire, repo.findHireByKey, repo.getById, repo.cancel]) m.mockReset();
   requireSession.mockResolvedValue(sessionFor('manager'));
   requireCapability.mockResolvedValue({ enabled: true });
@@ -105,9 +105,9 @@ const ENTRY: Array<[string, () => Promise<Response>]> = [
 
 describe('gate 1: the environment kill switch (default OFF)', () => {
   for (const value of [undefined, '', 'off', 'ON', 'true', '1', 'yes', ' on']) {
-    it(`SCHEDULING_STAFF_BOOKING=${JSON.stringify(value)} -> 404 on every route, before the session, the capability table or the database are touched`, async () => {
-      if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-      else process.env.SCHEDULING_STAFF_BOOKING = value;
+    it(`SCHEDULING_FACILITY_HIRE=${JSON.stringify(value)} -> 404 on every route, before the session, the capability table or the database are touched`, async () => {
+      if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+      else process.env.SCHEDULING_FACILITY_HIRE = value;
       for (const [name, call] of ENTRY) {
         const r = await call();
         expect(r.status, name).toBe(404);
@@ -123,18 +123,18 @@ describe('gate 1: the environment kill switch (default OFF)', () => {
 
   it('it is read on every request, not cached at import', async () => {
     repo.createHire.mockResolvedValue({ ok: true, reservation: reservation(), replayed: false });
-    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    process.env.SCHEDULING_FACILITY_HIRE = 'off';
     expect((await post(goodBody())).status).toBe(404);
     on();
     expect((await post(goodBody())).status).toBe(201);
-    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    process.env.SCHEDULING_FACILITY_HIRE = 'off';
     expect((await post(goodBody())).status).toBe(404);
   });
 });
 
-describe('gate 2: the organisation capability scheduling.staff_booking (nobody has it)', () => {
+describe('gate 2: the organisation capability scheduling.facility_hire (nobody has it)', () => {
   it('an organisation without the capability gets the SAME 404 as the kill switch, and nothing is loaded or written', async () => {
-    requireCapability.mockImplementation(async (_org: string, key: string) => { if (key === 'scheduling.staff_booking') throw new CapabilityAccessError('NO_ENTITLEMENT'); return { enabled: true }; });
+    requireCapability.mockImplementation(async (_org: string, key: string) => { if (key === 'scheduling.facility_hire') throw new CapabilityAccessError('NO_ENTITLEMENT'); return { enabled: true }; });
     for (const [name, call] of ENTRY) {
       const r = await call();
       expect(r.status, name).toBe(404);
@@ -147,13 +147,13 @@ describe('gate 2: the organisation capability scheduling.staff_booking (nobody h
 
   for (const reason of ['UNKNOWN_CAPABILITY', 'CAPABILITY_INACTIVE', 'NO_ENTITLEMENT', 'ENTITLEMENT_DISABLED'] as const) {
     it(`${reason} -> 404 (an unregistered key, which is today's state everywhere, is simply denied)`, async () => {
-      requireCapability.mockImplementation(async (_o: string, key: string) => { if (key === 'scheduling.staff_booking') throw new CapabilityAccessError(reason); return { enabled: true }; });
+      requireCapability.mockImplementation(async (_o: string, key: string) => { if (key === 'scheduling.facility_hire') throw new CapabilityAccessError(reason); return { enabled: true }; });
       expect((await post(goodBody())).status).toBe(404);
     });
   }
 
   it('a failure to DETERMINE the entitlement is a 503, never a pass', async () => {
-    requireCapability.mockImplementation(async (_o: string, key: string) => { if (key === 'scheduling.staff_booking') throw new CapabilityDatabaseError(); return { enabled: true }; });
+    requireCapability.mockImplementation(async (_o: string, key: string) => { if (key === 'scheduling.facility_hire') throw new CapabilityDatabaseError(); return { enabled: true }; });
     expect((await post(goodBody())).status).toBe(503);
     expect(repo.createHire).not.toHaveBeenCalled();
   });
@@ -168,7 +168,7 @@ describe('gate 2: the organisation capability scheduling.staff_booking (nobody h
     requireSession.mockResolvedValue(sessionFor('manager', { organisationId: 'org-session' }));
     repo.createHire.mockResolvedValue({ ok: true, reservation: reservation(), replayed: false });
     await post(goodBody());
-    expect(requireCapability.mock.calls).toEqual([['org-session', 'scheduling.staff_booking'], ['org-session', 'scheduling']]);
+    expect(requireCapability.mock.calls).toEqual([['org-session', 'scheduling.facility_hire'], ['org-session', 'scheduling']]);
     expect(repo.createHire.mock.calls[0][0].organisationId).toBe('org-session');
   });
 });
