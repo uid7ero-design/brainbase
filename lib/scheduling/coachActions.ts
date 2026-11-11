@@ -179,13 +179,13 @@ export async function saveTrainingPlan(
     roster.session.organisationId !== org ||
     manage.session.userId !== roster.session.userId
   )
-    return { error: 'Reopen the plan in an authorised workspace.' };
+    return { error: 'Reopen the plan in an authorised workspace.', recovery: true };
   if (!Number.isSafeInteger(version) || version < 0 || typeof template !== 'string' || template.length > 100)
     return { error: 'Review the template name and reload the saved plan.' };
   try {
     const session = await trainingSession(org, id);
     if (!session?.editable || session.version !== version)
-      return { error: 'The session changed. Reload the saved plan before editing.' };
+      return { error: 'The session changed. Reload the saved plan before editing.', recovery: true };
     let drills;
     try {
       drills = decodePlan(input, new Set(session.players.map((p) => p.id)));
@@ -200,12 +200,12 @@ export async function saveTrainingPlan(
       template.trim(),
       templateDrills(drills),
     );
-    if (!saved) return { error: 'The session changed. Reload the saved plan before editing.' };
+    if (!saved) return { error: 'The session changed. Reload the saved plan before editing.', recovery: true };
     revalidatePath('/coaching/roster/[id]/plan', 'page');
     return { version: saved };
   } catch (error) {
     if ((error as { code?: string }).code === '23505')
       return { error: 'A template already has that name. Choose another name.' };
-    return { error: 'Save could not be confirmed. Reload and check the saved plan before retrying.' };
+    return { error: 'Save could not be confirmed. Reload and check the saved plan before retrying.', recovery: true };
   }
 }

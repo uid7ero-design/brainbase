@@ -62,6 +62,10 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await stale.getByLabel('Drill name').fill('Stale draft');
     await stale.getByRole('button', { name: 'Save plan', exact: true }).click();
     await expect(stale.getByText(/session changed/i)).toBeVisible();
+    await expect(stale.getByRole('button', { name: 'Save plan', exact: true })).toBeDisabled();
+    stale.once('dialog', (dialog) => dialog.accept());
+    await stale.getByRole('button', { name: 'Reload saved plan' }).click();
+    await expect(stale.getByLabel('Drill name')).toHaveValue('Passing lines');
     await page.getByLabel('Coaching notes').fill('Recover to the centre after each volley.');
     await page.getByLabel(/Save as a reusable template/).fill(template);
     await page.getByRole('button', { name: 'Save plan', exact: true }).click();
@@ -76,6 +80,30 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await page.getByRole('button', { name: 'Save plan', exact: true }).click();
     await expect(page.getByText('Plan saved.', { exact: true })).toBeVisible();
     expect((await revision())[0].version).toBe(2);
+    // Commit through the actual Server Action, then lose only its response.
+    let lostResponses = 0;
+    await page.route(url, async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      await route.fetch();
+      lostResponses++;
+      await route.abort('connectionreset');
+    });
+    await page.getByRole('button', { name: 'Save plan', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Reload saved plan' })).toBeVisible();
+    expect((await revision())[0].version).toBe(3);
+    expect(lostResponses).toBe(1);
+    await expect(page.getByRole('button', { name: 'Save plan', exact: true })).toBeDisabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.getByRole('button', { name: 'Run session' }).click();
+    await page.getByRole('button', { name: 'Previous drill', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Passing lines · 20 min' })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit drills' }).click();
+    await expect(page.getByRole('button', { name: 'Save plan', exact: true })).toBeDisabled();
+    await page.unroute(url);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Reload saved plan' }).click();
+    await expect(page.getByText('Saved plan · version 3')).toBeVisible();
+    expect((await revision())[0].version).toBe(3);
     await page.reload();
     await expect(page.getByText('30 min remaining')).toBeVisible();
     await page.getByRole('button', { name: 'Run session' }).click();

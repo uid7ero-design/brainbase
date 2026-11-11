@@ -47,6 +47,10 @@ Choose **Football pitch**, **Football half-pitch**, **Tennis court** or **Blank 
 
 Select **Save plan**, then **Run session** to step through the drills in order. Managers can edit until the scheduled session ends. Earlier saved plans remain available to authorised roster staff. If another coach saves first, reload to review their version before editing.
 
+The planner distinguishes a new plan, an unsaved draft and the saved version. Running an edited draft shows a reminder that it has not been saved. Template-name changes also count as unsaved work.
+
+If a save response is lost, the session changes or access is no longer available, the draft stays visible and further edits and saves are blocked. Choose **Reload saved plan** and confirm replacing the displayed draft to read the latest saved version and current access. Cancelling that confirmation keeps the draft available for review. A known validation error, such as a duplicate template name, can be corrected without reloading. Recovery does not automatically repeat the save.
+
 To reuse a plan, enter a template name before saving. Templates are shared within the organisation. They copy coaching notes and convert rostered players to anonymous position markers. Open another session, choose the template, adjust its drills and save. This feature requires the separate local migration in `scripts/create-coach-training-plans.sql`.
 
 ### Review the coaching week

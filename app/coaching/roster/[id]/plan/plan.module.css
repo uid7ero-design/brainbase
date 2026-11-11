@@ -24,6 +24,17 @@
   border: 0;
   padding: 0;
 }
+.saveState {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #a78bfa);
+  border-radius: 0.8rem;
+  padding: 1rem;
+  background: var(--bg-surface);
+}
+.saveState p + p,
+.saveState button {
+  margin-top: 0.6rem;
+}
 .summary,
 .tools,
 .footer {
@@ -101,7 +112,7 @@
 .editor textarea {
   width: 100%;
 }
-.editor input[type='number'] {
+.editor input[type="number"] {
   width: 6rem;
 }
 .editor button.save {
