@@ -45,6 +45,8 @@ From the weekly calendar, open a class roster and select **Training plan**. Give
 
 Choose **Football pitch**, **Football half-pitch**, **Tennis court** or **Blank space** for each drill. Under **Place on board**, select a rostered player, cone or ball and choose a spot. Select a player again to move them. A movement arrow takes two spots, start and end. **Erase at position** clears a spot. Each drill keeps its own positions.
 
+New imported Tennis plans start on a tennis court. Other new plans start with a blank space so the coach can choose the appropriate ground. **Add drill** keeps the selected drill's ground layout, but starts with no markers or notes. Existing saved plans and templates keep their original boards.
+
 Select **Save plan**, then **Run session** to step through the drills in order. Managers can edit until the scheduled session ends. Earlier saved plans remain available to authorised roster staff. If another coach saves first, reload to review their version before editing.
 
 The planner distinguishes a new plan, an unsaved draft and the saved version. Running an edited draft shows a reminder that it has not been saved. Template-name changes also count as unsaved work.

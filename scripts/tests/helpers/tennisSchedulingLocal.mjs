@@ -161,6 +161,15 @@ export async function verifyTennisScheduling({origin,context,page,q,fixture}) {
   assert.deepEqual(await preserved(),before);
   const allPlaces=async()=> (await q('SELECT to_jsonb(r) AS booking FROM scheduling_reservations r WHERE organisation_id=$1 ORDER BY id',[org])).rows;
   const savedPlaces=await allPlaces();
+  await page.goto(origin+'/coaching/roster/fixture-third/plan');
+  await expect(page.getByLabel('Ground layout')).toHaveValue('court');
+  await page.getByRole('button',{name:'Add drill'}).click();
+  await expect(page.getByLabel('Ground layout')).toHaveValue('court');
+  // Discard this local-only draft: opening and selecting boards must not create a plan.
+  page.once('dialog',dialog=>dialog.accept());
+  await page.goto(origin+'/coaching/roster/fixture-third');
+  assert.equal((await q("SELECT count(*)::int AS n FROM scheduling_coach_training_plans WHERE organisation_id=$1 AND occurrence_id='fixture-third'",[org])).rows[0].n,0);
+  assert.deepEqual(await allPlaces(),savedPlaces);
   const invoices=async()=> (await q('SELECT count(*)::int AS n FROM commercial_invoices WHERE organisation_id=$1',[org])).rows[0].n;
   assert.equal(await invoices(),0);
   const expectedCounts=await q("SELECT occurrence_id,sum(party_size)::int AS n FROM scheduling_reservations WHERE organisation_id=$1 AND status<>'cancelled' GROUP BY occurrence_id",[org]);

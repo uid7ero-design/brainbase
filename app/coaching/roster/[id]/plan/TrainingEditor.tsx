@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { newDrill, templateDrills, type Drill, type Player } from '@/lib/scheduling/trainingPlan';
+import { newDrill, templateDrills, type Drill, type Player, type Layout } from '@/lib/scheduling/trainingPlan';
 import PositionsBoard from './PositionsBoard';
 import styles from './plan.module.css';
 
@@ -8,6 +8,7 @@ type Template = { name: string; drills: Drill[] };
 type Receipt = { version?: number; error?: string; recovery?: boolean };
 export default function TrainingEditor({
   initial,
+  defaultLayout = 'blank',
   version,
   editable,
   minutes,
@@ -16,6 +17,7 @@ export default function TrainingEditor({
   save,
 }: {
   initial: Drill[] | null;
+  defaultLayout?: Layout;
   version: number;
   editable: boolean;
   minutes: number;
@@ -23,7 +25,7 @@ export default function TrainingEditor({
   templates: Template[];
   save: (version: number, drills: Drill[], template: string) => Promise<Receipt>;
 }) {
-  const [drills, setDrills] = useState<Drill[]>(initial ?? [newDrill()]);
+  const [drills, setDrills] = useState<Drill[]>(initial ?? [newDrill(defaultLayout)]);
   const [index, setIndex] = useState(0);
   const [revision, setRevision] = useState(version);
   const [run, setRun] = useState(!editable);
@@ -160,7 +162,7 @@ export default function TrainingEditor({
               <button
                 disabled={drills.length >= 30}
                 onClick={() => {
-                  replace([...drills, newDrill()]);
+                  replace([...drills, newDrill(drills[index].layout)]);
                   setIndex(drills.length);
                 }}
               >

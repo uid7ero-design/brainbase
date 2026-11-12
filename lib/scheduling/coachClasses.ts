@@ -383,13 +383,14 @@ type TrainingPlayer = import('./trainingPlan').Player;
 
 async function trainingScope(org: string) {
   return `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}),
-    session AS (SELECT o.*,f.name,f.archived_at,s.name AS schedule,r.name AS venue ${dateScope}
+    session AS (SELECT o.*,f.name,f.archived_at,s.name AS schedule,s.id='tennis-coaching' AS tennis,r.name AS venue ${dateScope}
       LEFT JOIN scheduling_resources r ON (r.organisation_id,r.id)=(o.organisation_id,o.resource_id)
       WHERE o.id=$2 AND (f.archived_at IS NULL OR s.id='tennis-coaching'))`;
 }
 
 export async function trainingSession(org: string, id: string) {
   const rows = await db().query<{
+    tennis: boolean;
     name: string;
     day: string;
     time: string;
@@ -403,7 +404,7 @@ export async function trainingSession(org: string, id: string) {
     templates: { name: string; drills: TrainingDrill[] }[];
   }>(
     `${await trainingScope(org)}
-    SELECT o.name,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,o.schedule,o.venue,
+    SELECT o.name,o.tennis,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,o.schedule,o.venue,
       round(extract(epoch FROM o.ends_at-o.starts_at)/60)::int AS minutes,
       (o.status='scheduled' AND o.ends_at>now() AND o.archived_at IS NULL) AS editable,
       coalesce(p.version,0) AS version,p.drills,
