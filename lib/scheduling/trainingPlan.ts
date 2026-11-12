@@ -14,7 +14,7 @@ export type Mark = Point &
   );
 export type Drill = { name: string; minutes: number; notes: string; layout: Layout; marks: Mark[] };
 export type Player = { id: string; name: string; attendance: string | null; status: string };
-export const newDrill = (): Drill => ({ name: '', minutes: 10, notes: '', layout: 'pitch', marks: [] });
+export const newDrill = (layout: Layout = 'blank'): Drill => ({ name: '', minutes: 10, notes: '', layout, marks: [] });
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

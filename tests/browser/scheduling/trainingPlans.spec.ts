@@ -38,6 +38,7 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await expect(page.getByRole('heading', { name: 'Synthetic athlete' })).toBeVisible();
     await page.getByRole('link', { name: 'Training plan' }).click();
     await expect(page.getByRole('heading', { name: offering.name + ' training plan' })).toBeVisible();
+    await expect(page.getByLabel('Ground layout')).toHaveValue('blank');
     const url = page.url();
     const stale = await ctx.newPage();
     await stale.goto(url);
@@ -50,6 +51,7 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await page.getByRole('button', { name: 'Column 3, row 4', exact: true }).click();
     await page.getByRole('button', { name: 'Column 7, row 3', exact: true }).click();
     await page.getByRole('button', { name: 'Add drill' }).click();
+    await expect(page.getByLabel('Ground layout')).toHaveValue('half');
     await page.getByLabel('Drill name').fill('Doubles recovery');
     await page.getByLabel('Ground layout').selectOption('court');
     await page.getByRole('button', { name: 'Column 5, row 4', exact: true }).click();

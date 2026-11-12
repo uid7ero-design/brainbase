@@ -35,6 +35,7 @@ export default async function Training({ params }: { params: Promise<{ id: strin
       <TrainingEditor
         key={org + ':' + id}
         initial={session.drills}
+        defaultLayout={session.tennis ? 'court' : 'blank'}
         version={session.version}
         editable={editable}
         minutes={session.minutes}
