@@ -34,6 +34,7 @@
 .number { flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; width: 2.3rem; height: 2.3rem; color: #183220; background: #c9efad; font-weight: 700; }
 .notes { white-space: pre-wrap; margin: 0.75rem 0; }
 @media print {
+  :global(html):has(.overlay) { background: white !important; color-scheme: light; }
   :global(body):has(.overlay) > :not(.overlay) { display: none !important; }
   :global(body):has(.overlay) { background: white !important; color: black !important; overflow: visible !important; }
   .overlay { position: static; overflow: visible; padding: 0; background: white; color: black; }

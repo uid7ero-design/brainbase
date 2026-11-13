@@ -77,9 +77,13 @@ test('prepare, reorder, save and print a whole session without extra database wr
     await expect(sheet).toContainText('Saved plan · version 1');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     expect(await sheet.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-    await page.screenshot({ path: output('session-sheet-screen.png'), fullPage: true });
+    await page.screenshot({ path: output('session-sheet-screen.png') });
+    await sheet.getByRole('heading', { name: 'Volley progression' }).scrollIntoViewIfNeeded();
+    await expect(sheet.getByRole('heading', { name: 'Volley progression' })).toBeInViewport();
+    await page.screenshot({ path: output('session-sheet-second-drill.png') });
     // Exercise the real print stylesheet without opening a platform print dialog.
     await page.emulateMedia({ media: 'print' });
+    expect(await page.locator('html').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
     await expect(page.getByRole('button', { name: 'Print session sheet' })).not.toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Primary' })).not.toBeVisible();
     await expect(sheet.getByRole('img')).toHaveCount(2);
