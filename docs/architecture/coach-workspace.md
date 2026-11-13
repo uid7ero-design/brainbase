@@ -55,6 +55,14 @@ If a save response is lost, the session changes or access is no longer available
 
 To reuse a plan, enter a template name before saving. Templates are shared within the organisation. They copy coaching notes and convert rostered players to anonymous position markers. Open another session, choose the template, adjust its drills and save. This feature requires the separate local migration in `scripts/create-coach-training-plans.sql`.
 
+### Prepare progressions and take a session sheet courtside
+
+Choose **Duplicate drill** to make a progression of the selected activity. The copy keeps the duration, notes, ground and player/equipment positions within this session, but changing it does not change the original. Use **Move earlier** or **Move later** to set the order. These actions edit the draft only; use **Save plan** to retain them. The existing 30-drill limit still applies.
+
+Choose **Session sheet** for the whole plan with each drill's timing from the session start, notes and board. The sheet identifies a saved version or an unsaved draft and shows remaining or excess time. Invalid durations show incomplete timing. **Print session sheet** opens the browser's print options (including Save as PDF where available). It does not save the plan or change bookings. Board player labels are replaced with anonymous positions; free-text notes are retained, so review them before sharing. Historical saved plans can also be viewed and printed by authorised roster staff.
+
+After an uncertain save the sheet remains available for review, but printing is disabled until **Reload saved plan** resolves the saved state. Closing the sheet returns to the same drill and draft. No new tables, permissions or external services are required for this preparation bundle.
+
 ### Review the coaching week
 
 Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.

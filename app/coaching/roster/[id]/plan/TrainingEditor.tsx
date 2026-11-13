@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { newDrill, templateDrills, type Drill, type Player, type Layout } from '@/lib/scheduling/trainingPlan';
 import PositionsBoard from './PositionsBoard';
+import SessionSheet, { type SessionHeading } from './SessionSheet';
 import styles from './plan.module.css';
 
 type Template = { name: string; drills: Drill[] };
@@ -15,6 +16,7 @@ export default function TrainingEditor({
   players,
   templates,
   save,
+  session,
 }: {
   initial: Drill[] | null;
   defaultLayout?: Layout;
@@ -24,6 +26,7 @@ export default function TrainingEditor({
   players: Player[];
   templates: Template[];
   save: (version: number, drills: Drill[], template: string) => Promise<Receipt>;
+  session?: SessionHeading;
 }) {
   const [drills, setDrills] = useState<Drill[]>(initial ?? [newDrill(defaultLayout)]);
   const [index, setIndex] = useState(0);
@@ -37,6 +40,7 @@ export default function TrainingEditor({
   const [selected, setSelected] = useState('');
   const [library, setLibrary] = useState(templates);
   const [recovery, setRecovery] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const leaving = useRef(false);
   const saving = useRef(false);
   useEffect(() => {
@@ -90,7 +94,7 @@ export default function TrainingEditor({
   const drill = drills[index];
   const total = drills.reduce((sum, d) => sum + d.minutes, 0);
   return (
-    <fieldset disabled={busy} className={styles.editor} aria-label="Session planner">
+    <fieldset disabled={busy} inert={sheet} className={styles.editor} aria-label="Session planner">
       <div className={styles.saveState}>
         <p role="status">
           {busy
@@ -138,9 +142,12 @@ export default function TrainingEditor({
               : minutes - total + ' min remaining'}
           </p>
         </div>
+        <div className={styles.tools}>
+        <button onClick={() => setSheet(true)}>Session sheet</button>
         {editable && (
           <button onClick={() => setRun(!run)}>{run ? 'Edit drills' : 'Run session'}</button>
         )}
+        </div>
       </div>
       <fieldset disabled={recovery && !run} className={styles.editor}>
         <div className={styles.workspace}>
@@ -244,6 +251,28 @@ export default function TrainingEditor({
                   Move earlier
                 </button>
                 <button
+                  disabled={index === drills.length - 1}
+                  onClick={() => {
+                    const next = [...drills];
+                    [next[index], next[index + 1]] = [next[index + 1], drill];
+                    replace(next);
+                    setIndex(index + 1);
+                  }}
+                >
+                  Move later
+                </button>
+                <button
+                  disabled={drills.length >= 30}
+                  onClick={() => {
+                    const copy = structuredClone(drill);
+                    copy.name = (copy.name || 'Untitled drill').slice(0, 93) + ' (copy)';
+                    replace([...drills.slice(0, index + 1), copy, ...drills.slice(index + 1)]);
+                    setIndex(index + 1);
+                  }}
+                >
+                  Duplicate drill
+                </button>
+                <button
                   disabled={drills.length === 1}
                   onClick={() => {
                     replace(drills.filter((_, i) => i !== index));
@@ -309,6 +338,16 @@ export default function TrainingEditor({
       {dirty && <p>Unsaved changes</p>}
       {notice && <p role="status">{notice}</p>}
       {error && !recovery && <p role="alert">{error}</p>}
+      {sheet && (
+        <SessionSheet
+          drills={drills}
+          session={session}
+          minutes={minutes}
+          state={recovery ? 'Unconfirmed draft — reload the saved plan before printing' : dirty ? 'Unsaved draft' : revision ? 'Saved plan · version ' + revision : 'New plan · not saved'}
+          recovery={recovery}
+          onClose={() => setSheet(false)}
+        />
+      )}
     </fieldset>
   );
 }

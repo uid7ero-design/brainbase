@@ -41,6 +41,7 @@ export default async function Training({ params }: { params: Promise<{ id: strin
         minutes={session.minutes}
         players={session.players}
         templates={editable ? session.templates : []}
+        session={{ name: session.name, schedule: session.schedule, day: session.day, time: session.time, venue: session.venue }}
         save={saveTrainingPlan.bind(null, org, id)}
       />
     </main>
