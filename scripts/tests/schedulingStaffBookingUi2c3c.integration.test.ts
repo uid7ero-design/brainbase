@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
 import { PostgresAvailabilityRepository, fromPgLike } from '@scheduling/postgres';
 import { closePool, seedOffering, seedResource, seedSchedule, staff } from '../../packages/scheduling-postgres/tests/support/pgHarness';
 
-// Phase 2C.3c UI slice 1: the server visibility gate (lib/scheduling/staffBookingVisibility.ts) over the REAL session, capability and managed-access tables of a DISPOSABLE
+// Phase 2C.3c UI slice 1: the server visibility gate (lib/scheduling/facilityHireVisibility.ts) over the REAL session, capability and managed-access tables of a DISPOSABLE
 // PostgreSQL (scripts/tests/verify-scheduling-phase2c.sh, 16 and 17), and the dialog's OWN client code (loadBookableOfferings, fetchBasis) driven against the real routes
 // (middleware -> route -> schedulingRoute -> runtime -> PostgresHireRepository.readHireOffer). No browser: fetch is bridged to the real route handlers. Nothing is written by the UI
 // path; every table is byte-identical after the reads.
@@ -53,7 +53,7 @@ vi.mock('@/lib/db', async () => {
 
 const { middleware } = await import('@/middleware');
 const { encrypt } = await import('@/lib/session');
-const { getStaffBookingVisibility } = await import('@/lib/scheduling/staffBookingVisibility');
+const { getFacilityHireVisibility } = await import('@/lib/scheduling/facilityHireVisibility');
 const { loadBookableOfferings, fetchBasis } = await import('@/lib/scheduling/staffBooking/basisClient');
 type Handler = (request: Request, context?: { params?: Promise<Record<string, string>> }) => Promise<Response>;
 const schedulesRoute = (await import('@/app/api/scheduling/schedules/route')) as unknown as { GET: Handler };
@@ -161,7 +161,7 @@ suite('Scheduling 2C.3c UI slice 1: visibility gate and the dialog’s read path
   }
 
   beforeEach(async () => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     signOut();
     requests.length = 0;
     vi.stubGlobal('fetch', bridge);
@@ -173,13 +173,13 @@ suite('Scheduling 2C.3c UI slice 1: visibility gate and the dialog’s read path
     await q('DELETE FROM audit_logs');
     await q('DELETE FROM users');
     await q('DELETE FROM organisations');
-    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.facility_hire', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
     for (const id of ['org-a', 'org-b', 'org-c']) {
       await q('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $2, $1, now(), $3)', [id, `Org ${id}`, TZ]);
       await q('INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, $2)', [id, 'AUD']);
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling', true)", [id]);
     }
-    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.staff_booking', true)", [org]); // org-c does not hold it
+    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.facility_hire', true)", [org]); // org-c does not hold it
     for (const p of Object.values(PEOPLE)) await q('INSERT INTO users (id, organisation_id, email, name, role) VALUES ($1, $2, $3, $1, $4)', [p.id, p.org, `${p.id}@example.test`, p.role]);
     for (const p of Object.values(PEOPLE)) if (p.access) await q('INSERT INTO organisation_user_access (user_id, organisation_id, permissions, updated_by) VALUES ($1, $2, $3::jsonb, $1)', [p.id, p.org, JSON.stringify(p.access)]);
     await seedHire('org-a', 'a');
@@ -196,43 +196,43 @@ suite('Scheduling 2C.3c UI slice 1: visibility gate and the dialog’s read path
       '%s -> %s',
       async (who, expected) => {
         await signIn(PEOPLE[who]);
-        expect(await getStaffBookingVisibility()).toBe(expected);
+        expect(await getFacilityHireVisibility()).toBe(expected);
       },
     );
 
     it('anonymous (no session) -> false', async () => {
       signOut();
-      expect(await getStaffBookingVisibility()).toBe(false);
+      expect(await getFacilityHireVisibility()).toBe(false);
     });
 
     it('the switch absent/off/ON/true/1 -> false for everyone, including a fully entitled manager', async () => {
       for (const value of [undefined, '', 'off', 'ON', 'true', '1']) {
-        if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-        else process.env.SCHEDULING_STAFF_BOOKING = value;
+        if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+        else process.env.SCHEDULING_FACILITY_HIRE = value;
         for (const who of ['manager', 'admin', 'other'] as const) {
           await signIn(PEOPLE[who]);
-          expect(await getStaffBookingVisibility(), `${String(value)} ${who}`).toBe(false);
+          expect(await getFacilityHireVisibility(), `${String(value)} ${who}`).toBe(false);
         }
       }
     });
 
     it('removing, disabling or deactivating the capability hides it at once (no caching)', async () => {
-      expect(await getStaffBookingVisibility()).toBe(true);
-      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
-      expect(await getStaffBookingVisibility()).toBe(false);
-      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
-      expect(await getStaffBookingVisibility()).toBe(true);
-      await q("UPDATE modules SET active = false WHERE key = 'scheduling.staff_booking'");
-      expect(await getStaffBookingVisibility()).toBe(false);
-      await q("UPDATE modules SET active = true WHERE key = 'scheduling.staff_booking'");
+      expect(await getFacilityHireVisibility()).toBe(true);
+      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      expect(await getFacilityHireVisibility()).toBe(false);
+      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      expect(await getFacilityHireVisibility()).toBe(true);
+      await q("UPDATE modules SET active = false WHERE key = 'scheduling.facility_hire'");
+      expect(await getFacilityHireVisibility()).toBe(false);
+      await q("UPDATE modules SET active = true WHERE key = 'scheduling.facility_hire'");
       await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling'");
-      expect(await getStaffBookingVisibility()).toBe(false);
+      expect(await getFacilityHireVisibility()).toBe(false);
     });
 
     it('agrees with the API for every person: the page shows the button exactly when the basis endpoint would answer 200', async () => {
       for (const [name, person] of Object.entries(PEOPLE)) {
         await signIn(person);
-        const visible = await getStaffBookingVisibility();
+        const visible = await getFacilityHireVisibility();
         const own = person.org === 'org-b' ? 'b' : 'a';
         const response = await bridge(`http://bb.test/api/scheduling/reservations/basis?offeringId=${own}-off&resourceId=${own}-court-1&from=${MONDAY}&to=${MONDAY}`);
         expect(response.status === 200, `${name}: visible=${visible} api=${response.status}`).toBe(visible);
@@ -356,14 +356,14 @@ suite('Scheduling 2C.3c UI slice 1: visibility gate and the dialog’s read path
       expect(await read()).toMatchObject({ status: 403, gateOff: false });
       signOut();
       expect(await read()).toMatchObject({ status: 401, gateOff: false });
-      delete process.env.SCHEDULING_STAFF_BOOKING;
+      delete process.env.SCHEDULING_FACILITY_HIRE;
       await signIn(PEOPLE.manager);
       expect(await read()).toMatchObject({ status: 404, gateOff: true });
     });
 
     it('with the switch absent the whole discovery chain still works (the configuration reads are not gated) but the basis read is 404 - and the page would not have shown the button', async () => {
-      delete process.env.SCHEDULING_STAFF_BOOKING;
-      expect(await getStaffBookingVisibility()).toBe(false);
+      delete process.env.SCHEDULING_FACILITY_HIRE;
+      expect(await getFacilityHireVisibility()).toBe(false);
       const basis = await bridge(`http://bb.test/api/scheduling/reservations/basis?offeringId=a-off&resourceId=a-court-1&from=${MONDAY}&to=${MONDAY}`);
       expect([basis.status, await basis.json()]).toEqual([404, { error: 'not_found' }]);
     });

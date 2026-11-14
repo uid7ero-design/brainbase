@@ -41,7 +41,7 @@ vi.mock('@/lib/capabilities/requireCapability', () => {
     CapabilityAccessError,
     CapabilityDatabaseError,
     requireCapability: async (_org: string, key: string) => {
-      if (state.noCapability && key === 'scheduling.staff_booking') throw new CapabilityAccessError('NO_ENTITLEMENT');
+      if (state.noCapability && key === 'scheduling.facility_hire') throw new CapabilityAccessError('NO_ENTITLEMENT');
       return { enabled: true };
     },
   };
@@ -170,7 +170,7 @@ suite('Staff availability basis through the REAL Neon HTTP driver', () => {
   }, 60_000);
 
   beforeEach(() => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     state.noCapability = false;
     state.loseNextReply = false;
     state.failNextBeforeSend = false;
@@ -244,12 +244,12 @@ suite('Staff availability basis through the REAL Neon HTTP driver', () => {
   it('S: gates and permissions over the real driver: switch off and no capability are 404, a viewer is 403, another organisation is the same 404 as an absent id, bad input is 400', async () => {
     const f = await fixture();
     for (const value of [undefined, 'off', 'ON']) {
-      if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-      else process.env.SCHEDULING_STAFF_BOOKING = value;
+      if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+      else process.env.SCHEDULING_FACILITY_HIRE = value;
       const r = await basisGet(f);
       expect([r.status, r.json]).toEqual([404, { error: 'not_found' }]);
     }
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     state.noCapability = true;
     expect((await basisGet(f)).status).toBe(404);
     state.noCapability = false;
