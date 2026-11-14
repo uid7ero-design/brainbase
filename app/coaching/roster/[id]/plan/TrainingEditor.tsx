@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { newDrill, templateDrills, type Drill, type Player, type Layout } from '@/lib/scheduling/trainingPlan';
 import PositionsBoard from './PositionsBoard';
+import DrillTimer from './DrillTimer';
 import SessionSheet, { type SessionHeading } from './SessionSheet';
 import styles from './plan.module.css';
 
@@ -187,6 +188,7 @@ export default function TrainingEditor({
                   {drill.name || 'Untitled drill'} · {drill.minutes} min
                 </h2>
                 <p>{drill.notes}</p>
+                {editable && !recovery && <DrillTimer key={index} minutes={drill.minutes} />}
               </>
             ) : (
               <>

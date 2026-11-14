@@ -71,6 +71,10 @@ Choose **Add drills to plan** to append the whole template after your existing d
 
 Previewing and combining do not save anything. Select **Save plan** when ready. Template actions remain blocked while a save is in progress or its outcome needs checking. Historical plans remain read-only. No new schema or permission changes are needed.
 
+### Time a drill courtside
+
+In **Run session**, choose **Start timer** to count down the current drill. Pause for instruction, resume from the remaining time, or reset to the planned duration. At zero the timer stops on the current drill. Choose **Next drill** when the group is ready. Switching drills, leaving run mode or reloading clears the countdown. The timer is local to this open planner and does not record attendance or session history.
+
 ### Review the coaching week
 
 Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.

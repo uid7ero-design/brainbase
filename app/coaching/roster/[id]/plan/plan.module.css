@@ -187,3 +187,16 @@
     align-items: start;
   }
 }
+.timer {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--bg-surface);
+}
+.timer strong {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-variant-numeric: tabular-nums;
+}
+.timer .tools {
+  margin-top: 0.6rem;
+}
