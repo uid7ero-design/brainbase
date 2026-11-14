@@ -27,7 +27,7 @@ it('preserves a chosen template layout instead of replacing it with the session 
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
   render(<TrainingEditor {...props} initial={null} defaultLayout="court" templates={[{ name: 'Football drills', drills: [{ ...newDrill('pitch'), name: 'Passing' }] }]} />);
   fireEvent.change(screen.getByLabelText('Saved templates'), { target: { value: 'Football drills' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Use template' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Replace drills with template' }));
   expect(screen.getByLabelText('Ground layout')).toHaveValue('pitch');
   confirm.mockRestore();
 });

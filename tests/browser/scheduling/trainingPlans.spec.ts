@@ -50,7 +50,7 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await page.getByLabel('Place on board').selectOption('arrow');
     await page.getByRole('button', { name: 'Column 3, row 4', exact: true }).click();
     await page.getByRole('button', { name: 'Column 7, row 3', exact: true }).click();
-    await page.getByRole('button', { name: 'Add drill' }).click();
+    await page.getByRole('button', { name: 'Add drill', exact: true }).click();
     await expect(page.getByLabel('Ground layout')).toHaveValue('half');
     await page.getByLabel('Drill name').fill('Doubles recovery');
     await page.getByLabel('Ground layout').selectOption('court');
@@ -142,7 +142,7 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await page.goto(origin + urls[1] + '/plan');
     await page.getByLabel('Saved templates').selectOption(template);
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Use template' }).click();
+    await page.getByRole('button', { name: 'Replace drills with template' }).click();
     await expect(page.getByLabel('Drill name')).toHaveValue('Passing lines');
     await expect(page.getByRole('list', { name: 'Board players' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Save plan', exact: true }).click();

@@ -9,12 +9,13 @@ import styles from './sessionSheet.module.css';
 
 export type SessionHeading = { name: string; schedule: string; day: string; time: string; venue: string | null };
 
-export default function SessionSheet({ drills, session, minutes, state, recovery, onClose }: {
+export default function SessionSheet({ drills, session, minutes, state, recovery, templateName, onClose }: {
   drills: Drill[];
   session?: SessionHeading;
   minutes: number;
   state: string;
   recovery: boolean;
+  templateName?: string;
   onClose: () => void;
 }) {
   const title = useId();
@@ -32,12 +33,12 @@ export default function SessionSheet({ drills, session, minutes, state, recovery
     <div data-coach-session-sheet="" className={styles.overlay}>
       <div ref={panel} className={styles.sheet} role="dialog" aria-modal="true" aria-labelledby={title} tabIndex={-1}>
         <div className={styles.toolbar} data-dialog-body="">
-          <button onClick={onClose}>Close session sheet</button>
-          <button disabled={recovery} onClick={() => window.print()}>Print session sheet</button>
+          <button onClick={onClose}>{templateName ? 'Close template preview' : 'Close session sheet'}</button>
+          {!templateName && <button disabled={recovery} onClick={() => window.print()}>Print session sheet</button>}
         </div>
         <header>
-          <p className={styles.eyebrow}>Coach · session sheet</p>
-          <h2 id={title}>{session ? session.name + ' session sheet' : 'Session sheet'}</h2>
+          <p className={styles.eyebrow}>Coach · {templateName ? 'template preview' : 'session sheet'}</p>
+          <h2 id={title}>{templateName ? templateName + ' template preview' : session ? session.name + ' session sheet' : 'Session sheet'}</h2>
           {session && <p>{session.schedule} · {session.day} · {session.time}{session.venue ? ' · ' + session.venue : ''}</p>}
           <p className={styles.state}>{state}</p>
           <p>{total === null ? 'Timing incomplete — review drill durations.' : `${total} min planned · ${minutes} min session · ${total > minutes ? total - minutes + ' min over time' : minutes - total + ' min remaining'}`}</p>
