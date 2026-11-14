@@ -1,0 +1,50 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(0.5rem, 3vw, 2rem);
+  background: #070b12e8;
+  color: #eaf0f6;
+}
+.sheet {
+  max-width: 54rem;
+  margin: auto;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  border: 1px solid #364351;
+  border-radius: 1.25rem;
+  background: #111b27;
+  overflow-wrap: anywhere;
+}
+.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.75rem; margin-bottom: 1.5rem; }
+.toolbar button { min-height: 44px; padding: 0.65rem 1rem; border: 1px solid #728498; border-radius: 0.6rem; background: #203247; color: #fff; font: inherit; cursor: pointer; }
+.toolbar button:last-child { background: #c9efad; color: #183220; }
+.toolbar button:disabled { opacity: 0.5; cursor: default; }
+.toolbar button:focus-visible { outline: 3px solid #cab2ff; outline-offset: 3px; }
+.sheet h2 { font-size: clamp(1.5rem, 4vw, 2.2rem); font-weight: 700; margin: 0.4rem 0; }
+.sheet h3 { font-size: 1.2rem; font-weight: 650; }
+.sheet header > p { margin: 0.6rem 0; }
+.eyebrow { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.8rem; color: #c9efad; }
+.state { border-left: 3px solid #b29cff; padding: 0.5rem 0.8rem; background: #202b3b; font-weight: 600; }
+.hint, .timing { color: #b7c8db; font-size: 0.9rem; }
+.drills { list-style: none; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 1.25rem; }
+.drills > li { border: 1px solid #425267; border-radius: 0.85rem; padding: clamp(0.75rem, 2vw, 1.25rem); break-inside: avoid; }
+.drillHeading { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; }
+.number { flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; width: 2.3rem; height: 2.3rem; color: #183220; background: #c9efad; font-weight: 700; }
+.notes { white-space: pre-wrap; margin: 0.75rem 0; }
+@media print {
+  :global(html):has(.overlay) { background: white !important; color-scheme: light; }
+  :global(body):has(.overlay) > :not(.overlay) { display: none !important; }
+  :global(body):has(.overlay) { background: white !important; color: black !important; overflow: visible !important; }
+  .overlay { position: static; overflow: visible; padding: 0; background: white; color: black; }
+  .sheet { max-width: none; margin: 0; padding: 0; border: 0; background: white; }
+  .toolbar { display: none; }
+  .drills { display: block; }
+  .drills > li { margin: 1rem 0; border-color: #777; }
+  .sheet header { break-inside: avoid; }
+  .state { background: white; border-color: #333; }
+  .eyebrow, .hint, .timing { color: #333; }
+  .number { color: black; background: white; border: 1px solid #555; }
+  .sheet svg { max-height: 72mm; print-color-adjust: exact; }
+}
