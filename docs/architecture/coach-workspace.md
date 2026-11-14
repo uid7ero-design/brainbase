@@ -63,6 +63,14 @@ Choose **Session sheet** for the whole plan with each drill's timing from the se
 
 After an uncertain save the sheet remains available for review, but printing is disabled until **Reload saved plan** resolves the saved state. Closing the sheet returns to the same drill and draft. No new tables, permissions or external services are required for this preparation bundle.
 
+### Build a session from saved templates
+
+In an editable training plan, choose a **Saved template** to see its drill count and duration. **Preview template** opens its notes, timings and anonymous positions boards without changing your current draft. Close the preview or press Escape to return to the same plan.
+
+Choose **Add drills to plan** to append the whole template after your existing drills. The first added drill is selected so you can adapt it. Your warmup, notes and other drills stay in place, and edits to the copied drills do not change the template or its source session. The plan can contain at most 30 drills; the screen explains when a template will not fit. **Replace drills with template** remains the replace-all option and asks for confirmation.
+
+Previewing and combining do not save anything. Select **Save plan** when ready. Template actions remain blocked while a save is in progress or its outcome needs checking. Historical plans remain read-only. No new schema or permission changes are needed.
+
 ### Review the coaching week
 
 Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.

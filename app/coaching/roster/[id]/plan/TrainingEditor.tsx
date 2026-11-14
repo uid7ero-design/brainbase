@@ -41,6 +41,7 @@ export default function TrainingEditor({
   const [library, setLibrary] = useState(templates);
   const [recovery, setRecovery] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [preview, setPreview] = useState<Template | null>(null);
   const leaving = useRef(false);
   const saving = useRef(false);
   useEffect(() => {
@@ -93,8 +94,10 @@ export default function TrainingEditor({
   if (!editable && !initial) return <p>No training plan was saved for this session.</p>;
   const drill = drills[index];
   const total = drills.reduce((sum, d) => sum + d.minutes, 0);
+  const chosen = library.find((t) => t.name === selected);
+  const canAppend = !!chosen && drills.length + chosen.drills.length <= 30;
   return (
-    <fieldset disabled={busy} inert={sheet} className={styles.editor} aria-label="Session planner">
+    <fieldset disabled={busy} inert={sheet || !!preview} className={styles.editor} aria-label="Session planner">
       <div className={styles.saveState}>
         <p role="status">
           {busy
@@ -298,6 +301,22 @@ export default function TrainingEditor({
                     ))}
                   </select>
                 </label>
+                {chosen && <p>{chosen.drills.length} {chosen.drills.length === 1 ? 'drill' : 'drills'} · {chosen.drills.reduce((sum, d) => sum + d.minutes, 0)} min</p>}
+                <button disabled={!chosen} onClick={() => chosen && setPreview(chosen)}>
+                  Preview template
+                </button>
+                <button
+                  disabled={!canAppend}
+                  onClick={() => {
+                    if (!chosen || !canAppend || recovery) return;
+                    const start = drills.length;
+                    replace([...drills, ...structuredClone(templateDrills(chosen.drills))]);
+                    setIndex(start);
+                  }}
+                >
+                  Add drills to plan
+                </button>
+                {chosen && !canAppend && <p role="status">Adding this template would exceed 30 drills. Remove drills or replace the plan instead.</p>}
                 <button
                   disabled={!selected}
                   onClick={() => {
@@ -306,12 +325,12 @@ export default function TrainingEditor({
                       t &&
                       window.confirm('Replace the drills in this draft with the template?')
                     ) {
-                      replace(structuredClone(t.drills));
+                      replace(structuredClone(templateDrills(t.drills)));
                       setIndex(0);
                     }
                   }}
                 >
-                  Use template
+                  Replace drills with template
                 </button>
               </div>
             )}
@@ -346,6 +365,16 @@ export default function TrainingEditor({
           state={recovery ? 'Unconfirmed draft — reload the saved plan before printing' : dirty ? 'Unsaved draft' : revision ? 'Saved plan · version ' + revision : 'New plan · not saved'}
           recovery={recovery}
           onClose={() => setSheet(false)}
+        />
+      )}
+      {preview && (
+        <SessionSheet
+          drills={preview.drills}
+          minutes={minutes}
+          state="Template preview · your plan is unchanged"
+          templateName={preview.name}
+          recovery={false}
+          onClose={() => setPreview(null)}
         />
       )}
     </fieldset>
