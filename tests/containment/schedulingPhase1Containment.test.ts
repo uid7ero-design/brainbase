@@ -136,7 +136,7 @@ describe('Phase 1 does not enable the module anywhere', () => {
         // Phase 2C.3c-B (deliberate, reviewed change): the same disposable proofs for the staff availability basis read. They name scheduling_* tables to seed and compare fixtures and create none.
         if (rel(full) === 'scripts/tests/schedulingStaffBookingBasis2c3c.integration.test.ts' || rel(full) === 'scripts/tests/schedulingStaffBookingBasis2c3cNeon.integration.test.ts') continue;
         // Phase 2C.3c UI slice 1 (deliberate, reviewed change): the disposable proof of the staff booking visibility gate and the dialog's read path. It names scheduling_* tables to seed and compare fixtures and creates none.
-        if (rel(full) === 'scripts/tests/schedulingStaffBookingUi2c3c.integration.test.ts') continue;
+        if (['scripts/tests/schedulingStaffBookingUi2c3c.integration.test.ts', 'scripts/tests/schedulingStaffBookingUi2c3cBooking.integration.test.ts', 'scripts/tests/schedulingStaffBookingUi2c3cBookingNeon.integration.test.ts'].includes(rel(full))) continue;
         // Scheduling browser harness (deliberate, reviewed change): it applies the committed Scheduling SQL to a DISPOSABLE Docker
         // database and seeds one scheduling_settings row per fixture organisation (the application never creates settings). Its
         // network guard refuses every non-loopback request and every non-fixture SQL connection; it creates no scheduling_* table itself.
