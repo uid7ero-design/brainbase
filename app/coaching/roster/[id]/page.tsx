@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { authorizeSchedulingRequest } from '@/lib/scheduling/access';
 import { RosterScreen } from '@/app/scheduling/_components/CoachingWorkspaceScreen';
-import { readRoster, tennisTermChoices, tennisClassTermReview } from '@/lib/scheduling/coachClasses';
-import { manageClass } from '@/lib/scheduling/coachActions';
+import { readRoster, tennisTermChoices, tennisClassTermReview, classReview } from '@/lib/scheduling/coachClasses';
+import { manageClass, saveClassReview } from '@/lib/scheduling/coachActions';
+import ClassReview from './ClassReview';
 import { getStaffBookingVisibility } from '@/lib/scheduling/staffBookingVisibility';
 import ClassTermReview from './ClassTermReview';
 import ClassForm from '../../ClassForm';
@@ -24,7 +25,10 @@ export default async function Roster({ params, searchParams }: { params: Promise
     const sessions = date.term ? await tennisClassTermReview(org, date.id) : [];
     return <ClassTermReview id={date.id} name={date.name} term={date.term?.name} sessions={sessions}/>;
   }
-  const staffBooking = await getStaffBookingVisibility();
+  const [staffBooking, review, manager] = await Promise.all([
+    getStaffBookingVisibility(), classReview(org,date.id), authorizeSchedulingRequest('scheduling.manage'),
+  ]);
+  const canManage = manager.ok && manager.session.userId === auth.session.userId && manager.session.organisationId === org;
   const canEnrol = staffBooking && date.open && date.enrolled < date.capacity;
   const action = manageClass.bind(null, org);
   const canGroup =
@@ -32,7 +36,7 @@ export default async function Roster({ params, searchParams }: { params: Promise
     date.open &&
     !date.archived &&
     !date.term &&
-    (await authorizeSchedulingRequest('scheduling.manage')).ok;
+    canManage;
   const choices = canGroup ? await tennisTermChoices(org, date.id) : [];
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: date.timezone,
@@ -55,6 +59,8 @@ export default async function Roster({ params, searchParams }: { params: Promise
           {date.tennis && <Link href="?view=term">Class term review</Link>}
         </nav>
       </div>
+      {review && <ClassReview key={org + ':' + date.id} review={review} canEdit={canManage}
+        save={saveClassReview.bind(null,org,date.id)} />}
       {date.tennis ? (
         <RosterScreen
           key={date.id + ':' + date.enrolled}

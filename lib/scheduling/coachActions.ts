@@ -5,6 +5,7 @@ import { authorizeSchedulingRequest } from './access';
 import { addClassDate } from './coachClassDates';
 import {
   trainingSession,
+  persistClassReview,
   persistTrainingPlan,
   changePublication,
   coachLinkPattern,
@@ -159,6 +160,26 @@ export async function bookPublicClass(
   if (!checkRateLimit('public-coach:' + ip, 20, 60 * 60_000))
     return result('Too many requests. Try again later.');
   return submitBooking(org, { link }, form);
+}
+
+export async function saveClassReview(org: string, id: string, version: number, note: string) {
+  const [manage, roster] = await Promise.all([
+    authorizeSchedulingRequest('scheduling.manage'), authorizeSchedulingRequest('scheduling.reserve'),
+  ]);
+  if (!manage.ok || !roster.ok || manage.session.organisationId !== org ||
+      roster.session.organisationId !== org || manage.session.userId !== roster.session.userId) {
+    return { error: 'Reopen the roster in an authorised workspace.', recovery: true };
+  }
+  if (!Number.isSafeInteger(version) || version < 0 || typeof note !== 'string' ||
+      !note.trim() || note.length > 1500) return { error: 'Enter a note of up to 1,500 characters.' };
+  try {
+    const saved = await persistClassReview(org,id,manage.session.userId,version,note.trim());
+    if (!saved) return { error: 'The class or review changed. Reload to check the saved note.', recovery: true };
+    revalidatePath('/coaching/roster/[id]', 'page');
+    return { version: saved };
+  } catch {
+    return { error: 'Save could not be confirmed. Reload to check the saved note.', recovery: true };
+  }
 }
 
 export async function saveTrainingPlan(

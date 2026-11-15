@@ -146,7 +146,10 @@ describe('Phase 1 does not enable the module anywhere', () => {
       }
     };
     sqlDirs.forEach(d => scan(path.join(ROOT, d)));
-    expect(offenders.sort()).toEqual(['scripts/create-coach-squads.sql', 'scripts/create-coach-terms.sql', 'scripts/create-coach-training-plans.sql', 'scripts/tests/helpers/tennisSchedulingLocal.mjs']);
+    expect(offenders.sort()).toEqual(['scripts/create-coach-class-reviews.sql', 'scripts/create-coach-squads.sql', 'scripts/create-coach-terms.sql', 'scripts/create-coach-training-plans.sql', 'scripts/tests/helpers/tennisSchedulingLocal.mjs']);
+    const reviewSchema = read('scripts/create-coach-class-reviews.sql');
+    expect([...reviewSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(match => match[1])).toEqual(['scheduling_coach_class_reviews']);
+    expect(reviewSchema).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|DROP|ALTER)\b/i);
     const termSchema=read('scripts/create-coach-terms.sql');
     expect([...termSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(match=>match[1])).toEqual(['scheduling_coach_terms','scheduling_coach_term_dates']);
     expect(termSchema).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|DROP|ALTER)\b/i);

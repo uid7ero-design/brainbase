@@ -127,6 +127,7 @@ export async function startSchedulingBrowserEnv({ root = process.cwd(), log = co
     await q(file('scripts/create-coach-terms.sql'));
     await q(file('scripts/create-coach-squads.sql'));
     await q(file('scripts/create-coach-training-plans.sql'));
+    await q(file('scripts/create-coach-class-reviews.sql'));
 
     log('Seeding synthetic organisations, accounts and access.');
     const hash = await bcrypt.hash(runSecret, 10);

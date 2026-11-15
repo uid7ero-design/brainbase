@@ -44,3 +44,5 @@
 .reviewList li > div {display:grid;align-content:start;gap:.3rem;min-width:0;overflow-wrap:anywhere}
 .reviewList small {color:var(--text-secondary)}
 .reviewList a {text-decoration:underline;text-underline-offset:.18em}
+.handoverNote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.handoverInput { width: 100%; resize: vertical; color: inherit; background: var(--bg-surface); border: 1px solid var(--border); border-radius: .5rem; padding: .75rem; font: inherit; }

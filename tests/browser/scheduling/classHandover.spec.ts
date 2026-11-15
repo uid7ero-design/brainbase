@@ -1,0 +1,71 @@
+import { expect, test } from '@playwright/test';
+import { enabled, origin } from './accounts';
+import { contextFor, createOffering, createSchedule, query } from './support';
+
+test.skip(!enabled, 'Requires disposable Scheduling harness');
+test('a finished class hands its versioned note to the next active date in its term', async ({ browser }, info) => {
+  const manager = await contextFor(browser,'manager');
+  const foreign = await contextFor(browser,'foreign-manager');
+  try {
+    const page = await manager.newPage();
+    await page.setViewportSize(info.project.use.viewport!);
+    const schedule = await createSchedule(manager.request,'Handover ' + info.project.name);
+    const offering = await createOffering(manager.request,schedule.id,'Practice ' + info.project.name);
+    const day = (offset:number) => new Date(Date.now()+86400000*offset).toISOString().slice(0,10);
+    const calendar = origin + '/coaching/calendar?week=' + day(8);
+    await page.goto(calendar);
+    await page.getByLabel('Schedule type').selectOption('term');
+    await page.getByLabel('Class and location').selectOption(JSON.stringify([offering.id,null]));
+    await page.getByLabel('Class date',{exact:true}).fill(day(8));
+    await page.getByLabel('Local start time').fill('12:00');
+    await page.getByLabel('Term name').fill('Rally term');
+    await page.getByLabel('Term ends on').fill(day(29));
+    await page.getByRole('button',{name:'Create term'}).click();
+    await expect(page.getByRole('link',{name:offering.name,exact:true})).toBeVisible();
+    const dates = await query<{id:string}>('SELECT id FROM scheduling_occurrences WHERE offering_id=$1 ORDER BY starts_at',[offering.id]);
+    expect(dates).toHaveLength(4);
+    const url = (i:number) => origin + '/coaching/roster/' + dates[i].id;
+    await page.goto(url(0));
+    await expect(page.getByLabel('Coaching handover')).toHaveCount(0);
+    await query("UPDATE scheduling_occurrences SET status='completed' WHERE id=$1",[dates[0].id]);
+    await query("UPDATE scheduling_occurrences SET status='cancelled' WHERE id=$1",[dates[1].id]);
+    await page.reload();
+    const stale = await manager.newPage();
+    await stale.goto(url(0));
+    const note = 'Rallies held for three shots. Start with cross-court targets.';
+    await page.getByLabel('Coaching handover').fill(note);
+    await page.getByRole('button',{name:'Save class review'}).click();
+    await expect(page.getByText('Class review saved.')).toBeVisible();
+    await stale.getByLabel('Coaching handover').fill('Older draft');
+    await stale.getByRole('button',{name:'Save class review'}).click();
+    await expect(stale.getByRole('button',{name:'Reload saved review'})).toBeVisible();
+    await expect(stale.getByRole('button',{name:'Save class review'})).toBeDisabled();
+    await page.goto(url(2));
+    const handover = page.getByRole('region',{name:'Previous class handover'});
+    await expect(handover).toContainText(note);
+    await page.getByRole('link',{name:'Training plan',exact:true}).click();
+    await expect(handover).toContainText(note);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await page.goto(url(3));
+    await expect(handover).toHaveCount(0);
+    const other = await foreign.newPage();
+    await other.goto(url(2));
+    await expect(other.getByText(note)).toHaveCount(0);
+    await page.goto(url(0));
+    await page.getByLabel('Coaching handover').fill('Updated progression');
+    await page.route(url(0), async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      await route.fetch();
+      await route.abort('connectionreset');
+    });
+    await page.getByRole('button',{name:'Save class review'}).click();
+    await expect(page.getByRole('button',{name:'Reload saved review'})).toBeVisible();
+    await page.unroute(url(0));
+    page.once('dialog',dialog=>dialog.accept());
+    await page.getByRole('button',{name:'Reload saved review'}).click();
+    await expect(page.getByLabel('Coaching handover')).toHaveValue('Updated progression');
+    expect(await query('SELECT version,note FROM scheduling_coach_class_reviews WHERE occurrence_id=$1',[dates[0].id])).toEqual([{version:2,note:'Updated progression'}]);
+  } finally {
+    await Promise.all([manager.close(),foreign.close()]);
+  }
+});
