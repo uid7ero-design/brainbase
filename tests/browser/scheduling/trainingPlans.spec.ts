@@ -111,9 +111,19 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     await page.getByRole('button', { name: 'Run session' }).click();
     await expect(page.getByRole('img', { name: 'Football half-pitch diagram' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Board players' })).toContainText('Synthetic athlete');
+    const timer = page.getByRole('region', { name: 'Drill timer' });
+    await timer.getByRole('button', { name: 'Start timer' }).click();
+    await expect(timer.getByRole('timer')).not.toHaveText('20:00');
+    await timer.getByRole('button', { name: 'Pause timer' }).click();
+    await expect(timer.getByRole('status')).toHaveText('Paused');
+    await timer.getByRole('button', { name: 'Resume timer' }).click();
     await page.getByRole('button', { name: 'Next drill', exact: true }).click();
     await expect(page.getByRole('img', { name: 'Tennis court diagram' })).toBeVisible();
     await expect(page.getByText('Recover to the centre after each volley.')).toBeVisible();
+    await expect(timer.getByRole('status')).toHaveText('Ready');
+    await expect(timer.getByRole('timer')).toHaveText('10:00');
+    expect(await timer.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    expect((await revision())[0].version).toBe(3);
     for (const denied of [viewer, other]) {
       const deniedPage = await denied.newPage();
       await deniedPage.goto(url);
