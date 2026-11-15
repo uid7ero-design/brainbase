@@ -1,4 +1,4 @@
-import { authorizeSchedulingRequest } from './access';
+import { authorizeSchedulingRequest, type SchedulingFeature } from './access';
 import { loadSchedulingRuntime, SchedulingConfigurationError, type SchedulingRuntime, type StatementRecorder } from './runtime';
 import type { OrgSession } from '@/lib/org';
 import type { SchedulingPermission } from '@scheduling/core';
@@ -47,8 +47,8 @@ export interface SchedulingRouteOptions {
    * for routes that write nothing: a write must never be answered "timed out" while it may still commit.
    */
   deadlineMs?: () => number;
-  /** Phase 2C.3b: the feature gate the route belongs to. 'staff_booking' answers 404 unless the kill switch is on AND the session's organisation holds the capability. */
-  feature?: 'staff_booking';
+  /** Phase 2C.3b: the feature gate the route belongs to. A gated feature answers 404 unless ITS OWN kill switch is on AND the session's organisation holds ITS OWN capability ('staff_booking' = Coach, 'facility_hire' = facility-hire booking). */
+  feature?: SchedulingFeature;
 }
 
 /** The answer when a bounded read ran out of time. Generic on purpose: no route, query, organisation or SQL. */

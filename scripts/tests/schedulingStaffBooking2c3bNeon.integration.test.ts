@@ -41,7 +41,7 @@ vi.mock('@/lib/capabilities/requireCapability', () => {
     CapabilityAccessError,
     CapabilityDatabaseError,
     requireCapability: async (_org: string, key: string) => {
-      if (state.noCapability && key === 'scheduling.staff_booking') throw new CapabilityAccessError('NO_ENTITLEMENT');
+      if (state.noCapability && key === 'scheduling.facility_hire') throw new CapabilityAccessError('NO_ENTITLEMENT');
       return { enabled: true };
     },
   };
@@ -183,7 +183,7 @@ suite('Staff booking routes through the REAL Neon HTTP driver', () => {
   }, 60_000);
 
   beforeEach(() => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     state.noCapability = false;
     state.loseNextReply = false;
     state.failNextBeforeSend = false;
@@ -254,9 +254,9 @@ suite('Staff booking routes through the REAL Neon HTTP driver', () => {
     const f = await fixture();
     const made = await create(body(f));
     const id = made.json.reservation.id;
-    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    process.env.SCHEDULING_FACILITY_HIRE = 'off';
     for (const r of [await create(body(f, { start: { date: MONDAY, time: '12:00' } })), await getById(id), await cancel(id)]) expect(r.status).toBe(404);
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     state.noCapability = true;
     expect((await create(body(f, { start: { date: MONDAY, time: '12:00' } }))).status).toBe(404);
     state.noCapability = false;
