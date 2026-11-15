@@ -14,7 +14,7 @@ import styles from './staffBook.module.css';
 // no CRM or customer-account call and no storage: customer details exist in this component's memory and in the one POST body.
 //
 // - It is mounted only while open, so a closed dialog makes no request at all; the button that mounts it exists only when the server decided
-//   (lib/scheduling/staffBookingVisibility.ts) that the switch, the organisation capability and scheduling.reserve all hold.
+//   (lib/scheduling/facilityHireVisibility.ts) that the switch, the organisation capability and scheduling.reserve all hold.
 // - The times are exactly the basis response's starts. There is no free-time input, no duration field and no step control.
 // - Times are wall-clock times of the offering's pinned zone, shown with the zone's name.
 // - A 404 without a code (a gate closed under the user) closes the dialog and hides the button until reload (onUnavailable).

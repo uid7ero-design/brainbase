@@ -39,7 +39,7 @@ vi.mock('@/lib/capabilities/requireCapability', () => {
     CapabilityAccessError,
     CapabilityDatabaseError,
     requireCapability: async (_org: string, key: string) => {
-      if (state.noCapability && key === 'scheduling.staff_booking') throw new CapabilityAccessError('NO_ENTITLEMENT');
+      if (state.noCapability && key === 'scheduling.facility_hire') throw new CapabilityAccessError('NO_ENTITLEMENT');
       return { enabled: true };
     },
   };
@@ -189,7 +189,7 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
   }, 60_000);
 
   beforeEach(() => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     state.noCapability = false;
     state.loseNextReply = false;
     state.failNextBeforeSend = false;
@@ -356,9 +356,9 @@ suite('Staff booking UI slice 2 through the REAL Neon HTTP driver', () => {
       as('neon-viewer', ORG, 'viewer');
       expect((await postReservation(s.attempt!.body, `bk_${'f'.repeat(32)}`)).kind).toBe('denied');
       as('neon-u1', ORG);
-      process.env.SCHEDULING_STAFF_BOOKING = 'off';
+      process.env.SCHEDULING_FACILITY_HIRE = 'off';
       expect(await postReservation(s.attempt!.body, `bk_${'9'.repeat(32)}`)).toEqual({ kind: 'gate_off' });
-      process.env.SCHEDULING_STAFF_BOOKING = 'on';
+      process.env.SCHEDULING_FACILITY_HIRE = 'on';
       expect(await total(f)).toBe(before);
       expect(await holds(f)).toBe(1);
     });

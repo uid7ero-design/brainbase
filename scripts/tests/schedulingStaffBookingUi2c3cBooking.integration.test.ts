@@ -179,7 +179,7 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
   }
 
   beforeEach(async () => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     signOut();
     requests.length = 0;
     fault.loseReply = 0;
@@ -193,13 +193,13 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
     await q('DELETE FROM audit_logs');
     await q('DELETE FROM users');
     await q('DELETE FROM organisations');
-    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.facility_hire', 'Scheduling facility hire (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
     for (const id of ['org-a', 'org-b', 'org-c']) {
       await q('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $2, $1, now(), $3)', [id, `Org ${id}`, TZ]);
       await q('INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, $2)', [id, 'AUD']);
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling', true)", [id]);
     }
-    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.staff_booking', true)", [org]); // org-c does not hold it
+    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.facility_hire', true)", [org]); // org-c does not hold it
     for (const p of Object.values(PEOPLE)) await q('INSERT INTO users (id, organisation_id, email, name, role) VALUES ($1, $2, $3, $1, $4)', [p.id, p.org, `${p.id}@example.test`, p.role]);
     for (const p of Object.values(PEOPLE)) if (p.access) await q('INSERT INTO organisation_user_access (user_id, organisation_id, permissions, updated_by) VALUES ($1, $2, $3::jsonb, $1)', [p.id, p.org, JSON.stringify(p.access)]);
     await seedHire('org-a', 'a');
@@ -484,11 +484,36 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
 
     it('with the kill switch off every booking call is a plain 404 (a gate), the UI is told so, and nothing is written', async () => {
       const target = await offered('10:00');
-      delete process.env.SCHEDULING_STAFF_BOOKING;
+      delete process.env.SCHEDULING_FACILITY_HIRE;
       const before = await hashAll();
       expect(await postReservation(bodyOf(target, details()), `bk_${'c'.repeat(32)}`)).toEqual({ kind: 'gate_off' });
       expect(await lookupReservation(`bk_${'c'.repeat(32)}`)).toEqual({ kind: 'missing' });
       expect(await hashAll()).toEqual(before);
+    });
+
+    it('independent of Coach: with the Coach switch ON and scheduling.staff_booking entitled but facility hire NOT entitled, submit, same-key replay and recovery lookup all fail closed and nothing is written or revealed (real database)', async () => {
+      const target = await offered('10:00');
+      const second = await offered('11:00'); // read while facility hire is still entitled
+      const made = await postReservation(bodyOf(target, details()), `bk_${'d'.repeat(32)}`);
+      expect(made.kind).toBe('created'); // a booking made while facility hire WAS entitled
+      expect(await reservationCount()).toBe(1);
+      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Coach (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+      await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-a', 'scheduling.staff_booking', true) ON CONFLICT DO NOTHING");
+      process.env.SCHEDULING_STAFF_BOOKING = 'on';
+      try {
+        const before = await hashAll();
+        expect(await postReservation(bodyOf(second, details()), `bk_${'e'.repeat(32)}`)).toEqual({ kind: 'gate_off' }); // a new booking
+        expect(await postReservation(bodyOf(target, details()), `bk_${'d'.repeat(32)}`)).toEqual({ kind: 'gate_off' }); // a same-key replay is NOT served either
+        expect(await lookupReservation(`bk_${'d'.repeat(32)}`)).toEqual({ kind: 'missing' }); // recovery cannot read the earlier booking back: indistinguishable from a plain 404
+        expect(await hashAll()).toEqual(before);
+        expect(await reservationCount()).toBe(1);
+      } finally {
+        delete process.env.SCHEDULING_STAFF_BOOKING;
+        await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.staff_booking'");
+        await q("DELETE FROM modules WHERE key = 'scheduling.staff_booking'");
+        await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      }
     });
   });
 
