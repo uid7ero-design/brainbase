@@ -56,6 +56,26 @@ describe('the route set: exactly four files, every method behind both gates and 
   });
 });
 
+describe('discovery: nothing outside the four gated routes can reach the facility-hire handlers', () => {
+  // The route-set test above only walks app/api/scheduling/reservations. This one scans every application source, so a route added ANYWHERE (another folder, a server action, a page, a lib
+  // helper, a barrel re-export) that imports the booking handlers fails here unless it is one of the four routes, each of which must declare feature 'facility_hire'.
+  const SCAN = ['app', 'lib', 'components', 'hooks', 'apps', 'packages'];
+  const isTest = (f: string) => /(^|\/)(tests?|__tests__)\//.test(f) || /\.(test|spec)\.[tj]sx?$/.test(f) || f.startsWith('lib/scheduling/booking/');
+  const sources = SCAN.flatMap(d => { try { return walk(d); } catch { return []; } }).filter(f => /\.(ts|tsx|mts)$/.test(f) && !isTest(f));
+  const IMPORTS_BOOKING = /(?:\bfrom|\bimport\s*\(|\brequire\s*\()\s*['"][^'"]*booking\/(?:reservations|basis)['"]/;
+
+  it('exactly the four reservation route files import the booking handlers (static import, re-export, dynamic import or require)', () => {
+    const importers = sources.filter(f => IMPORTS_BOOKING.test(noTsComments(read(f)))).sort();
+    expect(importers).toEqual(Object.keys(ROUTES).sort());
+  });
+
+  it('every schedulingRoute() call that names a feature uses a known one, and facility_hire appears only on those four routes', () => {
+    const named = sources.flatMap(f => [...noTsComments(read(f)).matchAll(/schedulingRoute\([^)]*?feature:\s*'([^']+)'/g)].map(m => ({ f, feature: m[1] })));
+    expect(named.filter(n => !['staff_booking', 'facility_hire'].includes(n.feature))).toEqual([]);
+    expect([...new Set(named.filter(n => n.feature === 'facility_hire').map(n => n.f))].sort()).toEqual(Object.keys(ROUTES).sort());
+  });
+});
+
 describe('the two gates, in order, in the one guard', () => {
   const access = noTsComments(read('lib/scheduling/access.ts'));
   it('the kill switch is checked BEFORE the session is read, and the organisation capability BEFORE the base capability', () => {
