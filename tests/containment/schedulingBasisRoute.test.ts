@@ -70,7 +70,7 @@ const offer = () => ({
   },
 });
 
-const on = () => { process.env.SCHEDULING_STAFF_BOOKING = 'on'; };
+const on = () => { process.env.SCHEDULING_FACILITY_HIRE = 'on'; };
 beforeEach(() => {
   on();
   for (const m of [requireSession, requireCapability, repo.readHireOffer]) m.mockReset();
@@ -91,9 +91,9 @@ describe('the route is a GET only, behind both gates and scheduling.reserve', ()
 
 describe('gate 1: the environment kill switch (default OFF) - 404 before the session, the capability table or the database', () => {
   for (const value of [undefined, '', 'off', 'ON', 'true', '1', 'yes', ' on']) {
-    it(`SCHEDULING_STAFF_BOOKING=${JSON.stringify(value)} -> 404 not_found, nothing touched`, async () => {
-      if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-      else process.env.SCHEDULING_STAFF_BOOKING = value;
+    it(`SCHEDULING_FACILITY_HIRE=${JSON.stringify(value)} -> 404 not_found, nothing touched`, async () => {
+      if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+      else process.env.SCHEDULING_FACILITY_HIRE = value;
       const r = await get();
       expect(r.status).toBe(404);
       expect(await json(r)).toEqual({ error: 'not_found' });
@@ -105,16 +105,16 @@ describe('gate 1: the environment kill switch (default OFF) - 404 before the ses
     });
   }
   it('it is read on every request, not cached at import', async () => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    process.env.SCHEDULING_FACILITY_HIRE = 'off';
     expect((await get()).status).toBe(404);
     on();
     expect((await get()).status).toBe(200);
-    process.env.SCHEDULING_STAFF_BOOKING = 'off';
+    process.env.SCHEDULING_FACILITY_HIRE = 'off';
     expect((await get()).status).toBe(404);
   });
 });
 
-describe('gate 2: the organisation capability scheduling.staff_booking', () => {
+describe('gate 2: the organisation capability scheduling.facility_hire', () => {
   it('an organisation without it, with it disabled or the module inactive/unregistered is 404 and reads nothing', async () => {
     for (const reason of ['NOT_ENTITLED', 'DISABLED', 'INACTIVE', 'UNKNOWN_CAPABILITY']) {
       requireCapability.mockRejectedValueOnce(new CapabilityAccessError(reason));
@@ -130,10 +130,10 @@ describe('gate 2: the organisation capability scheduling.staff_booking', () => {
     expect((await get()).status).toBe(503);
     expect(repo.readHireOffer).not.toHaveBeenCalled();
   });
-  it('the key asked for is scheduling.staff_booking, for the SESSION organisation', async () => {
+  it('the key asked for is scheduling.facility_hire, for the SESSION organisation', async () => {
     requireSession.mockResolvedValue(sessionFor('manager', { organisationId: 'org-session' }));
     await get();
-    expect(requireCapability.mock.calls.map(c => c.join(' '))).toContain('org-session scheduling.staff_booking');
+    expect(requireCapability.mock.calls.map(c => c.join(' '))).toContain('org-session scheduling.facility_hire');
   });
 });
 
@@ -282,9 +282,9 @@ describe('EVERY booking endpoint on disk is 404 while the switch is absent (disc
   });
 
   for (const value of [undefined, '', 'off', 'ON', 'true', '1']) {
-    it(`SCHEDULING_STAFF_BOOKING=${JSON.stringify(value)}: every exported method of every route answers 404 not_found before the session, the capability table or the database`, async () => {
-      if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-      else process.env.SCHEDULING_STAFF_BOOKING = value;
+    it(`SCHEDULING_FACILITY_HIRE=${JSON.stringify(value)}: every exported method of every route answers 404 not_found before the session, the capability table or the database`, async () => {
+      if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+      else process.env.SCHEDULING_FACILITY_HIRE = value;
       let called = 0;
       for (const file of files) {
         const mod = (await import(/* @vite-ignore */ `@/${file.replace(/\.ts$/, '')}`)) as Record<string, unknown>;

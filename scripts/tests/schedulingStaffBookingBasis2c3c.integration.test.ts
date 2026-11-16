@@ -166,7 +166,7 @@ suite('Scheduling 2C.3c-B availability basis: gates, permissions, contract, boun
   });
 
   beforeEach(async () => {
-    process.env.SCHEDULING_STAFF_BOOKING = 'on';
+    process.env.SCHEDULING_FACILITY_HIRE = 'on';
     signOut();
     state.loseNextBatchReply = false;
     state.failNextBatchBeforeSend = false;
@@ -179,14 +179,14 @@ suite('Scheduling 2C.3c-B availability basis: gates, permissions, contract, boun
     await q('DELETE FROM audit_logs');
     await q('DELETE FROM users');
     await q('DELETE FROM organisations');
-    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+    await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.facility_hire', 'Scheduling staff booking (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
     for (const [id, tz] of [['org-a', TZ], ['org-b', TZ], ['org-c', TZ]] as const) {
       await q('INSERT INTO organisations (id, name, slug, updated_at, timezone) VALUES ($1, $2, $1, now(), $3)', [id, `Org ${id}`, tz]);
       await q('INSERT INTO scheduling_settings (organisation_id, currency) VALUES ($1, $2)', [id, 'AUD']);
       await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling', true)", [id]);
     }
     // the second entitlement: org-a and org-b hold it; org-c (base scheduling only) does not
-    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.staff_booking', true)", [org]);
+    for (const org of ['org-a', 'org-b']) await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ($1, 'scheduling.facility_hire', true)", [org]);
     for (const p of Object.values(PEOPLE)) await q('INSERT INTO users (id, organisation_id, email, name, role) VALUES ($1, $2, $3, $1, $4)', [p.id, p.org, `${p.id}@example.test`, p.role]);
     for (const p of Object.values(PEOPLE)) if (p.access) await q('INSERT INTO organisation_user_access (user_id, organisation_id, permissions, updated_by) VALUES ($1, $2, $3::jsonb, $1)', [p.id, p.org, JSON.stringify(p.access)]);
     await seedHire('org-a', 'a');
@@ -236,8 +236,8 @@ suite('Scheduling 2C.3c-B availability basis: gates, permissions, contract, boun
     it('with the switch off (unset, "", "off", "ON", "true") the route is 404 not_found for a signed-in manager and every table is byte-identical', async () => {
       const before = await hashAll();
       for (const value of [undefined, '', 'off', 'ON', 'true']) {
-        if (value === undefined) delete process.env.SCHEDULING_STAFF_BOOKING;
-        else process.env.SCHEDULING_STAFF_BOOKING = value;
+        if (value === undefined) delete process.env.SCHEDULING_FACILITY_HIRE;
+        else process.env.SCHEDULING_FACILITY_HIRE = value;
         const r = await basisGet();
         expect(r.status, String(value)).toBe(404);
         expect(r.json).toEqual({ error: 'not_found' });
@@ -245,19 +245,42 @@ suite('Scheduling 2C.3c-B availability basis: gates, permissions, contract, boun
       expect(await hashAll()).toEqual(before);
     });
 
-    it('an organisation WITHOUT scheduling.staff_booking, a disabled entitlement, an inactive module and an unregistered capability are all 404', async () => {
+    it('an organisation WITHOUT scheduling.facility_hire, a disabled entitlement, an inactive module and an unregistered capability are all 404', async () => {
       await signIn(PEOPLE.noCap);
       expect((await basisGet()).status).toBe(404);
       await signIn(PEOPLE.manager);
       expect((await basisGet()).status).toBe(200);
-      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
+      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
       expect((await basisGet()).status).toBe(404);
-      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.staff_booking'");
-      await q("UPDATE modules SET active = false WHERE key = 'scheduling.staff_booking'");
+      await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      await q("UPDATE modules SET active = false WHERE key = 'scheduling.facility_hire'");
       expect((await basisGet()).status).toBe(404);
-      await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.staff_booking'");
-      await q("DELETE FROM modules WHERE key = 'scheduling.staff_booking'");
+      await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.facility_hire'");
+      await q("DELETE FROM modules WHERE key = 'scheduling.facility_hire'");
       expect((await basisGet()).status).toBe(404);
+    });
+
+    it('independent of Coach: the Coach switch ON and scheduling.staff_booking registered and entitled for the organisation do NOT open facility hire; only scheduling.facility_hire does (real database)', async () => {
+      await q("UPDATE organisation_modules SET enabled = false WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+      await q("INSERT INTO modules (key, name, description, active) VALUES ('scheduling.staff_booking', 'Coach (test)', 'test', true) ON CONFLICT (key) DO UPDATE SET active = true");
+      await q("INSERT INTO organisation_modules (organisation_id, module_key, enabled) VALUES ('org-a', 'scheduling.staff_booking', true) ON CONFLICT DO NOTHING");
+      process.env.SCHEDULING_STAFF_BOOKING = 'on';
+      try {
+        await signIn(PEOPLE.manager);
+        const blocked = await basisGet();
+        expect(blocked.status).toBe(404);
+        expect(blocked.json).toEqual({ error: 'not_found' });
+        process.env.SCHEDULING_FACILITY_HIRE = 'off';
+        expect((await basisGet()).status).toBe(404);
+        process.env.SCHEDULING_FACILITY_HIRE = 'on';
+        expect((await basisGet()).status).toBe(404); // facility-hire switch on, but the organisation holds only the Coach capability
+        await q("UPDATE organisation_modules SET enabled = true WHERE organisation_id = 'org-a' AND module_key = 'scheduling.facility_hire'");
+        expect((await basisGet()).status).toBe(200);
+      } finally {
+        delete process.env.SCHEDULING_STAFF_BOOKING;
+        await q("DELETE FROM organisation_modules WHERE module_key = 'scheduling.staff_booking'");
+        await q("DELETE FROM modules WHERE key = 'scheduling.staff_booking'");
+      }
     });
 
     it('anonymous callers are refused (401) and nothing is read', async () => {

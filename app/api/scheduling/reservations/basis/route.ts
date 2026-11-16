@@ -5,4 +5,4 @@ import { readReservationBasis } from '@/lib/scheduling/booking/basis';
 // writes nothing, so a deadline that answers "timed out" is always safe.
 export const dynamic = 'force-dynamic';
 
-export const GET = schedulingRoute('scheduling.reserve', readReservationBasis, { feature: 'staff_booking', deadlineMs: () => 8000 });
+export const GET = schedulingRoute('scheduling.reserve', readReservationBasis, { feature: 'facility_hire', deadlineMs: () => 8000 });

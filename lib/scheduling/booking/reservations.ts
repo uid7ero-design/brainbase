@@ -3,7 +3,7 @@ import { schedulingJson, type SchedulingRouteContext } from '../route';
 import { recordSchedulingAudit } from '../audit';
 import { idParam, notFound, readBody } from '../config/http';
 
-// Phase 2C.3b: the HTTP layer of STAFF FACILITY HIRE. Everything here runs INSIDE the central guard (lib/scheduling/route.ts) with feature 'staff_booking' and permission
+// Phase 2C.3b: the HTTP layer of STAFF FACILITY HIRE. Everything here runs INSIDE the central guard (lib/scheduling/route.ts) with feature 'facility_hire' and permission
 // 'scheduling.reserve': the kill switch is on, the session's organisation holds the capability, the caller is staff with the reserve permission, and `context.tenant` is built from
 // the session. Nothing in this file reads a session, a cookie or an organisation from the request, and no booking rule is decided here: the decision, the lock order and the
 // atomic reservation-and-hold write are PostgresHireRepository.createHire (Phase 2C.3a), called unchanged.
