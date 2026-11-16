@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { authorizeSchedulingRequest } from '@/lib/scheduling/access';
-import { trainingSession } from '@/lib/scheduling/coachClasses';
+import { classReview, trainingSession } from '@/lib/scheduling/coachClasses';
+import PreviousClassHandover from '../PreviousClassHandover';
 import { saveTrainingPlan } from '@/lib/scheduling/coachActions';
 import TrainingEditor from './TrainingEditor';
 import styles from './plan.module.css';
@@ -15,7 +16,7 @@ export default async function Training({ params }: { params: Promise<{ id: strin
   ]);
   if (!roster.ok) notFound();
   const org = roster.session.organisationId;
-  const session = await trainingSession(org, id);
+  const [session, review] = await Promise.all([trainingSession(org,id), classReview(org,id)]);
   if (!session) notFound();
   const editable =
     manage.ok &&
@@ -32,6 +33,7 @@ export default async function Training({ params }: { params: Promise<{ id: strin
         </p>
         <h1>{session.name} training plan</h1>
       </header>
+      {review?.previous && <PreviousClassHandover previous={review.previous} />}
       <TrainingEditor
         key={org + ':' + id}
         initial={session.drills}

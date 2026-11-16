@@ -75,6 +75,12 @@ Previewing and combining do not save anything. Select **Save plan** when ready. 
 
 In **Run session**, choose **Start timer** to count down the current drill. Pause for instruction, resume from the remaining time, or reset to the planned duration. At zero the timer stops on the current drill. Choose **Next drill** when the group is ready. Switching drills, leaving run mode or reloading clears the countdown. The timer is local to this open planner and does not record attendance or session history.
 
+### Leave a class handover
+
+After a class finishes, a scheduling manager with roster access can open its roster and use **Class review** to record what worked and what to practise next. Each class has one shared note. The next scheduled class in the same term shows it on the roster and training plan under **Previous class handover**, with a link to the source roster. Cancelled dates are skipped. A standalone class keeps its own review. If two staff edit the note or a save response is lost, reload the saved review before retrying.
+
+Apply `scripts/create-coach-class-reviews.sql` before releasing the class review screens.
+
 ### Review the coaching week
 
 Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.

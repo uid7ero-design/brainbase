@@ -388,6 +388,46 @@ async function trainingScope(org: string) {
       WHERE o.id=$2 AND (f.archived_at IS NULL OR s.id='tennis-coaching'))`;
 }
 
+const finishedForReview = "o.status <> 'cancelled' AND (o.status = 'completed' OR o.ends_at <= now())";
+
+export async function classReview(org: string, id: string) {
+  const rows = await db().query<{
+    finished: boolean; note: string | null; version: number;
+    previous: { id: string; day: string; note: string } | null;
+  }>(
+    `${await trainingScope(org)}
+     SELECT (${finishedForReview}) AS finished, own.note, coalesce(own.version, 0) AS version,
+            CASE WHEN prior.note IS NOT NULL THEN jsonb_build_object(
+              'id', prev.id, 'day', prev.local_date::text, 'note', prior.note) END AS previous
+     FROM session o
+     LEFT JOIN scheduling_coach_class_reviews own ON (own.organisation_id,own.occurrence_id)=(o.organisation_id,o.id)
+     LEFT JOIN LATERAL (
+       SELECT p.id, p.local_date FROM scheduling_coach_term_dates anchor
+       JOIN scheduling_coach_term_dates d USING (organisation_id, offering_id, term_id)
+       JOIN scheduling_occurrences p ON (p.organisation_id,p.offering_id,p.id)=(d.organisation_id,d.offering_id,d.occurrence_id)
+       WHERE anchor.organisation_id=o.organisation_id AND anchor.occurrence_id=o.id
+         AND p.starts_at < o.starts_at AND p.status <> 'cancelled'
+       ORDER BY p.starts_at DESC, p.id DESC LIMIT 1
+     ) prev ON o.status <> 'cancelled'
+     LEFT JOIN scheduling_coach_class_reviews prior ON (prior.organisation_id,prior.occurrence_id)=(o.organisation_id,prev.id)`,
+    [org,id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function persistClassReview(org: string, id: string, user: string, version: number, note: string) {
+  const basis = `${await trainingScope(org)}, basis AS (
+    SELECT o.organisation_id,o.id FROM session o WHERE ${finishedForReview}
+  )`;
+  const statement = version === 0
+    ? `INSERT INTO scheduling_coach_class_reviews (organisation_id,occurrence_id,note,updated_by,version)
+       SELECT organisation_id,id,$3,$4,1 FROM basis WHERE $5::int=0 ON CONFLICT DO NOTHING`
+    : `UPDATE scheduling_coach_class_reviews r SET note=$3,updated_by=$4,updated_at=now(),version=r.version+1
+       FROM basis b WHERE (r.organisation_id,r.occurrence_id)=(b.organisation_id,b.id) AND r.version=$5::int`;
+  const rows = await db().query<{version:number}>(basis + ' ' + statement + ' RETURNING version',[org,id,note,user,version]);
+  return rows[0]?.version;
+}
+
 export async function trainingSession(org: string, id: string) {
   const rows = await db().query<{
     tennis: boolean;
