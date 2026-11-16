@@ -323,12 +323,13 @@ describe('source pins', () => {
     expect(read('lib/scheduling/staffBooking/recoveryBoot.ts')).not.toMatch(/localStorage|indexedDB|document\.cookie/);
   });
 
-  it('the server-only secret derivation is imported by the server visibility module only, and never by a client module', () => {
+  it('the server-only secret derivation is imported by the facility-hire visibility module only (never the Coach gate), and never by a client module', () => {
     const importers = APP_AND_LIB.filter(f => read(f).includes("deriveRecoverySecret") && f !== "lib/scheduling/recoverySecret.ts");
-    expect(importers).toEqual(['lib/scheduling/staffBookingVisibility.ts']);
+    expect(importers).toEqual(['lib/scheduling/facilityHireVisibility.ts']);
     for (const f of BOOKING_UI.filter(x => !x.endsWith('/recoverySecret.ts'))) expect(read(f), f).not.toMatch(/node:crypto|from 'crypto'|SESSION_SECRET/);
     expect(read('lib/scheduling/recoverySecret.ts')).toMatch(/^import 'server-only';/m);
-    expect(read('lib/scheduling/staffBookingVisibility.ts')).toMatch(/^import 'server-only';/m);
+    expect(read('lib/scheduling/facilityHireVisibility.ts')).toMatch(/^import 'server-only';/m);
+    expect(read('lib/scheduling/staffBookingVisibility.ts')).not.toMatch(/recoverySecret|deriveRecoverySecret/); // the Coach gate has no recovery path
   });
 
   it('the secret authorises nothing: no API route, middleware or request helper reads it, and no request carries it', () => {

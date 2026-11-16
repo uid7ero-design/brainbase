@@ -56,8 +56,8 @@ export async function getFacilityHireVisibility(): Promise<boolean> {
 /**
  * The page's whole facility-hire booking decision: whether to show the controls, and the reload-recovery secret for THIS user and organisation
  * (see recoverySecret.ts). The secret is derived only when every facility-hire gate above holds, so with the switch off, or without the
- * scheduling.facility_hire capability, nothing is derived, read or sent. A Coach-only organisation (SCHEDULING_STAFF_BOOKING on, scheduling.staff_booking
- * entitled) gets { canBook: false, recoverySecret: null }: nothing in this file reads the Coach switch or capability. Fail closed: no SESSION_SECRET means
+ * scheduling.facility_hire capability, nothing is derived, read or sent. An organisation that holds only the Coach feature gets
+ * { canBook: false, recoverySecret: null }: nothing in this file reads the Coach switch or capability. Fail closed: no SESSION_SECRET means
  * no booking (a booking build must not have a mode without recovery).
  */
 export async function getFacilityHireContext(): Promise<{ canBook: boolean; recoverySecret: string | null }> {
