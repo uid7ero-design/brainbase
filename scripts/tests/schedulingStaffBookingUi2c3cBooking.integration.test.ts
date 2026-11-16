@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Pool } from 'pg';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
@@ -56,8 +57,10 @@ const { middleware } = await import('@/middleware');
 const { encrypt } = await import('@/lib/session');
 const { fetchBasis } = await import('@/lib/scheduling/staffBooking/basisClient');
 const { postReservation, lookupReservation } = await import('@/lib/scheduling/staffBooking/submitClient');
-const { createMachine, initialState, bodyOf } = await import('@/lib/scheduling/staffBooking/machine');
-const { createBookingKeyHolder } = await import('@/lib/scheduling/staffBooking/key');
+const { createMachine, initialState, bodyOf, recoveredState, recoverySettled, settlesAttempt, provableNotBooked } = await import('@/lib/scheduling/staffBooking/machine');
+const { createBookingKeyHolder, canonicalContent } = await import('@/lib/scheduling/staffBooking/key');
+const { createPendingStore } = await import('@/lib/scheduling/staffBooking/pendingStore');
+type PendingStoreT = ReturnType<typeof createPendingStore>;
 type Handler = (request: Request, context?: { params?: Promise<Record<string, string>> }) => Promise<Response>;
 const basisRoute = (await import('@/app/api/scheduling/reservations/basis/route')) as unknown as { GET: Handler };
 const reservationsRoute = (await import('@/app/api/scheduling/reservations/route')) as unknown as { POST: Handler; GET: Handler };
@@ -99,7 +102,7 @@ const signOut = () => { state.cookie = null; };
 
 /** Bridges the UI's relative fetch() calls to the REAL route handlers, behind the REAL middleware, as the signed-in person. Records every request. */
 const requests: Array<{ method: string; path: string; key: string | null }> = [];
-const fault = { loseReply: 0, failBefore: 0 }; // fault injection AT THE NETWORK: the request is processed for real, then the reply is lost
+const fault = { loseReply: 0, failBefore: 0, blockLookups: false }; // fault injection AT THE NETWORK: the request is processed for real, then the reply is lost
 async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url = new URL(String(input), 'http://bb.test');
   const method = init?.method ?? 'GET';
@@ -109,6 +112,7 @@ async function bridge(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     fault.failBefore -= 1;
     throw new TypeError('network down before send');
   }
+  if (method === 'GET' && url.pathname === '/api/scheduling/reservations' && fault.blockLookups) throw new TypeError('network down for lookups');
   const headers: Record<string, string> = {};
   incoming.forEach((v, k) => { headers[k] = v; });
   if (state.cookie) headers.cookie = `session=${state.cookie}`;
@@ -184,6 +188,7 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
     requests.length = 0;
     fault.loseReply = 0;
     fault.failBefore = 0;
+    fault.blockLookups = false;
     vi.stubGlobal('fetch', bridge);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -237,20 +242,35 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
   type Target = Awaited<ReturnType<typeof offered>>;
 
   /** The state machine plus the dialog's effects (POST on `submitting`, lookups on `checking`/`conflict`), minus the timers. */
-  function ui() {
+  function ui(opts: { store?: PendingStoreT; pending?: { key: string; fp: string } } = {}) {
     const holder = createBookingKeyHolder();
-    const reduce = createMachine(holder);
-    let state = initialState();
+    const reduce = createMachine(holder, opts.store ? { fingerprint: c => opts.store!.fingerprint(c) } : {});
+    let state = opts.pending ? recoveredState(opts.pending) : initialState(); // a reopened or reloaded dialog starts from the record, with a FRESH holder
     const send = (a: Parameters<typeof reduce>[1]) => (state = reduce(state, a));
     const run = async () => {
       let lookedUpConflict = false;
       for (let i = 0; i < 60; i += 1) {
-        if (state.step === 'submitting') send({ type: 'RESPONSE', outcome: await postReservation(state.attempt!.body, state.attempt!.key) });
+        if (state.step === 'submitting') {
+          // the dialog's write-ahead: the original key is recorded BEFORE the request is sent; if it cannot be, nothing is sent
+          if (opts.store && !opts.store.ensure(state.attempt!.key, canonicalContent(state.attempt!.content)).ok) send({ type: 'STORE_FAILED' });
+          else {
+            const uncertainBefore = !provableNotBooked(state);
+            const outcome = await postReservation(state.attempt!.body, state.attempt!.key);
+            if (opts.store && settlesAttempt(outcome, uncertainBefore)) opts.store.clear(); // the dialog removes the record on a settling answer only
+            send({ type: 'RESPONSE', outcome });
+          }
+        } else if (state.step === 'recovering' && !recoverySettled(state)) {
+          send({ type: 'POLL', outcome: await lookupReservation(state.pending!.key) });
+          if (opts.store && state.step === 'done') opts.store.clear();
+        }
         else if (state.step === 'checking') send({ type: 'POLL', outcome: await lookupReservation(state.attempt!.key) });
         else if (state.step === 'conflict' && !lookedUpConflict) {
           lookedUpConflict = true;
           send({ type: 'CONFLICT_LOOKUP', outcome: await lookupReservation(state.attempt!.key) });
-        } else return;
+        } else {
+          if (opts.store && state.step === 'done') opts.store.clear(); // a booking exists under the key: resolved
+          return;
+        }
       }
       throw new Error('the machine did not settle');
     };
@@ -461,6 +481,174 @@ suite('Scheduling 2C.3c UI slice 2: customer details, submit, recovery and confi
       expect(u.state.step).toBe('done');
       expect(u.state.reservation!.start).toEqual({ date: MONDAY, time: '09:00' });
       expect(await reservationCount()).toBe(1);
+    });
+  });
+
+  // ── reload recovery through the real chain ──────────────────────────────────────────────────────────────────────────────────────
+  // "Close and reopen" and "reload" are a NEW ui(): a fresh holder and fresh machine, started from the write-ahead record alone (original key + keyed fingerprint).
+
+  describe('reload recovery: the original key is recovered or replayed; no second key, reservation or hold, ever', () => {
+    const memory = (): Storage => {
+      const m = new Map<string, string>();
+      return { get length() { return m.size; }, clear: () => m.clear(), getItem: k => m.get(k) ?? null, key: i => [...m.keys()][i] ?? null, removeItem: k => void m.delete(k), setItem: (k, v) => void m.set(k, v) };
+    };
+    const SECRET = 'rs_db_recovery_secret_0123456789012345678901';
+    const keysSent = () => [...new Set(posts().map(p => p.key))];
+
+    /** The first life of the dialog: submit, with the record written ahead. Returns the record a reload would find. */
+    async function firstLife(storage: Storage, target: Target, setup: () => void) {
+      const store = createPendingStore(SECRET, storage);
+      setup();
+      const u = ui({ store });
+      u.toSubmit(target);
+      await u.run();
+      expect(['unsure', 'checking']).toContain(u.state.step);
+      const record = store.read();
+      expect(record).not.toBeNull();
+      expect(record!.key).toBe(u.state.attempt!.key);
+      return { store, record: record!, key: u.state.attempt!.key };
+    }
+    /** The second life: a fresh holder and machine, opened on the record. */
+    const secondLife = (store: PendingStoreT, record: { key: string; fp: string }) => ui({ store, pending: { key: record.key, fp: record.fp } });
+
+    it('D1: committed write, lost reply, lookups failing: close and reopen RECOVERS the original booking (found by its key). One POST, one key, one reservation, one hold', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.loseReply = 1; fault.blockLookups = true; });
+      expect(await reservationCount()).toBe(1); // it DID commit
+      fault.blockLookups = false;
+      const u = secondLife(first.store, first.record);
+      expect(u.state.step).toBe('recovering');
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(u.state.reservation!.customer.name).toBe(PII.name);
+      expect(posts()).toHaveLength(1);
+      expect(keysSent()).toEqual([first.key]);
+      expect(await reservationCount()).toBe(1);
+      expect(await liveHolds()).toBe(1);
+      expect(await overlappingLiveHolds()).toBe(0);
+    });
+
+    it('the booking DID commit but the lookups fail: its hour is no longer offered, so it cannot be booked again; "Check again" then finds the ORIGINAL', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.loseReply = 1; fault.blockLookups = true; });
+      const u = secondLife(first.store, first.record);
+      await u.run(); // lookups still blocked: nothing found, which proves nothing
+      expect(u.state.step).toBe('recovering');
+      expect(recoverySettled(u.state)).toBe(true);
+      u.send({ type: 'ENTER_AGAIN' });
+      await expect(offered('10:00')).rejects.toThrow(/not offered/); // the engine no longer offers a held hour: a duplicate cannot even be entered
+      fault.blockLookups = false;
+      u.send({ type: 'BACK' });
+      const again = secondLife(first.store, first.record);
+      await again.run();
+      expect(again.state.step).toBe('done');
+      expect(keysSent()).toEqual([first.key]);
+      expect(posts()).toHaveLength(1);
+      expect(await reservationCount()).toBe(1);
+      expect(await liveHolds()).toBe(1);
+      expect(storage.length).toBe(0);
+    });
+
+    it('wrong content in resume mode is refused locally (different time, then different name): nothing is sent and no key is minted; the same content then reuses the ORIGINAL key', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.failBefore = 1; fault.blockLookups = true; });
+      fault.blockLookups = false;
+      const u = secondLife(first.store, first.record);
+      await u.run();
+      u.send({ type: 'ENTER_AGAIN' });
+      u.send({ type: 'START', target: await offered('11:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.step).toBe('details');
+      expect(u.state.reviewKey).toBeNull();
+      u.send({ type: 'BACK' });
+      u.send({ type: 'BACK' });
+      u.send({ type: 'START', target: await offered('10:00') });
+      u.fill(details({ name: 'Somebody Else' }));
+      u.send({ type: 'REVIEW' });
+      expect(u.state.step).toBe('details');
+      expect(u.state.reviewKey).toBeNull();
+      expect(posts()).toHaveLength(1); // only the original (lost) attempt was ever sent
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state).toMatchObject({ step: 'review', reviewKey: first.key });
+      expect(await reservationCount()).toBe(0);
+    });
+
+    it('the request never reached the server: nothing is found, the replay under the ORIGINAL key creates the booking once (created, not replayed)', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.failBefore = 1; fault.blockLookups = true; });
+      expect(await reservationCount()).toBe(0);
+      fault.blockLookups = false;
+      const u = secondLife(first.store, first.record);
+      await u.run(); // lookups now work and find nothing: still not proof
+      expect(u.state.step).toBe('recovering');
+      expect(await reservationCount()).toBe(0);
+      u.send({ type: 'ENTER_AGAIN' });
+      u.send({ type: 'START', target: await offered('10:00') });
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      u.send({ type: 'SUBMIT' });
+      await u.run();
+      expect(u.state.step).toBe('done');
+      expect(keysSent()).toEqual([first.key]);
+      expect(await reservationCount()).toBe(1);
+      expect(await liveHolds()).toBe(1);
+    });
+
+    it('the earlier attempt never arrived and someone else takes the slot before the replay: the replay is refused, nothing is overwritten, no second booking or overlapping hold exists, the record is resolved, and the wording does not claim "Nothing was booked."', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.failBefore = 1; fault.blockLookups = true; });
+      fault.blockLookups = false;
+      const u = secondLife(first.store, first.record);
+      await u.run();
+      u.send({ type: 'ENTER_AGAIN' });
+      u.send({ type: 'START', target: await offered('10:00') }); // offered while the slot was still free
+      u.fill(details());
+      u.send({ type: 'REVIEW' });
+      expect(u.state.reviewKey).toBe(first.key);
+      const rival = ui();
+      expect((await rival.book(await offered('10:00', MONDAY, 'a').catch(() => { throw new Error('rival could not see the slot'); }), details({ name: 'Rival Customer', email: '', phone: '', notes: '' }))).step).toBe('done');
+      u.send({ type: 'SUBMIT' });
+      await u.run();
+      expect(u.state.step).toBe('idle'); // returned to time selection
+      expect(u.state.notice ?? '').not.toMatch(/Nothing was booked/);
+      expect(u.state.notice ?? '').toContain('could not be confirmed');
+      expect(u.state.pending).toBeNull(); // an authoritative refusal under the key resolved it
+      expect(storage.length).toBe(0);
+      expect(await reservationCount()).toBe(1); // the rival's, untouched
+      expect(await overlappingLiveHolds()).toBe(0);
+      expect(new Set(posts().map(p => p.key)).size).toBe(2); // the original (twice: lost, then replayed) and the rival's own
+    });
+
+    it('a different user in the same organisation, or any user in another, cannot find the booking by its key, so a recovery lookup can never expose it', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.loseReply = 1; fault.blockLookups = true; });
+      fault.blockLookups = false;
+      await signIn(PEOPLE.other); // another organisation
+      expect((await lookupReservation(first.key)).kind).toBe('missing');
+      await signIn(PEOPLE.manager);
+      expect((await lookupReservation(first.key)).kind).toBe('found');
+    });
+
+    it('the record never holds customer details, and its keyed fingerprint is not a plain hash of the booking', async () => {
+      const storage = memory();
+      const first = await firstLife(storage, await offered('10:00'), () => { fault.loseReply = 1; fault.blockLookups = true; });
+      const raw = JSON.stringify(Object.fromEntries(Array.from({ length: storage.length }, (_, i) => [storage.key(i)!, storage.getItem(storage.key(i)!)])));
+      for (const s of [...SECRETS, 'a-court-1', 'a-off', MONDAY, SECRET]) expect(raw).not.toContain(s);
+      expect(Object.keys(JSON.parse(storage.getItem(storage.key(0)!)!)).sort()).toEqual(['fp', 'key', 'savedAt', 'v']);
+      expect(first.record.fp).not.toBe(createHash('sha256').update(canonicalContent({ offeringId: 'a-off', resourceId: 'a-court-1', date: MONDAY, time: '10:00', partySize: 2, customerName: PII.name, email: PII.email, phone: PII.phone, notes: PII.notes })).digest('base64url'));
+    });
+
+    it('storage that cannot keep the record: NOTHING is sent (fail closed), so nothing can be committed', async () => {
+      const refusing = { ...memory(), setItem: () => { throw new DOMException('quota', 'QuotaExceededError'); } } as unknown as Storage;
+      const store = createPendingStore(SECRET, refusing);
+      const u = ui({ store });
+      u.toSubmit(await offered('10:00'));
+      await u.run();
+      expect(u.state.step).toBe('unsafe');
+      expect(posts()).toHaveLength(0);
+      expect(await reservationCount()).toBe(0);
     });
   });
 

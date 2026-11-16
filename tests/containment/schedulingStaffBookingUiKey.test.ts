@@ -39,7 +39,7 @@ describe('the booking key', () => {
   it('exposes no way to rotate: current() never creates, and only an explicit discard() forgets the key', () => {
     const holder = createBookingKeyHolder();
     expect(holder.current()).toBeNull();
-    expect(Object.keys(holder).sort()).toEqual(['current', 'discard', 'keyFor']);
+    expect(Object.keys(holder).sort()).toEqual(['adopt', 'current', 'discard', 'keyFor']);
     const key = holder.keyFor(content);
     expect(holder.current()).toBe(key);
     expect(holder.current()).toBe(key);

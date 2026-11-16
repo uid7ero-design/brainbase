@@ -2,8 +2,10 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react';
 import { Button, Dialog, Field, FormActions, StateMessage, fieldControlClassName } from '@/components/ui/app';
 import { WINDOW_DAYS, describeReadFailure, fetchBasis, loadBookableOfferings, type BasisView, type BookableOffering } from '@/lib/scheduling/staffBooking/basisClient';
-import { createBookingKeyHolder } from '@/lib/scheduling/staffBooking/key';
-import { NOTES_MAX, POLL_DELAYS_MS, RETURN_TO_TIME, createMachine, initialState, type FieldKey, type Step, type Target } from '@/lib/scheduling/staffBooking/machine';
+import { attemptStore } from '@/lib/scheduling/staffBooking/attemptStore';
+import { canonicalContent, createBookingKeyHolder } from '@/lib/scheduling/staffBooking/key';
+import { NOTES_MAX, POLL_DELAYS_MS, RETURN_TO_TIME, UNCONFIRMED_NOTE, createMachine, provableNotBooked, recoverySettled, settlesAttempt, type FieldKey, type Step, type Target } from '@/lib/scheduling/staffBooking/machine';
+import { bootRecovery } from '@/lib/scheduling/staffBooking/recoveryBoot';
 import { lookupReservation, postReservation, type BookedReservation } from '@/lib/scheduling/staffBooking/submitClient';
 import { dayAccessibleName, dayLabel, durationText, endClock, longDayLabel, priceText, shiftDate, timesText, zoneText } from '@/lib/scheduling/staffBooking/view';
 import styles from './staffBook.module.css';
@@ -19,6 +21,10 @@ import styles from './staffBook.module.css';
 // - Times are wall-clock times of the offering's pinned zone, shown with the zone's name.
 // - A 404 without a code (a gate closed under the user) closes the dialog and hides the button until reload (onUnavailable).
 // - While a booking is being sent or checked, the dialog cannot be closed and nothing can change the booking or its key.
+// - RELOAD RECOVERY (docs/architecture/scheduling-phase2c3c-reload-recovery-design.md): the original key of an attempt whose outcome is unknown survives closing
+//   the dialog (lib/scheduling/staffBooking/attemptStore.ts, page memory) and reloading the page (lib/scheduling/staffBooking/pendingStore.ts, a write-ahead sessionStorage
+//   record of {v, key, keyed fingerprint, savedAt}; never customer data). A dialog that finds such an attempt opens `recovering`: it looks the ORIGINAL key up, offers
+//   no booking form, and never mints a key. Without a server-issued recovery secret, or with unusable storage, the dialog offers no booking at all (fail closed).
 
 type Failure = ReturnType<typeof describeReadFailure>;
 type Phase<T> = { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error'; failure: Failure };
@@ -33,6 +39,7 @@ export default function StaffBookDialog({
   resourceId,
   resourceName,
   today,
+  recoverySecret = null,
   onClose,
   onUnavailable,
   onBooked,
@@ -41,6 +48,8 @@ export default function StaffBookDialog({
   resourceName: string;
   /** The first local date to offer (the calendar's "today" in its zone). */
   today: string;
+  /** Issued by the server for THIS user and organisation (lib/scheduling/recoverySecret.ts). Absent: the dialog offers no booking. */
+  recoverySecret?: string | null;
   onClose: () => void;
   onUnavailable: () => void;
   /** A booking was made (or may have been): the calendar should re-read. */
@@ -61,8 +70,20 @@ export default function StaffBookDialog({
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const [holder] = useState(() => createBookingKeyHolder());
-  const [reduce] = useState(() => createMachine(holder));
-  const [m, dispatch] = useReducer(reduce, undefined, initialState);
+  const [boot] = useState(() => bootRecovery(recoverySecret));
+  const store = boot.store;
+  const [reduce] = useState(() => createMachine(holder, { fingerprint: store ? c => store.fingerprint(c) : undefined }));
+  const [m, dispatch] = useReducer(reduce, boot.initial);
+  const dataWanted = m.step !== 'unsafe' && m.step !== 'recovering'; // no offering or basis read while the dialog is withheld or only reconciling
+
+  // Tier 1: keep an UNRESOLVED attempt in page memory so closing and reopening resumes it (resolved ones are dropped).
+  useEffect(() => {
+    if (store) attemptStore.sync(store.scope, m);
+  }, [store, m]);
+  // A booking exists under the key: the earlier attempt is resolved, so its write-ahead record goes.
+  useEffect(() => {
+    if (m.step === 'done') store?.clear();
+  }, [store, m.step]);
 
   const onUnavailableRef = useRef(onUnavailable);
   const alive = useRef(true);
@@ -78,6 +99,7 @@ export default function StaffBookDialog({
 
   // 1. Which facility-hire offerings link this resource.
   useEffect(() => {
+    if (!dataWanted) return;
     const controller = new AbortController();
     (async () => {
       try {
@@ -99,7 +121,7 @@ export default function StaffBookDialog({
       }
     })();
     return () => controller.abort();
-  }, [resourceId, tick]);
+  }, [resourceId, tick, dataWanted]);
 
   const offerings: Phase<{ items: BookableOffering[]; truncated: boolean }> = offeringsRes && offeringsRes.tick === tick ? offeringsRes.phase : { status: 'loading' };
   const basisKey = `${offeringId ?? ''}|${resourceId}|${windowFrom}|${tick}|${m.refetch}`;
@@ -143,33 +165,43 @@ export default function StaffBookDialog({
   // 3. The POST. One per `sends` increment; the frozen attempt (same key, same body) on every retry. Not abortable by the effect cleanup
   // (a strict-mode remount must not lose the reply); `alive` stops a reply from touching an unmounted dialog.
   const sentFor = useRef(0);
+  const uncertainBefore = !provableNotBooked(m); // an earlier send of this key had an unknown outcome
   useEffect(() => {
     if (m.step !== 'submitting' || !m.attempt || sentFor.current === m.sends) return;
     sentFor.current = m.sends;
-    const { key, body } = m.attempt;
+    const { key, body, content } = m.attempt;
+    // WRITE-AHEAD: the record of the original key is kept BEFORE the first byte is sent. If the browser will not keep it, nothing is sent (fail closed).
+    if (!store || !store.ensure(key, canonicalContent(content)).ok) {
+      dispatch({ type: 'STORE_FAILED' });
+      return;
+    }
     void postReservation(body, key).then(outcome => {
+      // Only an AUTHORITATIVE answer resolves the attempt and removes the record (settlesAttempt). An uncertain one, a timeout, or time passing never does.
+      if (settlesAttempt(outcome, uncertainBefore)) store.clear();
       if (!alive.current) return;
       dispatch({ type: 'RESPONSE', outcome });
       if (outcome.kind === 'refused' && RETURN_TO_TIME[outcome.code]) setTime(null);
       if (outcome.kind === 'gate_off') onUnavailableRef.current();
     });
-  }, [m.step, m.attempt, m.sends]);
+  }, [m.step, m.attempt, m.sends, store, uncertainBefore]);
 
-  // 4. Reconcile after an uncertain outcome: look the booking up by the ORIGINAL key at 0.5, 1.5, 3 and 6 seconds. Read only.
+  // 4. Reconcile after an uncertain outcome (checking), or on opening with an unresolved earlier attempt (recovering): look the booking up by the ORIGINAL
+  // key. Read only. Checking waits 0.5, 1.5, 3 and 6 seconds; recovering looks once at once, and the staff member can ask again. "Not found" and "failed" prove nothing.
+  const lookupKey = m.step === 'checking' ? (m.attempt?.key ?? null) : m.step === 'recovering' && !recoverySettled(m) ? (m.pending?.key ?? null) : null;
   useEffect(() => {
-    if (m.step !== 'checking' || !m.attempt) return;
-    const key = m.attempt.key;
+    if (!lookupKey) return;
     const controller = new AbortController();
+    const delay = m.step === 'recovering' ? 0 : (POLL_DELAYS_MS[m.poll] ?? POLL_DELAYS_MS[POLL_DELAYS_MS.length - 1]);
     const timer = setTimeout(() => {
-      void lookupReservation(key, controller.signal).then(outcome => {
+      void lookupReservation(lookupKey, controller.signal).then(outcome => {
         if (!controller.signal.aborted) dispatch({ type: 'POLL', outcome });
       });
-    }, POLL_DELAYS_MS[m.poll] ?? POLL_DELAYS_MS[POLL_DELAYS_MS.length - 1]);
+    }, delay);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [m.step, m.poll, m.attempt]);
+  }, [lookupKey, m.step, m.poll]);
 
   // 5. IDEMPOTENCY_CONFLICT: show what already exists under the key (read only).
   useEffect(() => {
@@ -212,6 +244,10 @@ export default function StaffBookDialog({
     }
     if (stage !== 'ready') focusWanted.current = true; // the heading may not exist yet (the times are still loading): it is focused as soon as it renders
   }, [stage]);
+  const recoverySettledNow = recoverySettled(m);
+  useEffect(() => {
+    if (recoverySettledNow) focusWanted.current = true; // the lookups ran their course: move to the "could not confirm" heading
+  }, [recoverySettledNow]);
   useEffect(() => {
     if (focusWanted.current && heading.current) {
       focusWanted.current = false;
@@ -224,14 +260,18 @@ export default function StaffBookDialog({
 
   const failure = offerings.status === 'error' ? offerings.failure : basis.status === 'error' ? basis.failure : null;
   const busy = m.step === 'submitting' || m.step === 'checking';
+  // "Nothing was booked." is a claim: only made when this attempt's key has never had an uncertain outcome (machine.provableNotBooked).
+  const provable = provableNotBooked(m);
 
   const announce =
     m.notice ? m.notice
     : m.step === 'submitting' ? 'Booking in progress. Please wait.'
     : m.step === 'checking' ? 'Checking whether your booking was saved. Please wait. Do not book again.'
     : m.step === 'done' ? 'Booked. The booking reference is shown below.'
+    : m.step === 'recovering' ? (recoverySettled(m) ? 'We could not confirm an earlier booking.' : 'Checking whether an earlier booking was saved. Please wait. Do not book again.')
+    : m.step === 'unsafe' ? ''
     : m.step === 'unsure' ? 'We could not confirm whether the booking was saved.'
-    : m.step === 'retry' ? 'The system was busy. Nothing was booked.'
+    : m.step === 'retry' ? (provable ? 'The system was busy. Nothing was booked.' : `The system was busy. ${UNCONFIRMED_NOTE}`)
     : waitHint ? 'Please wait: this booking is being saved or checked. The window can be closed afterwards.'
     : m.step !== 'idle' ? ''
     : offerings.status === 'loading' ? 'Loading offerings…'
@@ -292,7 +332,7 @@ export default function StaffBookDialog({
       setWaitHint(true);
       return;
     }
-    if (m.attempt || m.step === 'done') onBooked?.(); // a booking was made, or may have been: the calendar re-reads
+    if (m.attempt || m.pending || m.step === 'done') onBooked?.(); // a booking was made, or may have been: the calendar re-reads
     onClose();
   }
 
@@ -316,16 +356,28 @@ export default function StaffBookDialog({
         <p className={styles.lead}>
           {m.step === 'done'
             ? 'This booking has been saved.'
-            : 'Choose a date and one of the start times offered, then enter the customer’s details. No payment is collected here.'}
+            : m.step === 'recovering'
+              ? 'A booking started in this browser has not been confirmed. Nothing new can be booked until it is.'
+              : m.step === 'unsafe'
+                ? 'Booking is not available in this browser window right now.'
+                : 'Choose a date and one of the start times offered, then enter the customer’s details. No payment is collected here.'}
         </p>
 
-        <ol className={styles.steps} aria-label="Booking steps">
-          {steps.map(s => (
-            <li key={s.id} className={styles.stepItem} aria-current={s.id === currentStepId ? 'step' : undefined} data-done={steps.findIndex(x => x.id === s.id) < steps.findIndex(x => x.id === currentStepId) ? 'true' : 'false'}>
-              {s.label}
-            </li>
-          ))}
-        </ol>
+        {dataWanted && (
+          <ol className={styles.steps} aria-label="Booking steps">
+            {steps.map(s => (
+              <li key={s.id} className={styles.stepItem} aria-current={s.id === currentStepId ? 'step' : undefined} data-done={steps.findIndex(x => x.id === s.id) < steps.findIndex(x => x.id === currentStepId) ? 'true' : 'false'}>
+                {s.label}
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {m.resume && dataWanted && (
+          <p className={styles.hint} role="note" data-testid="resume-note">
+            You are entering again a booking that could not be confirmed. Choose the same time and enter exactly the same details. It is checked under its original reference, so it cannot be booked twice.
+          </p>
+        )}
 
         <div className={m.notice || waitHint ? `${styles.live} ${styles.liveNotice}` : styles.live} role="status" aria-live="polite" data-testid="booking-live">
           {announce}
@@ -467,6 +519,11 @@ export default function StaffBookDialog({
                 <p className={styles.hint}>
                   For {longDayLabel(t.date)}, {t.time} to {endClock(t.startsAt, t.durationMinutes, t.timezone)} ({zoneText(t.timezone)}). Enter the customer’s details, not your own.
                 </p>
+                {m.resume && m.notice && (
+                  <div ref={summary} role="alert" tabIndex={-1} className={styles.errorSummary} data-testid="resume-mismatch">
+                    <p className={styles.errorTitle}>{m.notice}</p>
+                  </div>
+                )}
                 {errorKeys.length > 0 && (
                   <div ref={summary} role="alert" tabIndex={-1} className={styles.errorSummary} data-testid="error-summary">
                     <p className={styles.errorTitle}>{errorKeys.length === 1 ? 'There is 1 problem to fix.' : `There are ${errorKeys.length} problems to fix.`}</p>
@@ -575,8 +632,8 @@ export default function StaffBookDialog({
             {m.step === 'retry' && (
               <section aria-labelledby="sb-h-retry">
                 <h3 id="sb-h-retry" ref={heading} tabIndex={-1} className={styles.heading}>The system was busy</h3>
-                <StateMessage kind="error" title="Nothing was booked.">
-                  Try again to send the same booking. It is safe to repeat.
+                <StateMessage kind="error" title={provable ? 'Nothing was booked.' : 'This try was not saved.'}>
+                  {provable ? '' : `${UNCONFIRMED_NOTE} `}Try again to send the same booking. It is safe to repeat.
                 </StateMessage>
               </section>
             )}
@@ -601,13 +658,45 @@ export default function StaffBookDialog({
             {m.step === 'unavailable' && (
               <section aria-labelledby="sb-h-unavail">
                 <h3 id="sb-h-unavail" ref={heading} tabIndex={-1} className={styles.heading}>Booking is not available</h3>
-                <StateMessage kind="error" title="Booking isn’t available right now. Nothing was booked." />
+                <StateMessage kind="error" title={provable ? 'Booking isn’t available right now. Nothing was booked.' : `Booking isn’t available right now. ${UNCONFIRMED_NOTE}`} />
               </section>
             )}
             {m.step === 'denied' && (
               <section aria-labelledby="sb-h-denied">
                 <h3 id="sb-h-denied" ref={heading} tabIndex={-1} className={styles.heading}>You can’t book here</h3>
-                <StateMessage kind="error" title="Your session has ended or you do not have permission to book. Nothing was booked." />
+                <StateMessage kind="error" title={provable ? 'Your session has ended or you do not have permission to book. Nothing was booked.' : `Your session has ended or you do not have permission to book. ${UNCONFIRMED_NOTE}`} />
+              </section>
+            )}
+
+            {/* ── reload recovery: an earlier attempt is unresolved ─────────────────────────────────────────────────────────────── */}
+            {m.step === 'recovering' && !recoverySettled(m) && (
+              <section aria-labelledby="sb-h-recovering" aria-busy="true" data-testid="recovering">
+                <h3 id="sb-h-recovering" ref={heading} tabIndex={-1} className={styles.heading}>Checking for an earlier booking</h3>
+                <StateMessage kind="loading" title="Checking whether the earlier booking was saved">
+                  Please wait and do not book again. It is looked up under its original reference.
+                </StateMessage>
+              </section>
+            )}
+            {m.step === 'recovering' && recoverySettled(m) && (
+              <section aria-labelledby="sb-h-recovering" data-testid="recovering">
+                <h3 id="sb-h-recovering" ref={heading} tabIndex={-1} className={styles.heading}>We could not confirm an earlier booking</h3>
+                <StateMessage kind="error" title="The earlier booking may have been saved.">
+                  Look in the calendar. “Check again” looks it up again.
+                  {m.attempt && m.attempt.key === m.pending?.key ? ' “Try again” sends the same booking under the same reference, so it cannot be booked twice.' : ''}
+                  {' '}“Enter the booking again” asks for the same details once more and checks them under the original reference. If that time is no longer offered, the earlier booking probably exists: use “Check again”. No other booking can be made here until this one is resolved.
+                </StateMessage>
+              </section>
+            )}
+            {m.step === 'unsafe' && (
+              <section aria-labelledby="sb-h-unsafe" data-testid="unsafe">
+                <h3 id="sb-h-unsafe" ref={heading} tabIndex={-1} className={styles.heading}>Booking is paused</h3>
+                <StateMessage kind="error" title="This booking can’t be started safely in this browser.">
+                  {m.unsafeReason === 'corrupt_record'
+                    ? 'An earlier booking attempt left a record that could not be read, so a new one is not allowed here. Look in the calendar. Closing this browser tab and opening Scheduling again in a new one clears it.'
+                    : m.unsafeReason === 'no_secret'
+                      ? 'This page could not confirm who is booking. Reload the page and try again.'
+                      : 'The browser would not keep the safety record that makes a repeat of a booking safe. Allow site data for this page, or use another browser window.'}
+                </StateMessage>
               </section>
             )}
 
@@ -641,6 +730,21 @@ export default function StaffBookDialog({
             <Button variant="primary" onClick={() => dispatch({ type: 'RETRY' })} className={styles.touch} data-testid="retry-booking">
               Try again
             </Button>
+          )}
+          {m.step === 'recovering' && recoverySettled(m) && (
+            <>
+              <Button variant="primary" onClick={() => dispatch({ type: 'CHECK_AGAIN' })} className={styles.touch} data-testid="check-again">
+                Check again
+              </Button>
+              {m.attempt && m.attempt.key === m.pending?.key && (
+                <Button variant="secondary" onClick={() => dispatch({ type: 'RETRY_FROZEN' })} className={styles.touch} data-testid="retry-booking">
+                  Try again
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => dispatch({ type: 'ENTER_AGAIN' })} className={styles.touch} data-testid="enter-again">
+                Enter the booking again
+              </Button>
+            </>
           )}
           {m.step === 'conflict' && (
             <Button variant="primary" onClick={() => dispatch({ type: 'NEW_ATTEMPT' })} className={styles.touch} data-testid="new-attempt">
