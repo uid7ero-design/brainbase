@@ -25,8 +25,9 @@ export default async function Roster({ params, searchParams }: { params: Promise
     const sessions = date.term ? await tennisClassTermReview(org, date.id) : [];
     return <ClassTermReview id={date.id} name={date.name} term={date.term?.name} sessions={sessions}/>;
   }
-  const [staffBooking, review, manager] = await Promise.all([
-    getStaffBookingVisibility(), classReview(org,date.id), authorizeSchedulingRequest('scheduling.manage'),
+  const staffBooking = await getStaffBookingVisibility();
+  const [review, manager] = await Promise.all([
+    classReview(org,date.id), authorizeSchedulingRequest('scheduling.manage'),
   ]);
   const canManage = manager.ok && manager.session.userId === auth.session.userId && manager.session.organisationId === org;
   const canEnrol = staffBooking && date.open && date.enrolled < date.capacity;
