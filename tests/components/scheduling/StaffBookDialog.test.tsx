@@ -1,11 +1,12 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import StaffBookDialog, { type PreparedBooking } from '@/app/scheduling/_components/StaffBookDialog';
+import StaffBookDialog from '@/app/scheduling/_components/StaffBookDialog';
 import { expectNoAxeViolations } from '../../a11y/axe';
 
-// Phase 2C.3c UI slice 1: the staff booking dialog against a stubbed fetch. Synthetic data only. The dialog is READ ONLY: every test also checks that
-// no request other than a GET was made.
+// Phase 2C.3c UI slice 1: the SELECTION half of the staff booking dialog (offering, date, engine start) against a stubbed fetch. Synthetic data only.
+// Until the customer step, the dialog is READ ONLY: every test also checks that no request other than a GET was made. Slice 2 (customer, review, submit,
+// recovery, confirmation) is tested in StaffBookDialogBooking.test.tsx.
 
 const TODAY = '2027-01-11'; // a Monday
 const BASIS = { offeringVersion: '4', resourceVersion: '6', offeringToken: '2027-01-01T00:00:00.000000Z', scheduleToken: '2026-12-01T00:00:00.000000Z' };
@@ -52,10 +53,9 @@ const standard = (offerings = [offering('off-1', 'Court hire')], resourceActive 
 function mount(props: Partial<React.ComponentProps<typeof StaffBookDialog>> = {}) {
   const onClose = vi.fn();
   const onUnavailable = vi.fn();
-  const onPrepared = vi.fn<(p: PreparedBooking) => void>();
   const user = userEvent.setup();
-  const view = render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onUnavailable={onUnavailable} onPrepared={onPrepared} {...props} />);
-  return { user, onClose, onUnavailable, onPrepared, ...view };
+  const view = render(<StaffBookDialog resourceId="court-1" resourceName="Court 1" today={TODAY} onClose={onClose} onUnavailable={onUnavailable} {...props} />);
+  return { user, onClose, onUnavailable, ...view };
 }
 
 beforeEach(() => {
@@ -113,33 +113,23 @@ describe('the read-only flow', () => {
     expect(screen.getByText('Choose a date')).toBeInTheDocument();
   });
 
-  it('prepares ONE stable key in memory for the chosen content and never sends it, stores it or renders it', async () => {
+  it('offers the next step only after a start is chosen, shows the end from the configured duration, and sends and stores nothing yet', async () => {
     stub(standard());
-    const { user, onPrepared } = mount();
+    const { user } = mount();
     await screen.findByText('Choose a date');
     await user.click(screen.getByRole('button', { name: 'Mon 11 Jan, 3 times' }));
+    expect(screen.queryByRole('button', { name: 'Continue to customer details' })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('radio', { name: '10:00' }));
     const prepared = await screen.findByTestId('prepared');
-    await waitFor(() => expect(prepared).toHaveAttribute('data-key-prepared', 'true'));
-    const first = onPrepared.mock.calls.at(-1)![0];
-    expect(first.key).toMatch(/^bk_[0-9a-f]{32}$/);
-    expect(first.content).toEqual({ offeringId: 'off-1', resourceId: 'court-1', date: '2027-01-11', time: '10:00' });
-    // ends = start + the configured duration
     expect(within(prepared).getByText('Ends').nextSibling).toHaveTextContent('11:00');
-    // Back and forth to the SAME content keeps the key; a different time makes a new one.
-    await user.click(screen.getByRole('button', { name: 'Back' }));
-    await user.click(await screen.findByRole('radio', { name: '10:00' }));
-    await waitFor(() => expect(onPrepared.mock.calls.at(-1)![0].key).toBe(first.key));
+    expect(within(prepared).getByRole('button', { name: 'Continue to customer details' })).toBeEnabled();
+    // Back and forth keeps working; nothing is stored, rendered or sent.
     await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(await screen.findByRole('radio', { name: '11:00' }));
-    await waitFor(() => expect(onPrepared.mock.calls.at(-1)![0].key).not.toBe(first.key));
-    // not in storage, not in the DOM, not in any request
-    const everything = JSON.stringify([...Object.entries(sessionStorage), ...Object.entries(localStorage)]);
-    expect(everything).not.toMatch(/bk_/);
+    expect(JSON.stringify([...Object.entries(sessionStorage), ...Object.entries(localStorage)])).toBe('[]');
     expect(document.body.innerHTML).not.toMatch(/bk_[0-9a-f]{32}/);
     expect(calls.some(c => /bk_|idempotency/i.test(c.url.href))).toBe(false);
     onlyGets();
-    expect(screen.getByText(/Nothing has been booked or saved/)).toBeInTheDocument();
   });
 
   it('preselects the only offering and names it; with several it asks (a radio group), keyboard operable', async () => {

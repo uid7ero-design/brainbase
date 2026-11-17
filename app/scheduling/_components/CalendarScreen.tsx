@@ -56,7 +56,7 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-// `canBook` is the SERVER's decision (lib/scheduling/staffBookingVisibility.ts: switch on, organisation capability, scheduling.reserve). It defaults to false and only
+// `canBook` is the SERVER's decision (lib/scheduling/facilityHireVisibility.ts: switch on, organisation capability, scheduling.reserve). It defaults to false and only
 // the resource calendar acts on it; with it false the Book button and the dialog do not exist and nothing booking-related is requested.
 export default function CalendarScreen({ kind, id, canManage, canBook = false, organisationTimezone = null }: { kind: 'offering' | 'resource'; id: string; canManage: boolean; canBook?: boolean; organisationTimezone?: string | null }) {
   const ownerPath = kind === 'offering' ? `/offerings/${seg(id)}` : `/resources/${seg(id)}`;
@@ -127,6 +127,7 @@ export default function CalendarScreen({ kind, id, canManage, canBook = false, o
         resourceName={view.resource.name}
         today={today}
         onClose={() => setBookOpen(false)}
+        onBooked={calendar.reload}
         onUnavailable={() => {
           setBookGone(true);
           setBookOpen(false);
