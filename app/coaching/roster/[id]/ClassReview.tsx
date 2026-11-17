@@ -41,7 +41,7 @@ export default function ClassReview({ review, canEdit, save }: {
   }
   return <>
     {review.previous && <PreviousClassHandover previous={review.previous} />}
-    {review.finished && (canEdit || review.note) && <section aria-label="Class review" className={styles.panel}>
+    {review.finished && (canEdit || review.note) && <section id="class-review" aria-label="Class review" className={styles.panel}>
       <h2>Class review</h2>
       {canEdit ? <>
         <label>Coaching handover
