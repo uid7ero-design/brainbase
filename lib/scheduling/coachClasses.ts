@@ -57,9 +57,12 @@ export type CoachSchedule = { id: string; name: string; slug: string | null };
 
 export async function weekDates(org: string, from: string) {
   return db().query<
-    ClassDate & { squad: string | null; term: string | null; tennis: boolean; archived: boolean }
+    ClassDate & { squad: string | null; term: string | null; tennis: boolean; archived: boolean; planned: boolean; canPlan: boolean }
   >(
     `WITH eligible AS (SELECT s.* ${await staffSchedules(org)}) SELECT ${fields},${squadName},s.id='tennis-coaching' AS tennis,f.archived_at IS NOT NULL AS archived,
+    EXISTS (SELECT 1 FROM scheduling_coach_training_plans p
+      WHERE (p.organisation_id,p.occurrence_id)=(o.organisation_id,o.id)) AS planned,
+    (o.status='scheduled' AND o.ends_at>now() AND f.archived_at IS NULL) AS "canPlan",
     (SELECT t.name FROM scheduling_coach_term_dates d JOIN scheduling_coach_terms t ON t.organisation_id=d.organisation_id
       AND t.offering_id=d.offering_id AND t.id=d.term_id WHERE d.organisation_id=o.organisation_id AND d.occurrence_id=o.id) AS term ${staffDates}
     AND o.local_date >= $2::date AND o.local_date < $2::date+7 ORDER BY o.local_date,o.local_start_time,f.name,o.id`,

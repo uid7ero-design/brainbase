@@ -99,6 +99,16 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
                           {c.schedule} · {c.timezone}
                         </small>
                       </div>
+                      {access.canManage && c.status !== 'cancelled' && (
+                        <div className={layout.planAction}>
+                          <span>{c.planned ? 'Plan saved' : 'No saved plan'}</span>
+                          {(c.planned || c.canPlan) && (
+                            <Link href={'/coaching/roster/' + encodeURIComponent(c.id) + '/plan'}>
+                              {c.planned ? 'Open plan' : 'Prepare plan'}
+                            </Link>
+                          )}
+                        </div>
+                      )}
                       <span className={layout.capacity}>
                         {c.status === 'scheduled' ? c.enrolled + ' / ' + c.capacity + ' enrolled' : c.status}
                       </span>
