@@ -69,22 +69,24 @@ export async function weekDates(org: string, from: string) {
 export async function weeklyReview(org: string, start: string) {
   return db().query<{
     id: string; name: string; schedule: string; day: string; time: string; timezone: string;
-    ended: boolean; planned: boolean; attended: number; late: number; absent: number; unmarked: number;
+    ended: boolean; planned: boolean; hasHandover: boolean; attended: number; late: number; absent: number; unmarked: number;
   }>(
     `WITH eligible AS (SELECT s.* ${await staffSchedules(org)})
      SELECT o.id,f.name,s.name AS schedule,o.local_date::text AS day,to_char(o.local_start_time,'HH24:MI') AS time,
        o.timezone,(o.status='completed' OR o.ends_at<=now()) AS ended,p.version IS NOT NULL AS planned,
+       h.occurrence_id IS NOT NULL AS "hasHandover",
        coalesce(sum(r.party_size) FILTER (WHERE r.attendance='attended'),0)::int AS attended,
        coalesce(sum(r.party_size) FILTER (WHERE r.attendance='late'),0)::int AS late,
        coalesce(sum(r.party_size) FILTER (WHERE r.attendance='absent'),0)::int AS absent,
        coalesce(sum(r.party_size) FILTER (WHERE r.attendance IS NULL AND r.status='confirmed'),0)::int AS unmarked
      ${dateScope}
+     LEFT JOIN scheduling_coach_class_reviews h ON (h.organisation_id,h.occurrence_id)=(o.organisation_id,o.id)
      LEFT JOIN scheduling_coach_training_plans p ON (p.organisation_id,p.occurrence_id)=(o.organisation_id,o.id)
      LEFT JOIN scheduling_reservations r ON (r.organisation_id,r.occurrence_id)=(o.organisation_id,o.id)
        AND r.status<>'cancelled'
      WHERE o.local_date >= $2::date AND o.local_date < $2::date+7 AND o.status<>'cancelled'
        AND (f.archived_at IS NULL OR (s.id='tennis-coaching' AND (o.ends_at<=now() OR o.status='completed')))
-     GROUP BY o.organisation_id,o.id,f.name,s.name,p.version
+     GROUP BY o.organisation_id,o.id,f.name,s.name,p.version,h.occurrence_id
      ORDER BY o.local_date,o.local_start_time,f.name,o.id`,
     [org,start],
   );

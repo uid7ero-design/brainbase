@@ -1,4 +1,4 @@
-.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
 .metrics div { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 1.25rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--bg-raised); }
 .metrics dt { color: var(--text-secondary); font-size: .9rem; }
 .metrics dd { font-size: 2.5rem; line-height: 1; font-weight: 650; margin: 0 0 .5rem; font-variant-numeric: tabular-nums; }
@@ -13,7 +13,7 @@
 .sessions a { display: inline-flex; justify-self: start; min-height: 44px; padding: .5rem .8rem; border: 1px solid var(--border-strong); border-radius: .6rem; align-items: center; }
 .sessions a:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
 @media (max-width: 40rem) {
-  .metrics { gap: .4rem; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
   .metrics div { padding: .7rem .5rem; }
   .metrics dd { font-size: 1.8rem; }
   .metrics dt { font-size: .8rem; }

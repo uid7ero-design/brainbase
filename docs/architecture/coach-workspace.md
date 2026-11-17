@@ -83,7 +83,7 @@ Apply `scripts/create-coach-class-reviews.sql` before releasing the class review
 
 ### Review the coaching week
 
-Open **Coach → Weekly coaching review**. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.
+Open **Coach → Weekly coaching review**. **Finished classes without a handover** counts completed or ended classes with no saved review. Choose **Add handover** or **Read handover** on a finished class to open its review. **Attendance to finish** lists ended classes with confirmed places awaiting an attendance mark. Open a roster to record attendance, then reopen the review to see the updated totals. Attended, late and absent marks are counted separately. Cancelled classes and cancelled bookings are excluded.
 
 **Session preparation** lists upcoming and in-progress classes with their saved-plan status. Choose **Prepare plan** or **Open plan** to go directly to the session. Use **Previous week** for attendance history or **Next week** to prepare. The review uses each class's local date and time and is available to scheduling managers.
 

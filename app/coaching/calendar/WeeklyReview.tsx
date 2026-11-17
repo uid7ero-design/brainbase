@@ -41,6 +41,9 @@ function SessionList({ sessions }: { sessions: Sessions }) {
                 </span>
 
                 <Link href={roster}>Open roster</Link>
+                <Link href={roster + '#class-review'}>
+                  {s.hasHandover ? 'Read handover' : 'Add handover'}
+                </Link>
               </div>
             ) : (
               <div>
@@ -85,6 +88,7 @@ export default function WeeklyReview({ start, sessions }: { start: string; sessi
 
       <dl className={review.metrics}>
         <div><dt>Attendance marks to finish</dt><dd>{unmarked}</dd></div>
+        <div><dt>Finished classes without a handover</dt><dd>{finished.filter((s) => !s.hasHandover).length}</dd></div>
         <div><dt>Upcoming sessions</dt><dd>{upcoming.length}</dd></div>
         <div><dt>Upcoming sessions needing a plan</dt><dd>{upcoming.filter((s) => !s.planned).length}</dd></div>
       </dl>
