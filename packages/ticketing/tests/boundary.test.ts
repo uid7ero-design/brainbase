@@ -17,7 +17,7 @@ function stripComments(src: string): string {
 
 describe('@ticketing/core package boundary', () => {
   it('ships at least the documented modules', () => {
-    for (const m of ['index', 'domain', 'productConfig', 'feeCalculation', 'ticketValidity', 'saleWindow', 'orderGrouping', 'receipt', 'ticketEmailEligibility', 'validation', 'artworkConstants']) {
+    for (const m of ['index', 'domain', 'productConfig', 'feeCalculation', 'ticketValidity', 'saleWindow', 'orderGrouping', 'receipt', 'ticketEmailEligibility', 'validation', 'artworkConstants', 'seating']) {
       expect(files, m).toContain(`${m}.ts`);
     }
   });

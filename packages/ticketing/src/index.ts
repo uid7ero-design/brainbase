@@ -28,3 +28,4 @@ export * from './paymentsView';
 export * from './legalVersions';
 export * from './eventSchedule';
 export * from './publicOrganiser';
+export * from './seating';
