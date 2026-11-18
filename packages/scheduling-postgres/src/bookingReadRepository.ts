@@ -141,7 +141,7 @@ export class PostgresBookingReadRepository {
          FROM scheduling_occurrences o
          JOIN scheduling_offerings f ON f.id = o.offering_id AND f.organisation_id = o.organisation_id
         WHERE o.organisation_id = $1
-          AND o.starts_at < $3::timestamptz AND o.ends_at > $2::timestamptz
+          AND tstzrange(o.starts_at, o.ends_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
           AND ($4::text IS NULL OR o.offering_id = $4)
           AND ($5::text[] IS NULL OR o.resource_id IS NULL OR o.resource_id = ANY($5::text[]))
           AND ($6::boolean OR o.status <> 'cancelled')
@@ -188,7 +188,7 @@ export class PostgresBookingReadRepository {
          FROM scheduling_reservations r
          JOIN scheduling_offerings f ON f.id = r.offering_id AND f.organisation_id = r.organisation_id
         WHERE r.organisation_id = $1
-          AND r.starts_at < $3::timestamptz AND r.ends_at > $2::timestamptz
+          AND tstzrange(r.starts_at, r.ends_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
           AND ($4::text IS NULL OR r.offering_id = $4)
           AND ($5::text[] IS NULL OR r.resource_id IS NULL OR r.resource_id = ANY($5::text[]))
           AND ($6::boolean OR r.status <> 'cancelled')
@@ -229,7 +229,7 @@ export class PostgresBookingReadRepository {
       `SELECT ${RESERVATION_COLUMNS}, ${MICRO('r.starts_at')} AS cursor_at
          FROM scheduling_reservations r
         WHERE r.organisation_id = $1
-          AND r.starts_at < $3::timestamptz AND r.ends_at > $2::timestamptz
+          AND tstzrange(r.starts_at, r.ends_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
           AND ($4::text IS NULL OR r.offering_id = $4)
           AND ($5::text[] IS NULL OR r.resource_id IS NULL OR r.resource_id = ANY($5::text[]))
           AND ($6::boolean OR r.status <> 'cancelled')
