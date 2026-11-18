@@ -31,6 +31,11 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
     }
     const roster = page.getByRole('link', { name: offering.name, exact: true });
     const urls = await Promise.all([roster.nth(0).getAttribute('href'), roster.nth(1).getAttribute('href')]);
+    const calendarUrl = origin + '/coaching/calendar?week=' + day;
+    const firstCard = page.getByRole('article').filter({ has: page.locator('a[href="' + urls[0] + '"]') });
+    await expect(firstCard).toContainText('No saved plan');
+    await firstCard.getByRole('link', { name: 'Prepare plan' }).click();
+    await expect(page).toHaveURL(origin + urls[0] + '/plan');
     await page.goto(origin + urls[0]);
     await page.getByLabel('Name', { exact: true }).fill('Synthetic athlete');
     await page.getByLabel('Email', { exact: true }).fill('athlete@example.test');
@@ -131,6 +136,12 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
         0,
       );
     }
+    await page.goto(calendarUrl);
+    await expect(firstCard).toContainText('Plan saved');
+    await firstCard.getByRole('link', { name: 'Open plan' }).click();
+    await expect(page).toHaveURL(url);
+    await page.goto(calendarUrl);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     const reviewUrl = origin + '/coaching/calendar?view=review&week=' + day;
     await page.goto(reviewUrl);
     const upcoming = page.getByRole('region', { name: 'Session preparation' });
@@ -182,6 +193,18 @@ test('a coach builds and runs a two-drill session and reuses the boards without 
       page.getByRole('listitem').filter({ hasText: offering.name }).filter({ hasText: '1 attended' }),
     ).toContainText('0 unmarked');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.goto(calendarUrl);
+    await firstCard.getByRole('link', { name: 'Open plan' }).click();
+    await expect(page).toHaveURL(url);
+    await expect(page.getByLabel('Drill name')).toHaveCount(0);
+    await query("UPDATE scheduling_occurrences SET status='cancelled' WHERE id=$1 AND offering_id=$2", [urls[1]!.split('/').pop(), offering.id]);
+    await page.goto(calendarUrl);
+    const cancelledCard = page.getByRole('article').filter({ has: page.locator('a[href="' + urls[1] + '"]') });
+    await expect(cancelledCard).toContainText('cancelled');
+    await expect(cancelledCard.getByRole('link', { name: /Open plan|Prepare plan/ })).toHaveCount(0);
+    const restrictedCalendar = await viewer.newPage();
+    await restrictedCalendar.goto(calendarUrl);
+    await expect(restrictedCalendar.getByRole('link', { name: /Open plan|Prepare plan/ })).toHaveCount(0);
   } finally {
     await Promise.all([ctx.close(), viewer.close(), other.close()]);
   }

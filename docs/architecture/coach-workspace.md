@@ -41,7 +41,7 @@ In **Teams and squads**, choose the squad and then **Term review** beside an ass
 
 ### Plan and run a training session
 
-From the weekly calendar, open a class roster and select **Training plan**. Give the first drill a name and duration. Add coaching notes and use **Add drill** for each activity. The total shows how much of the booked session is planned. Use **Move earlier** to reorder a drill.
+The weekly calendar shows managers **Plan saved** or **No saved plan** on each active class. Select **Prepare plan** to start a plan or **Open plan** to return to one. Finished classes retain their saved-plan link for review. You can also open a class roster and select **Training plan**. Give the first drill a name and duration. Add coaching notes and use **Add drill** for each activity. The total shows how much of the booked session is planned. Use **Move earlier** to reorder a drill.
 
 Choose **Football pitch**, **Football half-pitch**, **Tennis court** or **Blank space** for each drill. Under **Place on board**, select a rostered player, cone or ball and choose a spot. Select a player again to move them. A movement arrow takes two spots, start and end. **Erase at position** clears a spot. Each drill keeps its own positions.
 
